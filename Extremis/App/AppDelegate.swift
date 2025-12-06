@@ -1,0 +1,681 @@
+// MARK: - App Delegate
+// Handles app lifecycle, permissions, menu bar, and hotkey registration
+
+import AppKit
+import SwiftUI
+import ObjectiveC
+import Carbon.HIToolbox
+
+/// Helper struct for model selection in menu
+private struct ModelSelection {
+    let providerType: LLMProviderType
+    let model: LLMModel
+}
+
+
+
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+
+    // MARK: - Properties
+
+    /// Menu bar status item
+    private var statusItem: NSStatusItem?
+
+    /// Prompt window controller
+    private lazy var promptWindowController: PromptWindowController = {
+        let controller = PromptWindowController()
+        controller.onInsertText = { [weak self] text, source in
+            self?.insertText(text, into: source)
+        }
+        return controller
+    }()
+
+    // MARK: - Services
+
+    private let hotkeyManager = HotkeyManager.shared
+    private let permissionManager = PermissionManager.shared
+    private let contextOrchestrator = ContextOrchestrator.shared
+    private let textInserter = TextInserterService.shared
+
+    /// Current captured context
+    private var currentContext: Context?
+
+    /// API Key dialog components (kept as instance vars to prevent deallocation)
+    private var apiKeyWindow: NSWindow?
+    private var apiKeyProviderType: LLMProviderType?
+    private var apiKeyInputField: NSTextField?
+
+    // MARK: - Lifecycle
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        setupMainMenu()
+        setupMenuBar()
+        setupHotkey()
+        checkPermissions()
+
+        print("✅ Extremis launched successfully")
+    }
+
+    /// Setup main menu with Edit menu for keyboard shortcuts
+    private func setupMainMenu() {
+        let mainMenu = NSMenu()
+
+        // App menu
+        let appMenuItem = NSMenuItem()
+        let appMenu = NSMenu()
+        appMenu.addItem(NSMenuItem(title: "Quit Extremis", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appMenuItem.submenu = appMenu
+        mainMenu.addItem(appMenuItem)
+
+        // Edit menu (required for Cmd+V, Cmd+A, etc.)
+        let editMenuItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+
+        editMenu.addItem(NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z"))
+        editMenu.addItem(NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "Z"))
+        editMenu.addItem(NSMenuItem.separator())
+        editMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
+        editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+        editMenu.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+        editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+
+        editMenuItem.submenu = editMenu
+        mainMenu.addItem(editMenuItem)
+
+        NSApplication.shared.mainMenu = mainMenu
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        hotkeyManager.unregister()
+        print("👋 Extremis terminating")
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return false
+    }
+
+    // MARK: - Setup
+
+    private func setupMenuBar() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+
+        if let button = statusItem?.button {
+            button.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Extremis")
+        }
+
+        let menu = NSMenu()
+        menu.delegate = self
+
+        let openItem = NSMenuItem(title: "Open Extremis", action: #selector(showPromptWindow), keyEquivalent: "")
+        openItem.target = self
+        menu.addItem(openItem)
+        menu.addItem(NSMenuItem.separator())
+
+        // Provider status submenu
+        let providerItem = NSMenuItem(title: "LLM Providers", action: nil, keyEquivalent: "")
+        providerItem.submenu = buildProviderMenu()
+        menu.addItem(providerItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        let prefsItem = NSMenuItem(title: "Preferences...", action: #selector(openPreferences), keyEquivalent: ",")
+        prefsItem.target = self
+        menu.addItem(prefsItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        let quitItem = NSMenuItem(title: "Quit Extremis", action: #selector(quitApp), keyEquivalent: "q")
+        quitItem.target = self
+        menu.addItem(quitItem)
+
+        statusItem?.menu = menu
+    }
+
+    private func buildProviderMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+
+        for providerType in LLMProviderType.allCases {
+            let provider = LLMProviderRegistry.shared.provider(for: providerType)
+            let isActive = LLMProviderRegistry.shared.activeProviderType == providerType
+            let isConfigured = provider?.isConfigured == true
+            let currentModel = provider?.currentModel
+
+            let statusIcon = isActive ? "●" : (isConfigured ? "✓" : "○")
+            let modelInfo = currentModel != nil ? " (\(currentModel!.name))" : ""
+
+            // Provider item with submenu for models
+            let providerItem = NSMenuItem(
+                title: "\(statusIcon) \(providerType.displayName)\(modelInfo)",
+                action: nil,
+                keyEquivalent: ""
+            )
+            providerItem.submenu = buildModelSubmenu(for: providerType, isConfigured: isConfigured)
+            menu.addItem(providerItem)
+        }
+        menu.addItem(NSMenuItem.separator())
+        let configItem = NSMenuItem(title: "Configure API Key...", action: #selector(showAPIKeyDialog), keyEquivalent: "")
+        configItem.target = self
+        configItem.isEnabled = true
+        menu.addItem(configItem)
+        return menu
+    }
+
+    private func buildModelSubmenu(for providerType: LLMProviderType, isConfigured: Bool) -> NSMenu {
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+
+        let isActive = LLMProviderRegistry.shared.activeProviderType == providerType
+        let currentModel = LLMProviderRegistry.shared.currentModel(for: providerType)
+
+        // "Use this provider" item
+        let useItem = NSMenuItem(
+            title: isActive ? "✓ Active Provider" : "Use This Provider",
+            action: isConfigured ? #selector(selectProvider(_:)) : nil,
+            keyEquivalent: ""
+        )
+        useItem.target = self
+        useItem.isEnabled = isConfigured
+        useItem.representedObject = providerType
+        submenu.addItem(useItem)
+
+        // Configure API Key item
+        let configItem = NSMenuItem(
+            title: isConfigured ? "✓ API Key Configured" : "Configure API Key...",
+            action: #selector(configureProviderFromSubmenu(_:)),
+            keyEquivalent: ""
+        )
+        configItem.target = self
+        configItem.isEnabled = true
+        configItem.representedObject = providerType
+        submenu.addItem(configItem)
+
+        submenu.addItem(NSMenuItem.separator())
+
+        // Model selection header
+        let headerItem = NSMenuItem(title: "Models:", action: nil, keyEquivalent: "")
+        headerItem.isEnabled = false
+        submenu.addItem(headerItem)
+
+        // Models
+        for model in providerType.availableModels {
+            let isCurrentModel = currentModel?.id == model.id
+            let modelItem = NSMenuItem(
+                title: "\(isCurrentModel ? "● " : "   ")\(model.name)",
+                action: #selector(selectModel(_:)),
+                keyEquivalent: ""
+            )
+            modelItem.target = self
+            modelItem.isEnabled = true
+            modelItem.representedObject = ModelSelection(providerType: providerType, model: model)
+
+            // Add tooltip with description
+            modelItem.toolTip = model.description
+            submenu.addItem(modelItem)
+        }
+
+        return submenu
+    }
+
+    @objc private func selectProvider(_ sender: NSMenuItem) {
+        guard let providerType = sender.representedObject as? LLMProviderType else { return }
+        do {
+            try LLMProviderRegistry.shared.setActive(providerType)
+            setupMenuBar()
+        } catch {
+            showAlert(title: "Error", message: "Failed to set active provider: \(error.localizedDescription)")
+        }
+    }
+
+    @objc private func configureProviderFromSubmenu(_ sender: NSMenuItem) {
+        guard let providerType = sender.representedObject as? LLMProviderType else { return }
+        showAPIKeyDialogForProvider(providerType)
+    }
+
+    @objc private func selectModel(_ sender: NSMenuItem) {
+        guard let selection = sender.representedObject as? ModelSelection else { return }
+        LLMProviderRegistry.shared.setModel(selection.model, for: selection.providerType)
+        setupMenuBar()
+        print("✅ Selected model: \(selection.model.name) for \(selection.providerType.displayName)")
+    }
+
+    @objc private func showAPIKeyDialog() {
+        print("🔧 showAPIKeyDialog called - showing provider picker")
+        showProviderPickerDialog()
+    }
+
+    private func showProviderPickerDialog() {
+        // Create window for provider selection
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 350, height: 150),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Configure API Key"
+        window.center()
+        window.isReleasedWhenClosed = false
+
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 350, height: 150))
+
+        // Label
+        let label = NSTextField(labelWithString: "Select a provider to configure:")
+        label.frame = NSRect(x: 20, y: 110, width: 310, height: 20)
+        contentView.addSubview(label)
+
+        // Provider popup button
+        let popup = NSPopUpButton(frame: NSRect(x: 20, y: 70, width: 310, height: 30))
+        for providerType in LLMProviderType.allCases {
+            let isConfigured = LLMProviderRegistry.shared.provider(for: providerType)?.isConfigured == true
+            let status = isConfigured ? " ✓" : ""
+            popup.addItem(withTitle: "\(providerType.displayName)\(status)")
+            popup.lastItem?.representedObject = providerType
+        }
+        contentView.addSubview(popup)
+
+        // Continue button
+        let continueButton = NSButton(title: "Continue", target: self, action: #selector(continueFromProviderPicker(_:)))
+        continueButton.frame = NSRect(x: 240, y: 15, width: 90, height: 32)
+        continueButton.bezelStyle = .rounded
+        continueButton.keyEquivalent = "\r"
+        contentView.addSubview(continueButton)
+
+        // Cancel button
+        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelProviderPicker(_:)))
+        cancelButton.frame = NSRect(x: 140, y: 15, width: 90, height: 32)
+        cancelButton.bezelStyle = .rounded
+        cancelButton.keyEquivalent = "\u{1b}"
+        contentView.addSubview(cancelButton)
+
+        window.contentView = contentView
+
+        // Store references
+        self.providerPickerWindow = window
+        self.providerPickerPopup = popup
+
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Provider picker window components
+    private var providerPickerWindow: NSWindow?
+    private var providerPickerPopup: NSPopUpButton?
+
+    @objc private func continueFromProviderPicker(_ sender: NSButton) {
+        guard let popup = providerPickerPopup,
+              let selectedItem = popup.selectedItem,
+              let providerType = selectedItem.representedObject as? LLMProviderType else {
+            return
+        }
+
+        // Close picker window
+        providerPickerWindow?.orderOut(nil)
+        providerPickerWindow = nil
+        providerPickerPopup = nil
+
+        // Show API key dialog for selected provider
+        showAPIKeyDialogForProvider(providerType)
+    }
+
+    @objc private func cancelProviderPicker(_ sender: NSButton) {
+        providerPickerWindow?.orderOut(nil)
+        providerPickerWindow = nil
+        providerPickerPopup = nil
+    }
+
+    private func showAPIKeyDialogForProvider(_ providerType: LLMProviderType) {
+        print("🔧 Configuring API key for: \(providerType.displayName)")
+
+        // Create a proper window for API key input (supports Cmd+V)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 150),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Configure \(providerType.displayName)"
+        window.center()
+        window.isReleasedWhenClosed = false  // Prevent crash on close
+
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 150))
+
+        // Label
+        let label = NSTextField(labelWithString: "Enter your API key for \(providerType.displayName):")
+        label.frame = NSRect(x: 20, y: 100, width: 360, height: 20)
+        contentView.addSubview(label)
+
+        // Text field (not secure, so user can see what they paste)
+        let input = NSTextField(frame: NSRect(x: 20, y: 60, width: 360, height: 24))
+        input.placeholderString = "Paste your API key here..."
+        input.isEditable = true
+        input.isSelectable = true
+        contentView.addSubview(input)
+
+        // Buttons
+        let saveButton = NSButton(title: "Save", target: self, action: #selector(saveAPIKeyFromWindow(_:)))
+        saveButton.frame = NSRect(x: 290, y: 15, width: 90, height: 32)
+        saveButton.bezelStyle = .rounded
+        saveButton.keyEquivalent = "\r"
+        contentView.addSubview(saveButton)
+
+        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelAPIKeyWindow(_:)))
+        cancelButton.frame = NSRect(x: 190, y: 15, width: 90, height: 32)
+        cancelButton.bezelStyle = .rounded
+        cancelButton.keyEquivalent = "\u{1b}"
+        contentView.addSubview(cancelButton)
+
+        window.contentView = contentView
+
+        // Store references as instance properties
+        self.apiKeyWindow = window
+        self.apiKeyProviderType = providerType
+        self.apiKeyInputField = input
+
+        // Make input the first responder
+        window.makeFirstResponder(input)
+
+        // Show window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func saveAPIKeyFromWindow(_ sender: NSButton) {
+        guard let window = apiKeyWindow,
+              let providerType = apiKeyProviderType,
+              let input = apiKeyInputField else {
+            print("❌ No API key window context")
+            return
+        }
+
+        let apiKey = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Close and clear references
+        window.orderOut(nil)
+        self.apiKeyWindow = nil
+        self.apiKeyProviderType = nil
+        self.apiKeyInputField = nil
+
+        if !apiKey.isEmpty {
+            do {
+                print("🔧 Saving API key for \(providerType.displayName) (\(providerType.rawValue))")
+                try LLMProviderRegistry.shared.configure(providerType, apiKey: apiKey)
+                print("🔧 API key saved, now setting as active...")
+                try LLMProviderRegistry.shared.setActive(providerType)
+                print("🔧 Active provider is now: \(LLMProviderRegistry.shared.activeProviderType?.displayName ?? "none")")
+                setupMenuBar() // Refresh menu
+                print("✅ Provider \(providerType.displayName) configured and active")
+                showAlert(title: "Success", message: "\(providerType.displayName) configured and set as active provider.")
+            } catch {
+                print("❌ Failed to configure: \(error)")
+                showAlert(title: "Error", message: "Failed to configure provider: \(error.localizedDescription)")
+            }
+        } else {
+            print("⚠️ Empty API key, not saving")
+        }
+    }
+
+    @objc private func cancelAPIKeyWindow(_ sender: NSButton) {
+        print("🔧 Cancel button clicked")
+        apiKeyWindow?.orderOut(nil)
+        apiKeyWindow = nil
+        apiKeyProviderType = nil
+        apiKeyInputField = nil
+    }
+
+    private func showAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = title == "Error" ? .warning : .informational
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func setupHotkey() {
+        // Main prompt hotkey: Cmd+Shift+Space
+        let promptConfig = HotkeyConfiguration.default
+        do {
+            try hotkeyManager.register(
+                identifier: .prompt,
+                configuration: promptConfig
+            ) { [weak self] in
+                self?.handleHotkeyActivation()
+            }
+        } catch {
+            print("❌ Failed to register prompt hotkey: \(error)")
+        }
+
+        // Autocomplete hotkey: Option+Tab
+        let autocompleteConfig = HotkeyConfiguration(
+            keyCode: UInt32(kVK_Tab),  // Tab key
+            modifiers: UInt32(optionKey)  // Option
+        )
+        do {
+            try hotkeyManager.register(
+                identifier: .autocomplete,
+                configuration: autocompleteConfig
+            ) { [weak self] in
+                self?.handleAutocompleteActivation()
+            }
+        } catch {
+            print("❌ Failed to register autocomplete hotkey: \(error)")
+        }
+    }
+
+    private func checkPermissions() {
+        if !permissionManager.isAccessibilityEnabled() {
+            print("⚠️ Accessibility permission not granted")
+            permissionManager.requestAccessibility()
+        }
+    }
+
+    // MARK: - Actions
+
+    @objc private func menuBarButtonClicked() {
+        // Menu handled by statusItem.menu
+    }
+
+    @objc private func showPromptWindow() {
+        Task { @MainActor in
+            await captureContextAndShowPrompt()
+        }
+    }
+
+    @objc private func openPreferences() {
+        PreferencesWindowController.shared.showWindow()
+    }
+
+    @objc private func quitApp() {
+        NSApplication.shared.terminate(nil)
+    }
+
+    // MARK: - Core Flow
+
+    func handleHotkeyActivation() {
+        print("⌨️ Hotkey activated!")
+
+        // Always hide first to ensure clean state, then capture fresh context
+        promptWindowController.hidePrompt()
+
+        Task { @MainActor in
+            // Small delay to let the previous window close and focus return
+            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+            await captureContextAndShowPrompt()
+        }
+    }
+
+    /// Handle direct autocomplete hotkey - captures context, generates, and inserts automatically
+    func handleAutocompleteActivation() {
+        print("⚡ Autocomplete hotkey activated!")
+
+        Task { @MainActor in
+            await performDirectAutocomplete()
+        }
+    }
+
+    @MainActor
+    private func performDirectAutocomplete() async {
+        do {
+            print("\n" + String(repeating: "=", count: 60))
+            print("⚡ DIRECT AUTOCOMPLETE - Capturing Context...")
+            print(String(repeating: "=", count: 60))
+
+            // Capture context
+            let context = try await contextOrchestrator.captureContext()
+            logCapturedContext(context)
+
+            // Check if provider is configured
+            guard let provider = LLMProviderRegistry.shared.activeProvider else {
+                print("❌ No LLM provider configured")
+                return
+            }
+
+            print("🤖 Generating autocomplete response...")
+
+            // Generate response using empty instruction (autocomplete mode)
+            var generatedText = ""
+            for try await chunk in provider.generateStream(instruction: "", context: context) {
+                generatedText += chunk
+            }
+
+            print("✅ Generated: \(generatedText.prefix(100))...")
+
+            // Insert the generated text
+            if !generatedText.isEmpty {
+                // Small delay to ensure focus returns to the original app
+                try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+
+                try await textInserter.insert(text: generatedText, into: context.source)
+                print("✅ Autocomplete text inserted")
+            }
+
+        } catch {
+            print("❌ Autocomplete failed: \(error)")
+        }
+    }
+
+    @MainActor
+    private func captureContextAndShowPrompt() async {
+        do {
+            print("\n" + String(repeating: "=", count: 60))
+            print("🚀 EXTREMIS ACTIVATED - Capturing Context...")
+            print(String(repeating: "=", count: 60))
+
+            // Capture context from the current app
+            currentContext = try await contextOrchestrator.captureContext()
+
+            // Log the captured context
+            logCapturedContext(currentContext!)
+
+            // Show prompt window with context
+            promptWindowController.showPrompt(with: currentContext!)
+        } catch {
+            print("❌ Failed to capture context: \(error)")
+            // Show prompt anyway with minimal context
+            let fallbackContext = Context(
+                source: ContextSource(
+                    applicationName: "Unknown",
+                    bundleIdentifier: ""
+                )
+            )
+            promptWindowController.showPrompt(with: fallbackContext)
+        }
+    }
+
+    /// Log all captured context details
+    private func logCapturedContext(_ context: Context) {
+        print("\n📋 CAPTURED CONTEXT:")
+        print("─────────────────────────────────────────────────────────")
+
+        // Source Information
+        print("🖥️  SOURCE APPLICATION:")
+        print("    • App Name: \(context.source.applicationName)")
+        print("    • Bundle ID: \(context.source.bundleIdentifier)")
+        print("    • Window Title: \(context.source.windowTitle ?? "N/A")")
+        print("    • URL: \(context.source.url?.absoluteString ?? "N/A")")
+
+        // Selected Text
+        print("\n📝 SELECTED TEXT:")
+        if let selected = context.selectedText, !selected.isEmpty {
+            print("    \"\(selected.prefix(200))\(selected.count > 200 ? "..." : "")\"")
+        } else {
+            print("    (none)")
+        }
+
+        // Surrounding Text
+        print("\n📄 SURROUNDING TEXT:")
+        if let surrounding = context.surroundingText, !surrounding.isEmpty {
+            print("    \"\(surrounding.prefix(200))\(surrounding.count > 200 ? "..." : "")\"")
+        } else {
+            print("    (none)")
+        }
+
+        // App-specific Metadata
+        print("\n🏷️  METADATA:")
+        switch context.metadata {
+        case .slack(let slack):
+            print("    Type: SLACK")
+            print("    • Channel: \(slack.channelName ?? "N/A")")
+            print("    • Channel Type: \(slack.channelType.rawValue)")
+            print("    • Thread ID: \(slack.threadId ?? "N/A")")
+            print("    • Participants: \(slack.participants.isEmpty ? "(none)" : slack.participants.joined(separator: ", "))")
+            print("    • Recent Messages (\(slack.recentMessages.count)):")
+            for (i, msg) in slack.recentMessages.prefix(5).enumerated() {
+                print("      [\(i+1)] \(msg.sender): \"\(msg.content.prefix(100))\(msg.content.count > 100 ? "..." : "")\"")
+            }
+            if slack.recentMessages.count > 5 {
+                print("      ... and \(slack.recentMessages.count - 5) more messages")
+            }
+
+        case .gmail(let gmail):
+            print("    Type: GMAIL")
+            print("    • Subject: \(gmail.subject ?? "N/A")")
+            print("    • Recipients: \(gmail.recipients.isEmpty ? "(none)" : gmail.recipients.joined(separator: ", "))")
+            print("    • CC: \(gmail.ccRecipients.isEmpty ? "(none)" : gmail.ccRecipients.joined(separator: ", "))")
+            print("    • Is Composing: \(gmail.isComposing)")
+            print("    • Original Sender: \(gmail.originalSender ?? "N/A")")
+            print("    • Thread Messages (\(gmail.threadMessages.count)):")
+            for (i, msg) in gmail.threadMessages.prefix(3).enumerated() {
+                print("      [\(i+1)] \(msg.sender): \"\(msg.content.prefix(100))...\"")
+            }
+
+        case .github(let github):
+            print("    Type: GITHUB")
+            print("    • Repo: \(github.repoName ?? "N/A")")
+            print("    • PR #: \(github.prNumber.map { String($0) } ?? "N/A")")
+            print("    • PR Title: \(github.prTitle ?? "N/A")")
+            print("    • Base Branch: \(github.baseBranch ?? "N/A")")
+            print("    • Head Branch: \(github.headBranch ?? "N/A")")
+            print("    • Changed Files (\(github.changedFiles.count)):")
+            for file in github.changedFiles.prefix(5) {
+                print("      - \(file)")
+            }
+            print("    • Comments (\(github.comments.count)):")
+            for (i, comment) in github.comments.prefix(3).enumerated() {
+                print("      [\(i+1)] \(comment.author): \"\(comment.body.prefix(100))...\"")
+            }
+
+        case .generic(let generic):
+            print("    Type: GENERIC")
+            print("    • Focused Element Role: \(generic.focusedElementRole ?? "N/A")")
+            print("    • Focused Element Label: \(generic.focusedElementLabel ?? "N/A")")
+        }
+
+        print("─────────────────────────────────────────────────────────\n")
+    }
+
+    private func insertText(_ text: String, into source: ContextSource) {
+        Task {
+            do {
+                try await textInserter.insert(text: text, into: source)
+                print("✅ Text inserted successfully")
+            } catch {
+                print("❌ Failed to insert text: \(error)")
+                // Fallback: copy to clipboard
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+            }
+        }
+    }
+}
+

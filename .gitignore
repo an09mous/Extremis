@@ -1,0 +1,80 @@
+.augment
+aiaudit.csv
+# Xcode
+.build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.swiftpm/
+*.swiftpm/xcode/
+Packages/
+
+# Build products
+build/
+*.app
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.swiftpm/
+Package.resolved
+
+# CocoaPods (if ever used)
+Pods/
+
+# Carthage (if ever used)
+Carthage/Build/
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Thumbnails
+Thumbs.db
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment and secrets
+.env
+.env.*
+*.env
+*.key
+*.pem
+secrets/
+
+# Logs
+*.log
+logs/
+
+# Test output
+coverage/
+*.xcresult
+
+# Archives
+*.xcarchive
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+
+# User-specific
+*.xcuserstate
+*.moved-aside
+

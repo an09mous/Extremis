@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- App Sandbox (disabled for accessibility access) -->
+    <key>com.apple.security.app-sandbox</key>
+    <false/>
+    
+    <!-- Hardened Runtime Exception: Apple Events -->
+    <!-- Required for AppleScript execution to extract DOM from browsers -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+    
+    <!-- Keychain Access Groups -->
+    <!-- For secure storage of LLM provider API keys -->
+    <key>keychain-access-groups</key>
+    <array>
+        <string>$(AppIdentifierPrefix)com.extremis.app</string>
+    </array>
+    
+    <!-- Network Client (Outgoing Connections) -->
+    <!-- Required for LLM API calls -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+</dict>
+</plist>
+
