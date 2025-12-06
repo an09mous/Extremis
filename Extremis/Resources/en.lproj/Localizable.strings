@@ -1,0 +1,86 @@
+/* 
+  Localizable.strings
+  Extremis
+  
+  English localization strings
+*/
+
+// MARK: - App General
+"app.name" = "Extremis";
+"app.version" = "Version 1.0.0";
+
+// MARK: - Menu Bar
+"menu.providers" = "LLM Providers";
+"menu.configure_api_key" = "Configure API Key...";
+"menu.preferences" = "Preferences...";
+"menu.quit" = "Quit Extremis";
+
+// MARK: - Provider Status
+"provider.active" = "Active";
+"provider.configured" = "Configured";
+"provider.not_configured" = "Not Configured";
+"provider.openai" = "OpenAI";
+"provider.anthropic" = "Anthropic Claude";
+"provider.gemini" = "Google Gemini";
+
+// MARK: - Prompt Window
+"prompt.title" = "Extremis";
+"prompt.placeholder" = "Enter your instruction...";
+"prompt.submit" = "Generate";
+"prompt.cancel" = "Cancel";
+"prompt.generating" = "Generating response...";
+
+// MARK: - Response View
+"response.title" = "Response";
+"response.insert" = "Insert";
+"response.copy" = "Copy";
+"response.copied" = "Copied!";
+"response.regenerate" = "Regenerate";
+"response.cancel" = "Cancel";
+
+// MARK: - Errors
+"error.no_provider" = "No LLM provider configured";
+"error.accessibility_denied" = "Accessibility permission required";
+"error.network" = "Network error occurred";
+"error.rate_limited" = "Rate limited. Please try again later.";
+"error.invalid_api_key" = "Invalid API key";
+"error.context_too_long" = "Context is too long";
+
+// MARK: - Preferences
+"preferences.title" = "Extremis Preferences";
+"preferences.general" = "General";
+"preferences.providers" = "Providers";
+"preferences.appearance" = "Appearance";
+
+// MARK: - General Tab
+"general.hotkey" = "Activation Hotkey";
+"general.hotkey_description" = "Press this keyboard shortcut anywhere to activate Extremis";
+"general.change_hotkey" = "Change";
+"general.recording" = "Press keys...";
+"general.launch_at_login" = "Launch at Login";
+"general.launch_description" = "Automatically start Extremis when you log in";
+
+// MARK: - Providers Tab
+"providers.active" = "Active Provider";
+"providers.api_keys" = "API Keys";
+"providers.save" = "Save";
+"providers.configured_success" = "configured successfully";
+"providers.configure_failed" = "Failed to configure";
+
+// MARK: - Appearance Tab
+"appearance.mode" = "Appearance";
+"appearance.system" = "System";
+"appearance.light" = "Light";
+"appearance.dark" = "Dark";
+"appearance.window_size" = "Prompt Window Size";
+"appearance.width" = "Width";
+"appearance.height" = "Height";
+"appearance.font_size" = "Font Size";
+"appearance.reset" = "Reset to Defaults";
+
+// MARK: - Context Info
+"context.text_selected" = "text selected";
+"context.slack" = "Slack";
+"context.gmail" = "Gmail";
+"context.github" = "GitHub";
+

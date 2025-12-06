@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Bundle Information -->
+    <key>CFBundleName</key>
+    <string>Extremis</string>
+    <key>CFBundleDisplayName</key>
+    <string>Extremis</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.extremis.app</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleExecutable</key>
+    <string>Extremis</string>
+    
+    <!-- Menu Bar App (No Dock Icon) -->
+    <key>LSUIElement</key>
+    <true/>
+    
+    <!-- Minimum macOS Version -->
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    
+    <!-- Copyright -->
+    <key>NSHumanReadableCopyright</key>
+    <string>© 2025 Extremis. All rights reserved.</string>
+    
+    <!-- Privacy Descriptions (Required for Permissions) -->
+    
+    <!-- Accessibility Permission - Required for reading text and inserting responses -->
+    <key>NSAccessibilityUsageDescription</key>
+    <string>Extremis needs accessibility access to read text from applications and insert AI-generated responses at your cursor position.</string>
+    
+    <!-- Apple Events Permission - Required for browser DOM access via AppleScript -->
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Extremis needs to communicate with browsers to extract context from web applications like Gmail, Slack, and GitHub.</string>
+    
+    <!-- Application Supports Secure Restore -->
+    <key>NSApplicationSupportsSecureRestorableState</key>
+    <true/>
+    
+    <!-- High Resolution Capable -->
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    
+    <!-- Supports Automatic Graphics Switching -->
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <true/>
+</dict>
+</plist>
+
