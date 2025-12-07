@@ -388,6 +388,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @MainActor
     private func performDirectAutocomplete() async {
+        // Show loading overlay
+        LoadingOverlayController.shared.show(message: "Generating...")
+
+        defer {
+            // Always hide loading overlay when done
+            LoadingOverlayController.shared.hide()
+        }
+
         do {
             print("\n" + String(repeating: "=", count: 60))
             print("⚡ DIRECT AUTOCOMPLETE - Capturing Context...")
@@ -400,6 +408,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // Check if provider is configured
             guard let provider = LLMProviderRegistry.shared.activeProvider else {
                 print("❌ No LLM provider configured")
+                showAutocompleteError("No LLM provider configured")
                 return
             }
 

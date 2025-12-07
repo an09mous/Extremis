@@ -12,16 +12,17 @@ A context-aware LLM writing assistant for macOS. Press a global hotkey anywhere 
   - OpenAI (GPT-4o)
   - Anthropic (Claude 3.5 Sonnet)
   - Google Gemini (Gemini 1.5 Flash)
+  - Ollama (Local models - Llama, Mistral, etc.)
 - **📝 Smart Text Insertion** - Generated text automatically inserted at cursor
 - **🔒 Privacy-First** - Uses AX APIs only, no screenshots
-- **🎨 Menu Bar App** - Runs quietly in your menu bar
+- **🎨 Menu Bar App** - Runs quietly in your menu bar, shows active provider/model
 
 ## Requirements
 
 - macOS 13.0 (Ventura) or later
 - Swift 5.9+
 - Accessibility permission
-- API key for at least one LLM provider
+- API key for at least one LLM provider (or Ollama running locally)
 
 ## Installation
 
@@ -54,6 +55,17 @@ On first launch, go to **System Settings → Privacy & Security → Accessibilit
 | OpenAI | https://platform.openai.com/api-keys |
 | Anthropic | https://console.anthropic.com/settings/keys |
 | Google Gemini | https://aistudio.google.com/app/apikey |
+| Ollama | https://ollama.ai (no API key required) |
+
+#### Using Ollama (Local Models)
+
+1. Install Ollama from https://ollama.ai
+2. Pull a model: `ollama pull llama3.2` or `ollama pull mistral`
+3. Start Ollama (it runs on `http://127.0.0.1:11434` by default)
+4. In Extremis Preferences → Providers → Ollama:
+   - Base URL: `http://127.0.0.1:11434` (default)
+   - Select your model from the dropdown
+   - Click **Use** to activate
 
 ## Usage
 
@@ -68,7 +80,8 @@ On first launch, go to **System Settings → Privacy & Security → Accessibilit
 
 1. Type some text in any application
 2. Press `⌥+Tab` to auto-complete based on context
-3. Text is inserted automatically
+3. A floating "Generating..." indicator appears at the top of your screen
+4. Text is automatically inserted when ready
 
 ## Context Extraction
 
