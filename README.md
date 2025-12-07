@@ -133,6 +133,17 @@ Extremis/
   - ApplicationServices (Accessibility APIs)
   - Security (Keychain for API key storage)
 
+## Roadmap
+
+- [ ] **Replace mode** - Option to replace selected text instead of just inserting
+- [ ] **Full context capture** - Capture text after cursor (succeeding text) in addition to preceding text
+- [ ] **Summarization** - Quick summarize selected text or page content
+- [ ] **Chat + Memory** - Conversational interface with persistent memory across sessions
+- [ ] **Streaming response** - Show generated text in real-time as it's being created
+- [ ] **MCP support** - Integration with Model Context Protocol for external tools and data sources
+
+See [open issues](https://github.com/an09mous/Extremis/issues) for more details and to contribute ideas.
+
 ## License
 
 MIT License
