@@ -6,14 +6,6 @@ import SwiftUI
 import ObjectiveC
 import Carbon.HIToolbox
 
-/// Helper struct for model selection in menu
-private struct ModelSelection {
-    let providerType: LLMProviderType
-    let model: LLMModel
-}
-
-
-
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: - Properties
@@ -53,7 +45,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         setupHotkey()
         checkPermissions()
 
+        // Check Ollama connection asynchronously and rebuild menu when done
+        checkOllamaAndRefreshMenu()
+
         print("✅ Extremis launched successfully")
+    }
+
+    /// Check Ollama connection and refresh the menu bar
+    private func checkOllamaAndRefreshMenu() {
+        Task {
+            if let ollamaProvider = LLMProviderRegistry.shared.provider(for: .ollama) as? OllamaProvider {
+                // Load saved URL if available
+                if let savedURL = UserDefaults.standard.string(forKey: "ollama_base_url"), !savedURL.isEmpty {
+                    ollamaProvider.updateBaseURL(savedURL)
+                }
+                let _ = await ollamaProvider.checkConnection()
+                // Rebuild menu on main thread after connection check
+                await MainActor.run {
+                    setupMenuBar()
+                }
+            }
+        }
     }
 
     /// Setup main menu with Edit menu for keyboard shortcuts
@@ -97,12 +109,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - Setup
 
     private func setupMenuBar() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-
-        if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Extremis")
+        // Only create status item once
+        if statusItem == nil {
+            statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+            if let button = statusItem?.button {
+                button.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Extremis")
+            }
         }
 
+        // Rebuild menu
         let menu = NSMenu()
         menu.delegate = self
 
@@ -111,10 +126,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(openItem)
         menu.addItem(NSMenuItem.separator())
 
-        // Provider status submenu
-        let providerItem = NSMenuItem(title: "LLM Providers", action: nil, keyEquivalent: "")
-        providerItem.submenu = buildProviderMenu()
-        menu.addItem(providerItem)
+        // Show active model info (informative, not clickable)
+        let activeModelItem = buildActiveModelMenuItem()
+        menu.addItem(activeModelItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -131,170 +145,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem?.menu = menu
     }
 
-    private func buildProviderMenu() -> NSMenu {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
+    private func buildActiveModelMenuItem() -> NSMenuItem {
+        let activeProvider = LLMProviderRegistry.shared.activeProviderType
+        let provider = activeProvider.flatMap { LLMProviderRegistry.shared.provider(for: $0) }
+        let currentModel = provider?.currentModel
 
-        for providerType in LLMProviderType.allCases {
-            let provider = LLMProviderRegistry.shared.provider(for: providerType)
-            let isActive = LLMProviderRegistry.shared.activeProviderType == providerType
-            let isConfigured = provider?.isConfigured == true
-            let currentModel = provider?.currentModel
+        let providerName = activeProvider?.displayName ?? "None"
+        let modelName = currentModel?.name ?? "Not configured"
 
-            let statusIcon = isActive ? "●" : (isConfigured ? "✓" : "○")
-            let modelInfo = currentModel != nil ? " (\(currentModel!.name))" : ""
-
-            // Provider item with submenu for models
-            let providerItem = NSMenuItem(
-                title: "\(statusIcon) \(providerType.displayName)\(modelInfo)",
-                action: nil,
-                keyEquivalent: ""
-            )
-            providerItem.submenu = buildModelSubmenu(for: providerType, isConfigured: isConfigured)
-            menu.addItem(providerItem)
-        }
-        menu.addItem(NSMenuItem.separator())
-        let configItem = NSMenuItem(title: "Configure API Key...", action: #selector(showAPIKeyDialog), keyEquivalent: "")
-        configItem.target = self
-        configItem.isEnabled = true
-        menu.addItem(configItem)
-        return menu
-    }
-
-    private func buildModelSubmenu(for providerType: LLMProviderType, isConfigured: Bool) -> NSMenu {
-        let submenu = NSMenu()
-        submenu.autoenablesItems = false
-
-        let isActive = LLMProviderRegistry.shared.activeProviderType == providerType
-        let currentModel = LLMProviderRegistry.shared.currentModel(for: providerType)
-
-        // "Use this provider" item
-        let useItem = NSMenuItem(
-            title: isActive ? "✓ Active Provider" : "Use This Provider",
-            action: isConfigured ? #selector(selectProvider(_:)) : nil,
+        let item = NSMenuItem(
+            title: "Using \(providerName): \(modelName)",
+            action: nil,
             keyEquivalent: ""
         )
-        useItem.target = self
-        useItem.isEnabled = isConfigured
-        useItem.representedObject = providerType
-        submenu.addItem(useItem)
+        item.isEnabled = true  // Keep enabled so it doesn't look greyed out
+        item.toolTip = "Change provider or model in Preferences"
+        return item
+    }
 
-        // Configure API Key item
-        let configItem = NSMenuItem(
-            title: isConfigured ? "✓ API Key Configured" : "Configure API Key...",
-            action: #selector(configureProviderFromSubmenu(_:)),
-            keyEquivalent: ""
-        )
-        configItem.target = self
-        configItem.isEnabled = true
-        configItem.representedObject = providerType
-        submenu.addItem(configItem)
-
-        submenu.addItem(NSMenuItem.separator())
-
-        // Model selection header
-        let headerItem = NSMenuItem(title: "Models:", action: nil, keyEquivalent: "")
-        headerItem.isEnabled = false
-        submenu.addItem(headerItem)
-
-        // Models
-        for model in providerType.availableModels {
-            let isCurrentModel = currentModel?.id == model.id
-            let modelItem = NSMenuItem(
-                title: "\(isCurrentModel ? "● " : "   ")\(model.name)",
-                action: #selector(selectModel(_:)),
-                keyEquivalent: ""
-            )
-            modelItem.target = self
-            modelItem.isEnabled = true
-            modelItem.representedObject = ModelSelection(providerType: providerType, model: model)
-
-            // Add tooltip with description
-            modelItem.toolTip = model.description
-            submenu.addItem(modelItem)
+    /// Refresh menu bar - called when provider/model changes
+    @objc func refreshMenuBar() {
+        DispatchQueue.main.async { [weak self] in
+            self?.setupMenuBar()
         }
-
-        return submenu
-    }
-
-    @objc private func selectProvider(_ sender: NSMenuItem) {
-        guard let providerType = sender.representedObject as? LLMProviderType else { return }
-        do {
-            try LLMProviderRegistry.shared.setActive(providerType)
-            setupMenuBar()
-        } catch {
-            showAlert(title: "Error", message: "Failed to set active provider: \(error.localizedDescription)")
-        }
-    }
-
-    @objc private func configureProviderFromSubmenu(_ sender: NSMenuItem) {
-        guard let providerType = sender.representedObject as? LLMProviderType else { return }
-        showAPIKeyDialogForProvider(providerType)
-    }
-
-    @objc private func selectModel(_ sender: NSMenuItem) {
-        guard let selection = sender.representedObject as? ModelSelection else { return }
-        LLMProviderRegistry.shared.setModel(selection.model, for: selection.providerType)
-        setupMenuBar()
-        print("✅ Selected model: \(selection.model.name) for \(selection.providerType.displayName)")
-    }
-
-    @objc private func showAPIKeyDialog() {
-        print("🔧 showAPIKeyDialog called - showing provider picker")
-        showProviderPickerDialog()
-    }
-
-    private func showProviderPickerDialog() {
-        // Create window for provider selection
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 350, height: 150),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Configure API Key"
-        window.center()
-        window.isReleasedWhenClosed = false
-
-        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 350, height: 150))
-
-        // Label
-        let label = NSTextField(labelWithString: "Select a provider to configure:")
-        label.frame = NSRect(x: 20, y: 110, width: 310, height: 20)
-        contentView.addSubview(label)
-
-        // Provider popup button
-        let popup = NSPopUpButton(frame: NSRect(x: 20, y: 70, width: 310, height: 30))
-        for providerType in LLMProviderType.allCases {
-            let isConfigured = LLMProviderRegistry.shared.provider(for: providerType)?.isConfigured == true
-            let status = isConfigured ? " ✓" : ""
-            popup.addItem(withTitle: "\(providerType.displayName)\(status)")
-            popup.lastItem?.representedObject = providerType
-        }
-        contentView.addSubview(popup)
-
-        // Continue button
-        let continueButton = NSButton(title: "Continue", target: self, action: #selector(continueFromProviderPicker(_:)))
-        continueButton.frame = NSRect(x: 240, y: 15, width: 90, height: 32)
-        continueButton.bezelStyle = .rounded
-        continueButton.keyEquivalent = "\r"
-        contentView.addSubview(continueButton)
-
-        // Cancel button
-        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelProviderPicker(_:)))
-        cancelButton.frame = NSRect(x: 140, y: 15, width: 90, height: 32)
-        cancelButton.bezelStyle = .rounded
-        cancelButton.keyEquivalent = "\u{1b}"
-        contentView.addSubview(cancelButton)
-
-        window.contentView = contentView
-
-        // Store references
-        self.providerPickerWindow = window
-        self.providerPickerPopup = popup
-
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     /// Provider picker window components

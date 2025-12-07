@@ -54,6 +54,7 @@ enum LLMProviderType: String, Codable, CaseIterable, Identifiable {
     case openai = "OpenAI"
     case anthropic = "Anthropic"
     case gemini = "Gemini"
+    case ollama = "Ollama"
 
     var id: String { rawValue }
 
@@ -63,6 +64,15 @@ enum LLMProviderType: String, Codable, CaseIterable, Identifiable {
         case .openai: return "OpenAI"
         case .anthropic: return "Anthropic"
         case .gemini: return "Google Gemini"
+        case .ollama: return "Ollama (Local)"
+        }
+    }
+
+    /// Whether this provider requires an API key
+    var requiresAPIKey: Bool {
+        switch self {
+        case .ollama: return false
+        default: return true
         }
     }
 
@@ -93,6 +103,14 @@ enum LLMProviderType: String, Codable, CaseIterable, Identifiable {
                 LLMModel(id: "gemini-1.5-flash", name: "Gemini 1.5 Flash", description: "Fast and versatile"),
                 LLMModel(id: "gemini-1.0-pro", name: "Gemini 1.0 Pro", description: "Stable, reliable"),
             ]
+        case .ollama:
+            // Default models - actual list is fetched dynamically from Ollama server
+            return [
+                LLMModel(id: "llama3.2", name: "Llama 3.2", description: "Meta's latest model"),
+                LLMModel(id: "mistral", name: "Mistral", description: "Fast and capable"),
+                LLMModel(id: "codellama", name: "Code Llama", description: "Optimized for code"),
+                LLMModel(id: "gemma2", name: "Gemma 2", description: "Google's open model"),
+            ]
         }
     }
 
@@ -112,6 +130,7 @@ enum LLMProviderType: String, Codable, CaseIterable, Identifiable {
         case .openai: return URL(string: "https://api.openai.com/v1")!
         case .anthropic: return URL(string: "https://api.anthropic.com/v1")!
         case .gemini: return URL(string: "https://generativelanguage.googleapis.com/v1beta")!
+        case .ollama: return URL(string: "http://127.0.0.1:11434")!
         }
     }
 }

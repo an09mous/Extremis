@@ -10,26 +10,43 @@ struct ProvidersTab: View {
     @State private var showingAPIKey: [LLMProviderType: Bool] = [:]
     @State private var statusMessage: String?
     @State private var isError = false
+    @State private var ollamaConnected = false
+    @State private var ollamaBaseURL = "http://127.0.0.1:11434"
+    @State private var ollamaModels: [LLMModel] = []
+    @State private var ollamaSelectedModelId: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             // API Keys Section
             VStack(alignment: .leading, spacing: 12) {
-                Text("API Keys")
+                Text("LLM Providers")
                     .font(.headline)
 
                 ForEach(LLMProviderType.allCases, id: \.self) { provider in
-                    ProviderKeyRow(
-                        provider: provider,
-                        apiKey: binding(for: provider),
-                        maskedKey: maskedKeys[provider] ?? "",
-                        isVisible: showBinding(for: provider),
-                        isConfigured: isConfigured(provider),
-                        isActive: provider == selectedProvider,
-                        onSave: { saveAPIKey(for: provider) },
-                        onDelete: { deleteAPIKey(for: provider) },
-                        onSetActive: { setActiveProvider(provider) }
-                    )
+                    if provider == .ollama {
+                        OllamaProviderRow(
+                            isConnected: $ollamaConnected,
+                            baseURL: $ollamaBaseURL,
+                            availableModels: $ollamaModels,
+                            selectedModelId: $ollamaSelectedModelId,
+                            isActive: provider == selectedProvider,
+                            onCheckConnection: { checkOllamaConnection() },
+                            onSetActive: { setActiveProvider(provider) },
+                            onSelectModel: { model in selectOllamaModel(model) }
+                        )
+                    } else {
+                        ProviderKeyRow(
+                            provider: provider,
+                            apiKey: binding(for: provider),
+                            maskedKey: maskedKeys[provider] ?? "",
+                            isVisible: showBinding(for: provider),
+                            isConfigured: isConfigured(provider),
+                            isActive: provider == selectedProvider,
+                            onSave: { saveAPIKey(for: provider) },
+                            onDelete: { deleteAPIKey(for: provider) },
+                            onSetActive: { setActiveProvider(provider) }
+                        )
+                    }
                 }
             }
 
@@ -60,6 +77,16 @@ struct ProvidersTab: View {
 
         // Load masked keys from keychain for display
         for provider in LLMProviderType.allCases {
+            if provider == .ollama {
+                // Load Ollama settings
+                if let savedURL = UserDefaults.standard.string(forKey: "ollama_base_url"), !savedURL.isEmpty {
+                    ollamaBaseURL = savedURL
+                }
+                // Auto-check Ollama connection to get models
+                checkOllamaConnection()
+                continue
+            }
+
             if let key = try? KeychainHelper.shared.retrieveAPIKey(for: provider), !key.isEmpty {
                 // Show first 8 and last 4 characters
                 if key.count > 12 {
@@ -92,27 +119,47 @@ struct ProvidersTab: View {
     }
 
     private func isConfigured(_ provider: LLMProviderType) -> Bool {
-        KeychainHelper.shared.hasAPIKey(for: provider)
+        if provider == .ollama {
+            return ollamaConnected
+        }
+        return KeychainHelper.shared.hasAPIKey(for: provider)
     }
 
-    private func activateProvider(_ provider: LLMProviderType) {
-        if isConfigured(provider) {
-            do {
-                try LLMProviderRegistry.shared.setActive(provider)
-                withAnimation {
-                    statusMessage = "\(provider.displayName) is now active"
-                    isError = false
-                }
-            } catch {
-                withAnimation {
-                    statusMessage = "Failed to activate \(provider.displayName)"
-                    isError = true
+    private func checkOllamaConnection() {
+        Task {
+            if let ollamaProvider = LLMProviderRegistry.shared.provider(for: .ollama) as? OllamaProvider {
+                // Always update base URL to ensure provider has current value
+                UserDefaults.standard.set(ollamaBaseURL, forKey: "ollama_base_url")
+                ollamaProvider.updateBaseURL(ollamaBaseURL)
+
+                let connected = await ollamaProvider.checkConnection()
+
+                await MainActor.run {
+                    ollamaConnected = connected
+                    if connected {
+                        // Update models list and selected model from provider
+                        // (fetchAvailableModels already restores saved model selection)
+                        ollamaModels = ollamaProvider.availableModelsFromServer
+                        ollamaSelectedModelId = ollamaProvider.currentModel.id
+                    } else {
+                        ollamaModels = []
+                    }
                 }
             }
-        } else {
-            withAnimation {
-                statusMessage = "Add an API key for \(provider.displayName) first"
-                isError = true
+        }
+    }
+
+    private func selectOllamaModel(_ model: LLMModel) {
+        LLMProviderRegistry.shared.setModel(model, for: .ollama)
+        ollamaSelectedModelId = model.id
+        refreshMenuBar()
+    }
+
+    /// Refresh menu bar to reflect provider/model changes
+    private func refreshMenuBar() {
+        DispatchQueue.main.async {
+            if let appDelegate = NSApp.delegate as? AppDelegate {
+                appDelegate.refreshMenuBar()
             }
         }
     }
@@ -162,6 +209,7 @@ struct ProvidersTab: View {
             do {
                 try LLMProviderRegistry.shared.setActive(provider)
                 selectedProvider = provider
+                refreshMenuBar()  // Update menu bar
                 statusMessage = "\(provider.displayName) is now active"
                 isError = false
             } catch {
@@ -169,9 +217,110 @@ struct ProvidersTab: View {
                 isError = true
             }
         } else {
-            statusMessage = "Add an API key first"
+            if provider == .ollama {
+                statusMessage = "Check connection to Ollama server first"
+            } else {
+                statusMessage = "Add an API key first"
+            }
             isError = true
         }
+    }
+}
+
+// MARK: - Ollama Provider Row
+
+struct OllamaProviderRow: View {
+    @Binding var isConnected: Bool
+    @Binding var baseURL: String
+    @Binding var availableModels: [LLMModel]
+    @Binding var selectedModelId: String
+    let isActive: Bool
+    let onCheckConnection: () -> Void
+    let onSetActive: () -> Void
+    let onSelectModel: (LLMModel) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Provider header
+            HStack {
+                Text("Ollama (Local)")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+
+                if isConnected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                        .font(.caption)
+                } else {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.red)
+                        .font(.caption)
+                }
+
+                if isActive {
+                    Text("Active")
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.accentColor.opacity(0.2))
+                        .cornerRadius(4)
+                }
+
+                Spacer()
+
+                // Use button - only show if connected and not active
+                if isConnected && !isActive {
+                    Button("Use") {
+                        onSetActive()
+                    }
+                    .font(.caption)
+                }
+            }
+
+            // Connection status
+            Text(isConnected ? "Server connected" : "Server not available")
+                .font(.caption)
+                .foregroundColor(isConnected ? .secondary : .red)
+
+            // Base URL input and check connection
+            HStack {
+                TextField("Server URL", text: $baseURL)
+                    .textFieldStyle(.roundedBorder)
+
+                Button("Check Connection") {
+                    onCheckConnection()
+                }
+            }
+
+            // Model selection - only show if connected and models available
+            if isConnected && !availableModels.isEmpty {
+                HStack {
+                    Text("Model:")
+                        .font(.caption)
+
+                    Picker("", selection: $selectedModelId) {
+                        ForEach(availableModels, id: \.id) { model in
+                            Text(model.name).tag(model.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .onChange(of: selectedModelId) { newValue in
+                        if let model = availableModels.first(where: { $0.id == newValue }) {
+                            onSelectModel(model)
+                        }
+                    }
+                }
+            } else if isConnected && availableModels.isEmpty {
+                Text("No models found. Run 'ollama pull <model>' to download.")
+                    .font(.caption)
+                    .foregroundColor(.orange)
+            }
+
+            Text("Default: http://127.0.0.1:11434")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+        .padding(.vertical, 8)
     }
 }
 

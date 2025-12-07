@@ -51,6 +51,13 @@
     <!-- Supports Automatic Graphics Switching -->
     <key>NSSupportsAutomaticGraphicsSwitching</key>
     <true/>
+
+    <!-- App Transport Security - Allow localhost HTTP for Ollama -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
 </dict>
 </plist>
 

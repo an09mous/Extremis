@@ -31,8 +31,9 @@ final class TextInserterService: TextInserter {
     
     // MARK: - TextInserter Protocol
 
-    /// Known Electron app bundle IDs that need clipboard-based insertion
-    private static let electronApps: Set<String> = [
+    /// Apps that need clipboard-based insertion (Electron apps and browsers)
+    private static let clipboardOnlyApps: Set<String> = [
+        // Electron apps
         "com.tinyspeck.slackmacgap",  // Slack
         "com.microsoft.VSCode",        // VS Code
         "com.hnc.Discord",             // Discord
@@ -41,6 +42,15 @@ final class TextInserterService: TextInserter {
         "notion.id",                   // Notion
         "net.whatsapp.WhatsApp",       // WhatsApp
         "desktop.WhatsApp",            // WhatsApp (alternative bundle ID)
+        // Browsers (AX doesn't work reliably with web content)
+        "com.apple.Safari",            // Safari
+        "com.google.Chrome",           // Chrome
+        "org.mozilla.firefox",         // Firefox
+        "com.microsoft.edgemac",       // Edge
+        "com.brave.Browser",           // Brave
+        "company.thebrowser.Browser",  // Arc
+        "com.operasoftware.Opera",     // Opera
+        "com.vivaldi.Vivaldi",         // Vivaldi
     ]
 
     func insert(text: String, into source: ContextSource) async throws {
@@ -61,12 +71,12 @@ final class TextInserterService: TextInserter {
         // Bring the app to front
         app.activate(options: [.activateIgnoringOtherApps])
 
-        // For Electron apps, skip AX insertion and go straight to clipboard
-        let isElectronApp = Self.electronApps.contains(source.bundleIdentifier)
+        // For browsers and Electron apps, skip AX insertion and go straight to clipboard
+        let needsClipboard = Self.clipboardOnlyApps.contains(source.bundleIdentifier)
 
-        if isElectronApp {
-            print("🔧 TextInserter: Electron app detected, using clipboard paste")
-            // Longer delay for Electron apps to ensure they're focused and ready
+        if needsClipboard {
+            print("🔧 TextInserter: Browser/Electron app detected, using clipboard paste")
+            // Longer delay to ensure app is focused and ready
             try await Task.sleep(nanoseconds: 300_000_000) // 300ms
             try await insertViaClipboard(text: text)
             return
