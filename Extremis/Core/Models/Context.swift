@@ -11,22 +11,22 @@ struct Context: Codable, Equatable, Identifiable {
     let capturedAt: Date
     let source: ContextSource
     let selectedText: String?
-    let surroundingText: String?
+    let precedingText: String?
     let metadata: ContextMetadata
-    
+
     init(
         id: UUID = UUID(),
         capturedAt: Date = Date(),
         source: ContextSource,
         selectedText: String? = nil,
-        surroundingText: String? = nil,
+        precedingText: String? = nil,
         metadata: ContextMetadata = .generic(GenericMetadata())
     ) {
         self.id = id
         self.capturedAt = capturedAt
         self.source = source
         self.selectedText = selectedText
-        self.surroundingText = surroundingText
+        self.precedingText = precedingText
         self.metadata = metadata
     }
 }

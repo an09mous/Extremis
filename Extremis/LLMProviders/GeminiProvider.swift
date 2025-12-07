@@ -62,6 +62,8 @@ final class GeminiProvider: LLMProvider {
         
         let startTime = Date()
         let prompt = PromptBuilder.shared.buildPrompt(instruction: instruction, context: context)
+        print("📋 PromptBuilder: context = \(context)")
+        print("📋 PromptBuilder: prompt = \(prompt)")
 
         let request = try buildRequest(apiKey: apiKey, prompt: prompt)
         let (data, response) = try await session.data(for: request)

@@ -56,19 +56,10 @@ final class BrowserExtractor: ContextExtractor {
         let windowTitle = getWindowTitle(appElement)
         print("🌐 BrowserExtractor: Window title = \(windowTitle ?? "nil")")
 
-        // Try to find and extract content from AXWebArea (for page context)
-        let webContent = extractWebAreaContent(appElement)
-        print("🌐 BrowserExtractor: Web area content length = \(webContent.count)")
-
-        // ALWAYS capture surrounding text via clipboard
-        print("🌐 BrowserExtractor: Capturing surrounding text via clipboard...")
-        var surroundingText = ClipboardCapture.shared.captureVisibleContent(verbose: true) ?? ""
-        print("🌐 BrowserExtractor: Clipboard captured \(surroundingText.count) chars")
-
-        // Add web content as additional page context (from AX)
-        if !webContent.isEmpty {
-            surroundingText += "\n\n[Page Content]\n" + webContent
-        }
+        // Capture preceding text via clipboard
+        print("🌐 BrowserExtractor: Capturing preceding text via clipboard...")
+        let precedingText = ClipboardCapture.shared.captureVisibleContent(verbose: true) ?? ""
+        print("🌐 BrowserExtractor: Clipboard captured \(precedingText.count) chars")
 
         let source = ContextSource(
             applicationName: app.localizedName ?? "Browser",
@@ -80,7 +71,7 @@ final class BrowserExtractor: ContextExtractor {
         return Context(
             source: source,
             selectedText: selectedText,
-            surroundingText: surroundingText,
+            precedingText: precedingText,
             metadata: .generic(GenericMetadata(
                 focusedElementRole: focusedInfo.role,
                 focusedElementLabel: focusedInfo.label

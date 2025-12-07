@@ -98,7 +98,7 @@ final class SlackExtractor: ContextExtractor {
         return Context(
             source: source,
             selectedText: selectedText,
-            surroundingText: clipboardContent,
+            precedingText: clipboardContent,
             metadata: .slack(metadata)
         )
     }

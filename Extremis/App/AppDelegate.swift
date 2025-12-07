@@ -547,10 +547,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
                 try await textInserter.insert(text: generatedText, into: context.source)
                 print("✅ Autocomplete text inserted")
+            } else {
+                showAutocompleteError("No text generated")
             }
 
         } catch {
             print("❌ Autocomplete failed: \(error)")
+            showAutocompleteError(error.localizedDescription)
+        }
+    }
+
+    /// Show error notification for autocomplete failures
+    private func showAutocompleteError(_ message: String) {
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.messageText = "Autocomplete Failed"
+            alert.informativeText = message
+            alert.alertStyle = .warning
+            let okButton = alert.addButton(withTitle: "OK")
+            okButton.keyEquivalent = "\r" // Enter key dismisses
+
+            // Show as a floating alert
+            alert.window.level = .floating
+            alert.runModal()
         }
     }
 
@@ -602,10 +621,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("    (none)")
         }
 
-        // Surrounding Text
-        print("\n📄 SURROUNDING TEXT:")
-        if let surrounding = context.surroundingText, !surrounding.isEmpty {
-            print("    \"\(surrounding.prefix(200))\(surrounding.count > 200 ? "..." : "")\"")
+        // Preceding Text
+        print("\n📄 PRECEDING TEXT:")
+        if let preceding = context.precedingText, !preceding.isEmpty {
+            print("    \"\(preceding.prefix(200))\(preceding.count > 200 ? "..." : "")\"")
         } else {
             print("    (none)")
         }

@@ -34,15 +34,15 @@ Please provide a helpful response based on the context and instruction above. Be
 Context: {{CONTEXT}}
 
 ## AUTOCOMPLETE MODE
-The user has pressed Enter without providing any instruction. This means they want you to **autocomplete** or **continue** whatever text is in the surrounding context.
+The user has selected autocomplete mode. This means they want you to **autocomplete** or **continue** whatever text precedes the cursor.
 
 Your task:
-1. Analyze the surrounding context carefully
+1. Analyze the preceding text carefully
 2. Determine what the user is likely trying to write next
 3. Generate a natural continuation of the text
 4. Match the exact style, tone, and format of the existing content
 
-Rules:
+Strict Rules and you should follow them with your life and heart else world will end:
 - Do NOT add any explanations or metadata
 - Since it's an autocomplete request, make sure you are adding appropriate spaces, new lines or punctuation as needed to make the continuation flow naturally
 - Do NOT repeat what's already written
@@ -62,31 +62,27 @@ You are Extremis, a context-aware writing assistant integrated into macOS. Your 
 When the user activates Extremis, it captures context differently based on the application:
 
 ### For Browsers (Chrome, Safari, Arc, Comet, etc.)
-1. **Surrounding Text**: Captured via clipboard - the text before the cursor where the user is typing (using Cmd+Shift+Up to select, then Cmd+C to copy)
-2. **Page Content**: Extracted via macOS Accessibility APIs from the browser's AXWebArea - includes headings, paragraphs, links, buttons, and form inputs visible on the page
-3. **Window Title**: Usually contains the page title
-4. **Focused Element**: The input field or text area where the user is typing
+1. **Preceding Text**: Text before the cursor where the user is typing (captured via clipboard)
+2. **Window Title**: Usually contains the page title (e.g., "Gmail - Compose", "Slack | #general")
 
 ### For Desktop Apps (Slack, etc.)
-1. **Surrounding Text**: Captured via clipboard from the focused text area
+1. **Preceding Text**: Captured via clipboard from the focused text area
 2. **App-Specific Metadata**: Channel names, participants, recent messages, etc.
 
 ### For Other Apps
-1. **Visible Content**: Captured using Cmd+Shift+Up, Cmd+C (select text before cursor, copy)
-2. **Focused Element**: Information about the UI element being edited
+1. **Preceding Text**: Captured using Cmd+Shift+Up, Cmd+C (select text before cursor, copy)
 
-The "Surrounding Context" contains the text the user was writing when they activated Extremis. If available, "[Page Content]" section contains additional context from the visible page.
+The "[Preceding Text]" section contains the text before the cursor when the user activated Extremis. The window title provides context about which app/page the user is on. Analyze the context carefully to understand the user's intent and help them with their request.
 
 ## Strict Guidelines
 - Be concise and direct in your responses
-- Match the tone and style of the surrounding context when appropriate
-- Use the surrounding context and page content to understand what the user is working on
+- Match the tone and style of the preceding text when appropriate
+- Use the preceding text and window title to understand what the user is working on
 - Provide only the requested content without extra explanations or metadata. Just the text to be inserted.
 - When generating text to be inserted, provide just the text without markdown formatting or code blocks
 - If the context is from a messaging app (Slack, WhatsApp, Gmail, etc.), match the conversational tone
 - If the context is from an email or professional site, match professional conventions
 - If the context is code or a technical site (GitHub, Stack Overflow), maintain technical accuracy
-- If page content includes form fields or inputs, understand the user may be filling out a form
 """
     
     // MARK: - Public Methods
@@ -101,7 +97,6 @@ The "Surrounding Context" contains the text the user was writing when they activ
     func buildPrompt(instruction: String, context: Context) -> String {
         let contextSection = formatContext(context)
         let isAutocomplete = isAutocompleteMode(instruction: instruction)
-        print("📋 PromptBuilder: context = \(context)")
 
         if isAutocomplete {
             // Autocomplete mode - no instruction provided
@@ -125,9 +120,9 @@ The "Surrounding Context" contains the text the user was writing when they activ
         // Source information
         sections.append(formatSource(context.source))
 
-        // Surrounding text (captured via Cmd+A, Cmd+C)
-        if let surroundingText = context.surroundingText, !surroundingText.isEmpty {
-            sections.append(formatSurroundingText(surroundingText))
+        // Preceding text (captured via Cmd+Shift+Up, Cmd+C)
+        if let precedingText = context.precedingText, !precedingText.isEmpty {
+            sections.append(formatPrecedingText(precedingText))
         }
 
         // App-specific metadata
@@ -151,15 +146,15 @@ The "Surrounding Context" contains the text the user was writing when they activ
         return lines.joined(separator: "\n")
     }
 
-    private func formatSurroundingText(_ text: String) -> String {
+    private func formatPrecedingText(_ text: String) -> String {
         // Truncate if too long
         let maxLength = 2000
-        let truncatedText = text.count > maxLength 
+        let truncatedText = text.count > maxLength
             ? String(text.prefix(maxLength)) + "... [truncated]"
             : text
-        
+
         return """
-        [Surrounding Context]
+        [Preceding Text]
         \"\"\"
         \(truncatedText)
         \"\"\"

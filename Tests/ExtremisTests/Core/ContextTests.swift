@@ -20,7 +20,7 @@ final class ContextTests: XCTestCase {
         
         XCTAssertEqual(context.source.applicationName, "Slack")
         XCTAssertEqual(context.selectedText, "Hello world")
-        XCTAssertNil(context.surroundingText)
+        XCTAssertNil(context.precedingText)
     }
     
     func testContextSourceWithURL() {

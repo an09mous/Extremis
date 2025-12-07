@@ -40,14 +40,14 @@ final class GenericExtractor: ContextExtractor {
         // Get focused element info
         let focusedInfo = getFocusedElementInfo(from: app)
 
-        // Capture surrounding text using CGEvent Cmd+A, Cmd+C
-        print("📋 GenericExtractor: Capturing surrounding text via clipboard...")
-        let surroundingText = ClipboardCapture.shared.captureVisibleContent(verbose: true)
+        // Capture preceding text using CGEvent Cmd+Shift+Up, Cmd+C
+        print("📋 GenericExtractor: Capturing preceding text via clipboard...")
+        let precedingText = ClipboardCapture.shared.captureVisibleContent(verbose: true)
 
         return Context(
             source: source,
             selectedText: selectedText,
-            surroundingText: surroundingText,
+            precedingText: precedingText,
             metadata: .generic(GenericMetadata(
                 focusedElementRole: focusedInfo.role,
                 focusedElementLabel: focusedInfo.label
