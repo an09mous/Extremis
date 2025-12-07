@@ -24,7 +24,9 @@ let package = Package(
             exclude: [
                 "Package.swift",
                 "Info.plist",
-                "Extremis.entitlements"
+                "Extremis.entitlements",
+                "scripts",
+                "build"
             ],
             sources: [
                 "App",
