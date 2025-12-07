@@ -31,68 +31,25 @@ final class TextInserterService: TextInserter {
     
     // MARK: - TextInserter Protocol
 
-    /// Apps that need clipboard-based insertion (Electron apps and browsers)
-    private static let clipboardOnlyApps: Set<String> = [
-        // Electron apps
-        "com.tinyspeck.slackmacgap",  // Slack
-        "com.microsoft.VSCode",        // VS Code
-        "com.hnc.Discord",             // Discord
-        "com.spotify.client",          // Spotify
-        "com.figma.Desktop",           // Figma
-        "notion.id",                   // Notion
-        "net.whatsapp.WhatsApp",       // WhatsApp
-        "desktop.WhatsApp",            // WhatsApp (alternative bundle ID)
-        // Browsers (AX doesn't work reliably with web content)
-        "com.apple.Safari",            // Safari
-        "com.google.Chrome",           // Chrome
-        "org.mozilla.firefox",         // Firefox
-        "com.microsoft.edgemac",       // Edge
-        "com.brave.Browser",           // Brave
-        "company.thebrowser.Browser",  // Arc
-        "com.operasoftware.Opera",     // Opera
-        "com.vivaldi.Vivaldi",         // Vivaldi
-    ]
-
     func insert(text: String, into source: ContextSource) async throws {
-        // Check accessibility permission
+        // Check accessibility permission (needed for keyboard simulation)
         guard permissionManager.isAccessibilityEnabled() else {
             throw TextInsertionError.accessibilityPermissionDenied
         }
 
-        print("🔧 TextInserter: Inserting into \(source.applicationName) (\(source.bundleIdentifier))")
-
         // Find and activate the target application
         guard let app = findApplication(bundleId: source.bundleIdentifier) else {
-            print("⚠️ TextInserter: App not found, using clipboard fallback")
-            try await clipboardManager.insertText(text)
+            try await insertViaClipboard(text: text)
             return
         }
 
         // Bring the app to front
         app.activate(options: [.activateIgnoringOtherApps])
 
-        // For browsers and Electron apps, skip AX insertion and go straight to clipboard
-        let needsClipboard = Self.clipboardOnlyApps.contains(source.bundleIdentifier)
+        // Wait for app to be focused
+        try await Task.sleep(nanoseconds: 200_000_000) // 200ms
 
-        if needsClipboard {
-            print("🔧 TextInserter: Browser/Electron app detected, using clipboard paste")
-            // Longer delay to ensure app is focused and ready
-            try await Task.sleep(nanoseconds: 300_000_000) // 300ms
-            try await insertViaClipboard(text: text)
-            return
-        }
-
-        // Standard delay for native apps
-        try await Task.sleep(nanoseconds: 100_000_000) // 100ms
-
-        // Try direct AX insertion for native apps
-        if try await insertViaAccessibility(text: text, app: app) {
-            print("✅ TextInserter: Inserted via Accessibility API")
-            return
-        }
-
-        print("⚠️ TextInserter: AX insertion failed, using clipboard fallback")
-        // Fallback to clipboard-based insertion
+        // Use clipboard-based insertion (most reliable across all apps)
         try await insertViaClipboard(text: text)
     }
 
@@ -138,59 +95,11 @@ final class TextInserterService: TextInserter {
     }
     
     // MARK: - Private Methods
-    
+
     /// Find running application by bundle ID
     private func findApplication(bundleId: String) -> NSRunningApplication? {
         return NSWorkspace.shared.runningApplications.first {
             $0.bundleIdentifier == bundleId
         }
     }
-    
-    /// Try to insert text using Accessibility API
-    private func insertViaAccessibility(text: String, app: NSRunningApplication) async throws -> Bool {
-        guard let focusedElement = AccessibilityHelpers.getFocusedElement(from: app) else {
-            return false
-        }
-        
-        // Check if element is editable
-        guard AccessibilityHelpers.isTextInput(focusedElement) else {
-            return false
-        }
-        
-        // Try to replace selected text first
-        if AccessibilityHelpers.setSelectedText(text, on: focusedElement) {
-            return true
-        }
-        
-        // Try to set value directly (append mode)
-        if let currentValue = AccessibilityHelpers.getValue(from: focusedElement) {
-            let newValue = currentValue + text
-            return AccessibilityHelpers.setValue(newValue, on: focusedElement)
-        }
-        
-        return false
-    }
 }
-
-// MARK: - Text Insertion Options
-
-extension TextInserterService {
-    
-    /// Insert modes
-    enum InsertMode {
-        case replace      // Replace selected text
-        case append       // Append to current content
-        case clipboard    // Use clipboard paste
-    }
-    
-    /// Insert with specific mode
-    func insert(text: String, into source: ContextSource, mode: InsertMode) async throws {
-        switch mode {
-        case .replace, .append:
-            try await insert(text: text, into: source)
-        case .clipboard:
-            try await clipboardManager.insertText(text)
-        }
-    }
-}
-
