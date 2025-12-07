@@ -42,30 +42,31 @@ On first launch, go to **System Settings → Privacy & Security → Accessibilit
 
 ### 2. Configure LLM Provider
 
+**Ollama is the default provider** - perfect for privacy-conscious users who want to run models locally.
+
+#### Using Ollama (Default - Local Models)
+
+1. Install Ollama from https://ollama.ai
+2. Pull a model: `ollama pull llama3.2` or `ollama pull mistral`
+3. Start Ollama (it runs on `http://127.0.0.1:11434` by default)
+4. Extremis will automatically detect available models
+5. Select your preferred model in Preferences → Providers → Ollama
+
+#### Using Cloud Providers (Optional)
+
+If you prefer cloud-based models:
+
 1. Click the **✨ sparkles icon** in your menu bar
 2. Select **Preferences...**
 3. Go to **Providers** tab
 4. Enter your API key for any provider and click **Save**
 5. Click **Use** to make it the active provider
 
-#### Get API Keys
-
 | Provider | URL |
 |----------|-----|
 | OpenAI | https://platform.openai.com/api-keys |
 | Anthropic | https://console.anthropic.com/settings/keys |
 | Google Gemini | https://aistudio.google.com/app/apikey |
-| Ollama | https://ollama.ai (no API key required) |
-
-#### Using Ollama (Local Models)
-
-1. Install Ollama from https://ollama.ai
-2. Pull a model: `ollama pull llama3.2` or `ollama pull mistral`
-3. Start Ollama (it runs on `http://127.0.0.1:11434` by default)
-4. In Extremis Preferences → Providers → Ollama:
-   - Base URL: `http://127.0.0.1:11434` (default)
-   - Select your model from the dropdown
-   - Click **Use** to activate
 
 ## Usage
 

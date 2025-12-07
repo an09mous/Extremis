@@ -84,15 +84,16 @@ final class LLMProviderRegistry: LLMProviderRegistryProtocol {
     
     private func restoreActiveProvider() {
         let preferredType = userDefaults.activeProvider
-        
-        // Try to set the preferred provider if configured
-        if let provider = provider(for: preferredType), provider.isConfigured {
+
+        // Always set the preferred provider (even if not configured yet)
+        // This respects user choice and allows Ollama to connect later
+        if let provider = provider(for: preferredType) {
             activeProvider = provider
             return
         }
-        
-        // Fall back to first configured provider
-        activeProvider = providers.first { $0.isConfigured }
+
+        // Fall back to Ollama (default) or first available provider
+        activeProvider = provider(for: .ollama) ?? providers.first
     }
     
     // MARK: - Model Selection

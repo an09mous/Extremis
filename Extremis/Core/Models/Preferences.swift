@@ -13,7 +13,7 @@ struct Preferences: Codable, Equatable {
     
     init(
         hotkey: HotkeyConfiguration = .default,
-        activeProvider: LLMProviderType = .openai,
+        activeProvider: LLMProviderType = .ollama,
         launchAtLogin: Bool = false,
         appearance: AppearanceSettings = .default
     ) {
