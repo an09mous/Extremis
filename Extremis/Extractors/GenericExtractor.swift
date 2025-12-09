@@ -40,16 +40,8 @@ final class GenericExtractor: ContextExtractor {
         // Get focused element info
         let focusedInfo = getFocusedElementInfo(from: app)
 
-        // Capture preceding text (text before cursor)
-        print("📋 GenericExtractor: Capturing preceding text via clipboard...")
-        let precedingText = ClipboardCapture.shared.captureVisibleContent(verbose: true)
-
-        // Small delay between captures to ensure cursor is stable
-        Thread.sleep(forTimeInterval: 0.2)
-
-        // Capture succeeding text (text after cursor)
-        print("📋 GenericExtractor: Capturing succeeding text via clipboard...")
-        let succeedingText = ClipboardCapture.shared.captureSucceedingContent(verbose: true)
+        // Capture text around cursor using common method
+        let (precedingText, succeedingText) = captureTextAroundCursor(verbose: true)
 
         return Context(
             source: source,

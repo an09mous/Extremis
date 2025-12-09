@@ -56,18 +56,8 @@ final class BrowserExtractor: ContextExtractor {
         let windowTitle = getWindowTitle(appElement)
         print("🌐 BrowserExtractor: Window title = \(windowTitle ?? "nil")")
 
-        // Capture preceding text (text before cursor)
-        print("🌐 BrowserExtractor: Capturing preceding text via clipboard...")
-        let precedingText = ClipboardCapture.shared.captureVisibleContent(verbose: true)
-
-        // Small delay between captures to ensure cursor is stable
-        Thread.sleep(forTimeInterval: 0.2)
-
-        // Capture succeeding text (text after cursor)
-        print("🌐 BrowserExtractor: Capturing succeeding text via clipboard...")
-        let succeedingText = ClipboardCapture.shared.captureSucceedingContent(verbose: true)
-
-        print("🌐 BrowserExtractor: Captured \(precedingText?.count ?? 0) preceding, \(succeedingText?.count ?? 0) succeeding chars")
+        // Capture text around cursor using common method
+        let (precedingText, succeedingText) = captureTextAroundCursor(verbose: true)
 
         let source = ContextSource(
             applicationName: app.localizedName ?? "Browser",
