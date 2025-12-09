@@ -59,7 +59,12 @@ final class BrowserExtractor: ContextExtractor {
         // Capture preceding text via clipboard
         print("🌐 BrowserExtractor: Capturing preceding text via clipboard...")
         let precedingText = ClipboardCapture.shared.captureVisibleContent(verbose: true) ?? ""
-        print("🌐 BrowserExtractor: Clipboard captured \(precedingText.count) chars")
+        print("🌐 BrowserExtractor: Preceding text captured \(precedingText.count) chars")
+
+        // Capture succeeding text via clipboard
+        print("🌐 BrowserExtractor: Capturing succeeding text via clipboard...")
+        let succeedingText = ClipboardCapture.shared.captureSucceedingContent(verbose: true)
+        print("🌐 BrowserExtractor: Succeeding text captured \(succeedingText?.count ?? 0) chars")
 
         let source = ContextSource(
             applicationName: app.localizedName ?? "Browser",
@@ -72,6 +77,7 @@ final class BrowserExtractor: ContextExtractor {
             source: source,
             selectedText: selectedText,
             precedingText: precedingText,
+            succeedingText: succeedingText,
             metadata: .generic(GenericMetadata(
                 focusedElementRole: focusedInfo.role,
                 focusedElementLabel: focusedInfo.label

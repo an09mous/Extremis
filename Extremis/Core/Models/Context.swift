@@ -12,6 +12,7 @@ struct Context: Codable, Equatable, Identifiable {
     let source: ContextSource
     let selectedText: String?
     let precedingText: String?
+    let succeedingText: String?  // Text after the cursor
     let metadata: ContextMetadata
 
     init(
@@ -20,6 +21,7 @@ struct Context: Codable, Equatable, Identifiable {
         source: ContextSource,
         selectedText: String? = nil,
         precedingText: String? = nil,
+        succeedingText: String? = nil,
         metadata: ContextMetadata = .generic(GenericMetadata())
     ) {
         self.id = id
@@ -27,6 +29,7 @@ struct Context: Codable, Equatable, Identifiable {
         self.source = source
         self.selectedText = selectedText
         self.precedingText = precedingText
+        self.succeedingText = succeedingText
         self.metadata = metadata
     }
 }
