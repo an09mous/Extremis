@@ -133,10 +133,24 @@ Extremis/
   - ApplicationServices (Accessibility APIs)
   - Security (Keychain for API key storage)
 
+## Known Limitations
+
+### IDE Cursor Position (VS Code, Electron-based editors)
+
+When using Extremis in VS Code or other Electron-based IDEs, the cursor may occasionally shift from its original position after context capture. This happens because:
+
+1. **VS Code's "Copy line if nothing selected" feature** - When nothing is selected, `Cmd+C` copies the entire line instead of nothing
+2. **Accessibility API timing issues** - The AX API in Electron apps doesn't always report selection state reliably
+
+**Workaround**: The cursor shift is usually minor (to the beginning or end of a line). You can manually reposition if needed.
+
+This is a known issue being tracked for future fixes.
+
 ## Roadmap
 
 - [ ] **Replace mode** - Option to replace selected text instead of just inserting
 - [x] **Full context capture** - Capture text after cursor (succeeding text) in addition to preceding text
+- [ ] **Fix IDE cursor positioning** - Reliable cursor restoration in VS Code and Electron apps
 - [ ] **Summarization** - Quick summarize selected text or page content
 - [ ] **Chat + Memory** - Conversational interface with persistent memory across sessions
 - [ ] **Streaming response** - Show generated text in real-time as it's being created

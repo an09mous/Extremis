@@ -66,16 +66,14 @@ final class SlackExtractor: ContextExtractor {
         let selectedText = getSelectedText(appElement)
         print("🔍 SlackExtractor: Selected text via AX = \(selectedText ?? "nil")")
 
-        // Capture visible content using shared ClipboardCapture utility
-        print("🔍 SlackExtractor: Capturing visible content via clipboard...")
-        let clipboardContent = ClipboardCapture.shared.captureVisibleContent(verbose: true)
-        print("🔍 SlackExtractor: Captured \(clipboardContent?.count ?? 0) characters")
+        // Capture text around cursor using common method
+        let (precedingText, succeedingText) = captureTextAroundCursor(verbose: true)
 
-        // Parse messages from captured content
+        // Parse messages from captured content (use preceding text for context)
         var extractedMessages: [SlackMessage] = []
         var extractedParticipants: [String] = []
 
-        if let content = clipboardContent, !content.isEmpty {
+        if let content = precedingText, !content.isEmpty {
             let parsed = parseSlackContent(content)
             extractedMessages = parsed.messages
             extractedParticipants = parsed.participants
@@ -98,7 +96,8 @@ final class SlackExtractor: ContextExtractor {
         return Context(
             source: source,
             selectedText: selectedText,
-            precedingText: clipboardContent,
+            precedingText: precedingText,
+            succeedingText: succeedingText,
             metadata: .slack(metadata)
         )
     }
