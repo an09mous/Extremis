@@ -34,19 +34,24 @@ Please provide a helpful response based on the context and instruction above. Be
 Context: {{CONTEXT}}
 
 ## AUTOCOMPLETE MODE
-The user has selected autocomplete mode. This means they want you to **autocomplete** or **continue** whatever text precedes the cursor.
+The user has selected autocomplete mode. This means they want you to **autocomplete** the text at the cursor position.
+
+You have access to:
+- **Preceding Text**: Text BEFORE the cursor (what the user has already written)
+- **Succeeding Text**: Text AFTER the cursor (what comes next in the document, if any)
 
 Your task:
-1. Analyze the preceding text carefully
-2. Determine what the user is likely trying to write next
-3. Generate a natural continuation of the text
-4. Match the exact style, tone, and format of the existing content
+1. Analyze the preceding text to understand what the user is writing
+2. Consider the succeeding text (if present) to understand the broader context
+3. Generate text that fits naturally at the cursor position
+4. If succeeding text exists, bridge smoothly between preceding and succeeding
+5. Match the exact style, tone, and format of the existing content
 
 Strict Rules and you should follow them with your life and heart else world will end:
 - Do NOT add any explanations or metadata
-- Since it's an autocomplete request, make sure you are adding appropriate spaces, new lines or punctuation as needed to make the continuation flow naturally
-- Do NOT repeat what's already written
-- Just provide the next logical text that should follow
+- Since it's an autocomplete request, make sure you are adding appropriate spaces, new lines, indentation, curly braces, or punctuation as needed to make the continuation flow naturally
+- Do NOT repeat what's already written (neither preceding nor succeeding text)
+- Just provide the text that should appear AT THE CURSOR POSITION
 - If it's a message, complete the message naturally
 - If it's code, complete the code logically
 - If it's an email, continue the email appropriately
@@ -59,27 +64,22 @@ Strict Rules and you should follow them with your life and heart else world will
 You are Extremis, a context-aware writing assistant integrated into macOS. Your role is to help users write, edit, and improve text based on the context of what they're working on.
 
 ## How Context is Captured
-When the user activates Extremis, it captures context differently based on the application:
+When the user activates Extremis, it captures the full context around the cursor:
 
-### For Browsers (Chrome, Safari, Arc, Comet, etc.)
-1. **Preceding Text**: Text before the cursor where the user is typing (captured via clipboard)
-2. **Window Title**: Usually contains the page title (e.g., "Gmail - Compose", "Slack | #general")
+1. **Preceding Text**: Text BEFORE the cursor (what the user has already written)
+2. **Succeeding Text**: Text AFTER the cursor (what comes next in the document)
+3. **Window Title**: Contains the page/app title for additional context
+4. **App-Specific Metadata**: Channel names, participants, etc. for specific apps
 
-### For Desktop Apps (Slack, etc.)
-1. **Preceding Text**: Captured via clipboard from the focused text area
-2. **App-Specific Metadata**: Channel names, participants, recent messages, etc.
-
-### For Other Apps
-1. **Preceding Text**: Captured using Cmd+Shift+Up, Cmd+C (select text before cursor, copy)
-
-The "[Preceding Text]" section contains the text before the cursor when the user activated Extremis. The window title provides context about which app/page the user is on. Analyze the context carefully to understand the user's intent and help them with their request.
+The cursor position is between the preceding and succeeding text. When generating text, it will be inserted AT THE CURSOR POSITION.
 
 ## Strict Guidelines
 - Be concise and direct in your responses
-- Match the tone and style of the preceding text when appropriate
-- Use the preceding text and window title to understand what the user is working on
-- Provide only the requested content without extra explanations or metadata. Just the text to be inserted.
+- Match the tone and style of the surrounding text
+- Use both preceding AND succeeding text to understand the full context
+- Provide only the requested content without extra explanations or metadata
 - When generating text to be inserted, provide just the text without markdown formatting or code blocks
+- Generated text should flow naturally from preceding text and connect to succeeding text
 - If the context is from a messaging app (Slack, WhatsApp, Gmail, etc.), match the conversational tone
 - If the context is from an email or professional site, match professional conventions
 - If the context is code or a technical site (GitHub, Stack Overflow), maintain technical accuracy
@@ -98,18 +98,28 @@ The "[Preceding Text]" section contains the text before the cursor when the user
         let contextSection = formatContext(context)
         let isAutocomplete = isAutocompleteMode(instruction: instruction)
 
+        let prompt: String
         if isAutocomplete {
             // Autocomplete mode - no instruction provided
-            return autocompleteTemplate
+            prompt = autocompleteTemplate
                 .replacingOccurrences(of: "{{SYSTEM_PROMPT}}", with: systemPrompt)
                 .replacingOccurrences(of: "{{CONTEXT}}", with: contextSection)
         } else {
             // Standard mode - instruction provided
-            return mainTemplate
+            prompt = mainTemplate
                 .replacingOccurrences(of: "{{SYSTEM_PROMPT}}", with: systemPrompt)
                 .replacingOccurrences(of: "{{CONTEXT}}", with: contextSection)
                 .replacingOccurrences(of: "{{INSTRUCTION}}", with: instruction)
         }
+
+        // Debug: Print the built prompt
+        print("\n" + String(repeating: "=", count: 80))
+        print("📝 BUILT PROMPT (mode: \(isAutocomplete ? "AUTOCOMPLETE" : "INSTRUCTION"))")
+        print(String(repeating: "=", count: 80))
+        print(prompt)
+        print(String(repeating: "=", count: 80) + "\n")
+
+        return prompt
     }
     
     // MARK: - Context Formatting
@@ -120,9 +130,14 @@ The "[Preceding Text]" section contains the text before the cursor when the user
         // Source information
         sections.append(formatSource(context.source))
 
-        // Preceding text (captured via Cmd+Shift+Up, Cmd+C)
+        // Preceding text (text BEFORE cursor)
         if let precedingText = context.precedingText, !precedingText.isEmpty {
             sections.append(formatPrecedingText(precedingText))
+        }
+
+        // Succeeding text (text AFTER cursor)
+        if let succeedingText = context.succeedingText, !succeedingText.isEmpty {
+            sections.append(formatSucceedingText(succeedingText))
         }
 
         // App-specific metadata
@@ -154,13 +169,28 @@ The "[Preceding Text]" section contains the text before the cursor when the user
             : text
 
         return """
-        [Preceding Text]
+        [Preceding Text - BEFORE Cursor]
         \"\"\"
         \(truncatedText)
         \"\"\"
         """
     }
-    
+
+    private func formatSucceedingText(_ text: String) -> String {
+        // Truncate if too long
+        let maxLength = 1500
+        let truncatedText = text.count > maxLength
+            ? String(text.prefix(maxLength)) + "... [truncated]"
+            : text
+
+        return """
+        [Succeeding Text - AFTER Cursor]
+        \"\"\"
+        \(truncatedText)
+        \"\"\"
+        """
+    }
+
     // MARK: - Metadata Formatting
     
     private func formatMetadata(_ metadata: ContextMetadata) -> String {

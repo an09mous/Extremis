@@ -44,10 +44,15 @@ final class GenericExtractor: ContextExtractor {
         print("📋 GenericExtractor: Capturing preceding text via clipboard...")
         let precedingText = ClipboardCapture.shared.captureVisibleContent(verbose: true)
 
+        // Capture succeeding text using CGEvent Cmd+Shift+Down, Cmd+C
+        print("📋 GenericExtractor: Capturing succeeding text via clipboard...")
+        let succeedingText = ClipboardCapture.shared.captureSucceedingContent(verbose: true)
+
         return Context(
             source: source,
             selectedText: selectedText,
             precedingText: precedingText,
+            succeedingText: succeedingText,
             metadata: .generic(GenericMetadata(
                 focusedElementRole: focusedInfo.role,
                 focusedElementLabel: focusedInfo.label

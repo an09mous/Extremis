@@ -92,7 +92,80 @@ final class ClipboardCapture {
         
         return copiedContent
     }
-    
+
+    /// Capture content AFTER the cursor position using Cmd+Shift+Down, Cmd+C
+    /// This preserves the original cursor position by using Left Arrow after copy
+    /// - Parameter verbose: Whether to print detailed logs
+    /// - Returns: The captured text content, or nil if capture failed
+    func captureSucceedingContent(verbose: Bool = true) -> String? {
+        if verbose {
+            print("\n" + String(repeating: "=", count: 70))
+            print("📋 CLIPBOARD CAPTURE (CGEvent - After Cursor)")
+            print(String(repeating: "=", count: 70))
+        }
+
+        // Save current clipboard
+        let pasteboard = NSPasteboard.general
+        let savedClipboard = saveClipboard(pasteboard)
+
+        if verbose {
+            print("\n📋 STEP 1: Saved original clipboard (\(savedClipboard.count) types)")
+        }
+
+        // Clear clipboard
+        pasteboard.clearContents()
+
+        if verbose {
+            print("\n⚡ Simulating Cmd+Shift+Down (select after cursor), Cmd+C, Left Arrow...")
+        }
+
+        // Simulate Cmd+Shift+Down (Select all content AFTER cursor)
+        // Key code for Down Arrow is 0x7D
+        simulateKeyPress(keyCode: 0x7D, withCommand: true, withShift: true)
+        Thread.sleep(forTimeInterval: 0.3)
+
+        // Simulate Cmd+C (Copy) - Key code for 'C' is 0x08
+        simulateKeyPress(keyCode: 0x08, withCommand: true, withShift: false)
+        Thread.sleep(forTimeInterval: 0.3)
+
+        // Release all modifiers
+        releaseModifiers()
+        Thread.sleep(forTimeInterval: 0.1)
+
+        // Simulate Left Arrow to deselect and move to START of selection (original cursor position)
+        // Key code for Left Arrow is 0x7B
+        simulateKeyPress(keyCode: 0x7B, withCommand: false, withShift: false)
+
+        // Small delay to let clipboard update
+        Thread.sleep(forTimeInterval: 0.15)
+
+        // Read clipboard content
+        let copiedContent = pasteboard.string(forType: .string)
+
+        if verbose {
+            print("\n📋 STEP 2: Captured succeeding content")
+            print(String(repeating: "-", count: 50))
+            if let content = copiedContent {
+                print("  Length: \(content.count) characters")
+                print(String(repeating: "-", count: 50))
+                print(content)
+                print(String(repeating: "-", count: 50))
+            } else {
+                print("  ❌ NO CONTENT CAPTURED (cursor may be at end of document)")
+            }
+        }
+
+        // Restore original clipboard
+        restoreClipboard(pasteboard, from: savedClipboard)
+
+        if verbose {
+            print("\n✅ Restored original clipboard")
+            print(String(repeating: "=", count: 70) + "\n")
+        }
+
+        return copiedContent
+    }
+
     // MARK: - Private Methods
 
     /// Release any stuck modifier keys by sending key-up events
