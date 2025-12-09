@@ -123,22 +123,18 @@ The cursor position is between the preceding and succeeding text. When generatin
     }
     
     // MARK: - Context Formatting
-    
+
     private func formatContext(_ context: Context) -> String {
         var sections: [String] = []
 
         // Source information
         sections.append(formatSource(context.source))
 
-        // Preceding text (text BEFORE cursor)
-        if let precedingText = context.precedingText, !precedingText.isEmpty {
-            sections.append(formatPrecedingText(precedingText))
-        }
+        // Preceding text (text BEFORE cursor) - always include, even if empty
+        sections.append(formatPrecedingText(context.precedingText))
 
-        // Succeeding text (text AFTER cursor)
-        if let succeedingText = context.succeedingText, !succeedingText.isEmpty {
-            sections.append(formatSucceedingText(succeedingText))
-        }
+        // Succeeding text (text AFTER cursor) - always include, even if empty
+        sections.append(formatSucceedingText(context.succeedingText))
 
         // App-specific metadata
         sections.append(formatMetadata(context.metadata))
@@ -161,34 +157,48 @@ The cursor position is between the preceding and succeeding text. When generatin
         return lines.joined(separator: "\n")
     }
 
-    private func formatPrecedingText(_ text: String) -> String {
-        // Truncate if too long
-        let maxLength = 2000
-        let truncatedText = text.count > maxLength
-            ? String(text.prefix(maxLength)) + "... [truncated]"
-            : text
+    private func formatPrecedingText(_ text: String?) -> String {
+        if let text = text, !text.isEmpty {
+            // Truncate if too long
+            let maxLength = 2000
+            let truncatedText = text.count > maxLength
+                ? String(text.prefix(maxLength)) + "... [truncated]"
+                : text
 
-        return """
-        [Preceding Text - BEFORE Cursor]
-        \"\"\"
-        \(truncatedText)
-        \"\"\"
-        """
+            return """
+            [Preceding Text - BEFORE Cursor]
+            \"\"\"
+            \(truncatedText)
+            \"\"\"
+            """
+        } else {
+            return """
+            [Preceding Text - BEFORE Cursor]
+            (empty - cursor is at the beginning of the text)
+            """
+        }
     }
 
-    private func formatSucceedingText(_ text: String) -> String {
-        // Truncate if too long
-        let maxLength = 1500
-        let truncatedText = text.count > maxLength
-            ? String(text.prefix(maxLength)) + "... [truncated]"
-            : text
+    private func formatSucceedingText(_ text: String?) -> String {
+        if let text = text, !text.isEmpty {
+            // Truncate if too long
+            let maxLength = 1500
+            let truncatedText = text.count > maxLength
+                ? String(text.prefix(maxLength)) + "... [truncated]"
+                : text
 
-        return """
-        [Succeeding Text - AFTER Cursor]
-        \"\"\"
-        \(truncatedText)
-        \"\"\"
-        """
+            return """
+            [Succeeding Text - AFTER Cursor]
+            \"\"\"
+            \(truncatedText)
+            \"\"\"
+            """
+        } else {
+            return """
+            [Succeeding Text - AFTER Cursor]
+            (empty - cursor is at the end of the text)
+            """
+        }
     }
 
     // MARK: - Metadata Formatting
