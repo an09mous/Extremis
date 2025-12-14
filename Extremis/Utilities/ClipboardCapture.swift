@@ -14,14 +14,17 @@ final class ClipboardCapture {
 
     // MARK: - Individual Captures
 
-    /// Capture content BEFORE the cursor position using Cmd+Shift+Up, Cmd+C
-    /// Only presses Right Arrow if content was actually copied (to preserve cursor position)
+    // Space marker - universal, works in all editors
+    private let marker = " "
+
+    /// Capture content BEFORE the cursor position using marker-based approach
+    /// Flow: Type marker → Cmd+Shift+Up → Cmd+C → Right → Backspace → Strip marker from text
     /// - Parameter verbose: Whether to print detailed logs
     /// - Returns: The captured text content, or nil if capture failed
     func captureVisibleContent(verbose: Bool = true) -> String? {
         if verbose {
             print("\n" + String(repeating: "=", count: 70))
-            print("📋 CLIPBOARD CAPTURE (CGEvent - Before Cursor)")
+            print("📋 CLIPBOARD CAPTURE (Marker-based - Before Cursor)")
             print(String(repeating: "=", count: 70))
         }
 
@@ -31,54 +34,75 @@ final class ClipboardCapture {
 
         if verbose {
             print("\n📋 STEP 1: Saved original clipboard (\(savedClipboard.count) types)")
-            if let originalText = pasteboard.string(forType: .string) {
-                print("  Original content preview: \(originalText.prefix(100))...")
-            }
         }
 
         // Clear clipboard
         pasteboard.clearContents()
 
-        if verbose {
-            print("\n⚡ Simulating Cmd+Shift+Up (select before cursor), Cmd+C...")
-        }
-
-        // Simulate Cmd+Shift+Up (Select all content BEFORE cursor)
-        simulateKeyPress(keyCode: 0x7E, withCommand: true, withShift: true)
-        Thread.sleep(forTimeInterval: 0.3)
-
-        // Simulate Cmd+C (Copy)
-        simulateKeyPress(keyCode: 0x08, withCommand: true, withShift: false)
-        Thread.sleep(forTimeInterval: 0.3)
-
-        // Release all modifiers
+        // Release any held modifiers from hotkey (important for Cmd+Shift+Space hotkey)
         releaseModifiers()
         Thread.sleep(forTimeInterval: 0.1)
 
-        // Read clipboard content
-        let copiedContent = pasteboard.string(forType: .string)
+        if verbose {
+            print("\n⚡ Step 2: Typing space marker...")
+        }
 
-        // Only press Right Arrow if something was actually copied
-        // If clipboard is empty, cursor was at start - don't press arrow to avoid shifting
-        if let content = copiedContent, !content.isEmpty {
-            if verbose {
-                print("⚡ Content copied, pressing Right Arrow to restore cursor position...")
-            }
-            simulateKeyPress(keyCode: 0x7C, withCommand: false, withShift: false)
-            Thread.sleep(forTimeInterval: 0.15)
-        } else {
-            if verbose {
-                print("   ✓ No content copied (cursor at start) - skipping arrow key")
-            }
+        // Type the marker character at cursor position
+        typeText(marker)
+        Thread.sleep(forTimeInterval: 0.05)
+
+        if verbose {
+            print("⚡ Step 3: Cmd+Shift+Up (select before cursor including marker)...")
+        }
+
+        // Simulate Cmd+Shift+Up (Select all content BEFORE cursor, including marker)
+        simulateKeyPress(keyCode: 0x7E, withCommand: true, withShift: true)
+        Thread.sleep(forTimeInterval: 0.05)
+
+        if verbose {
+            print("⚡ Step 4: Cmd+C (copy selection)...")
+        }
+
+        // Simulate Cmd+C (Copy)
+        simulateKeyPress(keyCode: 0x08, withCommand: true, withShift: false)
+        Thread.sleep(forTimeInterval: 0.05)
+
+        // Release all modifiers
+        releaseModifiers()
+        Thread.sleep(forTimeInterval: 0.05)
+
+        if verbose {
+            print("⚡ Step 5: Right arrow (deselect, cursor at marker)...")
+        }
+
+        // Right arrow to deselect and position cursor at end of selection (after marker)
+        simulateKeyPress(keyCode: 0x7C, withCommand: false, withShift: false)
+        Thread.sleep(forTimeInterval: 0.05)
+
+        if verbose {
+            print("⚡ Step 6: Backspace (delete marker)...")
+        }
+
+        // Backspace to delete the marker
+        simulateKeyPress(keyCode: 0x33, withCommand: false, withShift: false) // 0x33 = Backspace
+        Thread.sleep(forTimeInterval: 0.05)
+
+        // Read clipboard content
+        var copiedContent = pasteboard.string(forType: .string)
+
+        // Strip the marker from the end of copied text
+        if let content = copiedContent, content.hasSuffix(marker) {
+            copiedContent = String(content.dropLast(marker.count))
         }
 
         if verbose {
-            print("\n📋 STEP 2: Captured content")
+            print("\n📋 RESULT: Captured preceding content")
             print(String(repeating: "-", count: 50))
             if let content = copiedContent, !content.isEmpty {
                 print("  Length: \(content.count) characters")
                 print(String(repeating: "-", count: 50))
-                print(content)
+                let preview = content.count > 200 ? String(content.suffix(200)) + "..." : content
+                print(preview)
                 print(String(repeating: "-", count: 50))
             } else {
                 print("  (empty - cursor was at start)")
@@ -93,17 +117,17 @@ final class ClipboardCapture {
             print(String(repeating: "=", count: 70) + "\n")
         }
 
-        return copiedContent
+        return copiedContent?.isEmpty == true ? nil : copiedContent
     }
 
-    /// Capture content AFTER the cursor position using Cmd+Shift+Down, Cmd+C
-    /// Only presses Left Arrow if content was actually copied (to preserve cursor position)
+    /// Capture content AFTER the cursor position using marker-based approach
+    /// Flow: Type marker → Left → Cmd+Shift+Down → Cmd+C → Left → Delete → Strip marker from text
     /// - Parameter verbose: Whether to print detailed logs
     /// - Returns: The captured text content, or nil if capture failed
     func captureSucceedingContent(verbose: Bool = true) -> String? {
         if verbose {
             print("\n" + String(repeating: "=", count: 70))
-            print("📋 CLIPBOARD CAPTURE (CGEvent - After Cursor)")
+            print("📋 CLIPBOARD CAPTURE (Marker-based - After Cursor)")
             print(String(repeating: "=", count: 70))
         }
 
@@ -118,46 +142,78 @@ final class ClipboardCapture {
         // Clear clipboard
         pasteboard.clearContents()
 
-        if verbose {
-            print("\n⚡ Simulating Cmd+Shift+Down (select after cursor), Cmd+C...")
-        }
-
-        // Simulate Cmd+Shift+Down (Select all content AFTER cursor)
-        simulateKeyPress(keyCode: 0x7D, withCommand: true, withShift: true)
-        Thread.sleep(forTimeInterval: 0.3)
-
-        // Simulate Cmd+C (Copy)
-        simulateKeyPress(keyCode: 0x08, withCommand: true, withShift: false)
-        Thread.sleep(forTimeInterval: 0.3)
-
-        // Release all modifiers
+        // Release any held modifiers from hotkey (important for Cmd+Shift+Space hotkey)
         releaseModifiers()
         Thread.sleep(forTimeInterval: 0.1)
 
-        // Read clipboard content
-        let copiedContent = pasteboard.string(forType: .string)
+        if verbose {
+            print("\n⚡ Step 2: Typing space marker...")
+        }
 
-        // Only press Left Arrow if something was actually copied
-        // If clipboard is empty, cursor was at end - don't press arrow to avoid shifting
-        if let content = copiedContent, !content.isEmpty {
-            if verbose {
-                print("⚡ Content copied, pressing Left Arrow to restore cursor position...")
-            }
-            simulateKeyPress(keyCode: 0x7B, withCommand: false, withShift: false)
-            Thread.sleep(forTimeInterval: 0.15)
-        } else {
-            if verbose {
-                print("   ✓ No content copied (cursor at end) - skipping arrow key")
-            }
+        // Type the marker character at cursor position
+        typeText(marker)
+        Thread.sleep(forTimeInterval: 0.05)
+
+        if verbose {
+            print("⚡ Step 3: Left arrow (move cursor before marker)...")
+        }
+
+        // Move cursor before the marker
+        simulateKeyPress(keyCode: 0x7B, withCommand: false, withShift: false) // 0x7B = Left Arrow
+        Thread.sleep(forTimeInterval: 0.05)
+
+        if verbose {
+            print("⚡ Step 4: Cmd+Shift+Down (select after cursor including marker)...")
+        }
+
+        // Simulate Cmd+Shift+Down (Select all content AFTER cursor, including marker)
+        simulateKeyPress(keyCode: 0x7D, withCommand: true, withShift: true)
+        Thread.sleep(forTimeInterval: 0.05)
+
+        if verbose {
+            print("⚡ Step 5: Cmd+C (copy selection)...")
+        }
+
+        // Simulate Cmd+C (Copy)
+        simulateKeyPress(keyCode: 0x08, withCommand: true, withShift: false)
+        Thread.sleep(forTimeInterval: 0.05)
+
+        // Release all modifiers
+        releaseModifiers()
+        Thread.sleep(forTimeInterval: 0.05)
+
+        if verbose {
+            print("⚡ Step 6: Left arrow (deselect, cursor at original position)...")
+        }
+
+        // Left arrow to deselect and position cursor at start of selection (original position)
+        simulateKeyPress(keyCode: 0x7B, withCommand: false, withShift: false)
+        Thread.sleep(forTimeInterval: 0.05)
+
+        if verbose {
+            print("⚡ Step 7: Delete (forward delete marker)...")
+        }
+
+        // Forward delete (fn+Backspace) to delete the marker which is now after cursor
+        simulateKeyPress(keyCode: 0x75, withCommand: false, withShift: false) // 0x75 = Forward Delete
+        Thread.sleep(forTimeInterval: 0.05)
+
+        // Read clipboard content
+        var copiedContent = pasteboard.string(forType: .string)
+
+        // Strip the marker from the beginning of copied text
+        if let content = copiedContent, content.hasPrefix(marker) {
+            copiedContent = String(content.dropFirst(marker.count))
         }
 
         if verbose {
-            print("\n📋 STEP 2: Captured succeeding content")
+            print("\n📋 RESULT: Captured succeeding content")
             print(String(repeating: "-", count: 50))
             if let content = copiedContent, !content.isEmpty {
                 print("  Length: \(content.count) characters")
                 print(String(repeating: "-", count: 50))
-                print(content)
+                let preview = content.count > 200 ? String(content.prefix(200)) + "..." : content
+                print(preview)
                 print(String(repeating: "-", count: 50))
             } else {
                 print("  (empty - cursor was at end)")
@@ -172,7 +228,7 @@ final class ClipboardCapture {
             print(String(repeating: "=", count: 70) + "\n")
         }
 
-        return copiedContent
+        return copiedContent?.isEmpty == true ? nil : copiedContent
     }
 
     // MARK: - Private Methods
@@ -204,7 +260,8 @@ final class ClipboardCapture {
     ///   - keyCode: The virtual key code to simulate
     ///   - withCommand: Whether to include Command modifier
     ///   - withShift: Whether to include Shift modifier
-    private func simulateKeyPress(keyCode: CGKeyCode, withCommand: Bool, withShift: Bool = false) {
+    ///   - withOption: Whether to include Option/Alt modifier
+    private func simulateKeyPress(keyCode: CGKeyCode, withCommand: Bool, withShift: Bool = false, withOption: Bool = false) {
         let source = CGEventSource(stateID: .hidSystemState)
 
         // Build modifier flags
@@ -214,6 +271,9 @@ final class ClipboardCapture {
         }
         if withShift {
             flags.insert(.maskShift)
+        }
+        if withOption {
+            flags.insert(.maskAlternate)
         }
 
         // Key down
@@ -236,6 +296,12 @@ final class ClipboardCapture {
         }
     }
     
+    /// Type a space by simulating actual space bar keypress (keycode 0x31)
+    private func typeText(_ text: String) {
+        // For space marker, use actual space bar keypress which works universally
+        simulateKeyPress(keyCode: 0x31, withCommand: false, withShift: false) // 0x31 = Space
+    }
+
     /// Save clipboard contents
     private func saveClipboard(_ pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType: Data] {
         var savedData: [NSPasteboard.PasteboardType: Data] = [:]
@@ -246,7 +312,7 @@ final class ClipboardCapture {
         }
         return savedData
     }
-    
+
     /// Restore clipboard contents
     private func restoreClipboard(_ pasteboard: NSPasteboard, from savedData: [NSPasteboard.PasteboardType: Data]) {
         pasteboard.clearContents()
