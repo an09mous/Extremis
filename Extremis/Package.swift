@@ -26,7 +26,8 @@ let package = Package(
                 "Info.plist",
                 "Extremis.entitlements",
                 "scripts",
-                "build"
+                "build",
+                "Tests"
             ],
             sources: [
                 "App",
