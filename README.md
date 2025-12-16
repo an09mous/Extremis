@@ -7,14 +7,14 @@ A context-aware LLM writing assistant for macOS. Press a global hotkey anywhere 
 - **🔥 Global Hotkeys**
   - `⌘+Shift+Space` - Open prompt window for instructions
   - `⌥+Tab` - Instant autocomplete at cursor position
-- **🧠 Context-Aware** - Captures surrounding text and page content via macOS Accessibility APIs
+- **🧠 Context-Aware** - Captures surrounding text via keyboard simulation (works in all apps including VS Code)
 - **🤖 Multi-Provider LLM Support**
   - OpenAI (GPT-4o)
   - Anthropic (Claude 3.5 Sonnet)
   - Google Gemini (Gemini 1.5 Flash)
   - Ollama (Local models - Llama, Mistral, etc.)
 - **📝 Smart Text Insertion** - Generated text automatically inserted at cursor
-- **🔒 Privacy-First** - Uses AX APIs only, no screenshots
+- **🔒 Privacy-First** - No screenshots, uses keyboard simulation for text capture
 - **🎨 Menu Bar App** - Runs quietly in your menu bar, shows active provider/model
 
 ## Requirements
@@ -86,23 +86,31 @@ If you prefer cloud-based models:
 
 ## Context Extraction
 
-Extremis captures context differently based on the application:
+Extremis uses a **marker-based keyboard simulation** approach to capture text around the cursor. This works universally across all applications including VS Code and other Electron-based editors.
 
-### Browsers (Chrome, Safari, Arc, etc.)
-- **Surrounding text**: Captured via clipboard (text before cursor)
-- **Page content**: Extracted via AX APIs (headings, paragraphs, links, buttons)
-- **Window title**: Usually contains page title
+### How It Works
 
-### Slack (Desktop App)
-- Channel name and type
-- Recent messages
-- Participants
-- Selected text
+1. **Type a space marker** at cursor position
+2. **Select text** using `Cmd+Shift+Up/Down`
+3. **Copy** the selection
+4. **Delete the marker** using backspace/delete
+5. **Strip the marker** from captured text
 
-### Other Applications
-- Selected text via Accessibility APIs
-- Focused element info
-- Window title
+This approach:
+- ✅ Works in **all applications** (VS Code, browsers, native apps)
+- ✅ **Preserves cursor position** exactly
+- ✅ **Restores clipboard** after capture
+- ✅ No dependency on Accessibility APIs for text capture
+
+### Application-Specific Metadata
+
+While text capture is universal, metadata varies by app:
+
+| Application | Additional Context |
+|-------------|-------------------|
+| **Browsers** | Page content via AX APIs (headings, paragraphs, links) |
+| **Slack** | Channel name, recent messages, participants |
+| **Others** | Focused element info, window title |
 
 ## Architecture
 
@@ -133,24 +141,11 @@ Extremis/
   - ApplicationServices (Accessibility APIs)
   - Security (Keychain for API key storage)
 
-## Known Limitations
-
-### IDE Cursor Position (VS Code, Electron-based editors)
-
-When using Extremis in VS Code or other Electron-based IDEs, the cursor may occasionally shift from its original position after context capture. This happens because:
-
-1. **VS Code's "Copy line if nothing selected" feature** - When nothing is selected, `Cmd+C` copies the entire line instead of nothing
-2. **Accessibility API timing issues** - The AX API in Electron apps doesn't always report selection state reliably
-
-**Workaround**: The cursor shift is usually minor (to the beginning or end of a line). You can manually reposition if needed.
-
-This is a known issue being tracked for future fixes.
-
 ## Roadmap
 
 - [ ] **Replace mode** - Option to replace selected text instead of just inserting
 - [x] **Full context capture** - Capture text after cursor (succeeding text) in addition to preceding text
-- [ ] **Fix IDE cursor positioning** - Reliable cursor restoration in VS Code and Electron apps
+- [x] **Universal app support** - Works in VS Code and all Electron apps via marker-based capture
 - [ ] **Summarization** - Quick summarize selected text or page content
 - [ ] **Chat + Memory** - Conversational interface with persistent memory across sessions
 - [ ] **Streaming response** - Show generated text in real-time as it's being created

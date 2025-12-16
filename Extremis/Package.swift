@@ -27,7 +27,8 @@ let package = Package(
                 "Extremis.entitlements",
                 "scripts",
                 "build",
-                "Tests"
+                "Tests",
+                "docs"
             ],
             sources: [
                 "App",
