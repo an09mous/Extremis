@@ -115,6 +115,9 @@ enum SelectionDetector {
 
     /// Detect selection by using clipboard (Cmd+C) - reliable for all apps
     /// This saves clipboard, copies, checks, and restores
+    ///
+    /// Note: This method includes heuristics to detect IDE "copy line" behavior where
+    /// Cmd+C with no selection copies the entire current line (VS Code, JetBrains, etc.)
     private static func detectSelectionViaClipboard(source: ContextSource) -> SelectionResult {
         print("[SelectionDetector] Clipboard: Starting clipboard-based detection...")
 
@@ -141,10 +144,20 @@ enum SelectionDetector {
 
         // Check if clipboard now has text
         let copiedText = pasteboard.string(forType: .string)
-        let hasSelection = copiedText != nil && !copiedText!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasNonEmptyText = copiedText != nil && !copiedText!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
-        if hasSelection {
-            print("[SelectionDetector] Clipboard: ✅ Found selection: \(copiedText!.prefix(50))...")
+        // Determine if this is a real selection or IDE "copy line" behavior
+        var hasSelection = false
+        if hasNonEmptyText, let text = copiedText {
+            // Check for IDE "copy line" behavior using heuristics
+            if isIDECopyLineBehavior(text) {
+                print("[SelectionDetector] Clipboard: ⚠️ Detected IDE 'copy line' behavior (single line + trailing newline)")
+                print("[SelectionDetector] Clipboard: ❌ Treating as no selection")
+                hasSelection = false
+            } else {
+                print("[SelectionDetector] Clipboard: ✅ Found selection: \(text.prefix(50))...")
+                hasSelection = true
+            }
         } else {
             print("[SelectionDetector] Clipboard: ❌ No selection found")
         }
@@ -164,6 +177,59 @@ enum SelectionDetector {
             source: source,
             focusedElement: nil
         )
+    }
+
+    // MARK: - IDE Copy Line Detection
+
+    /// Detects if the copied text is likely from IDE "copy line" behavior rather than a real selection.
+    ///
+    /// ## Background
+    /// Many IDEs (VS Code, JetBrains IDEs, Sublime Text, etc.) have a feature where pressing
+    /// Cmd+C (or Ctrl+C) with NO text selected will copy the ENTIRE current line, including
+    /// the trailing newline character. This is a convenience feature for quickly copying lines.
+    ///
+    /// ## Problem
+    /// When Extremis uses Cmd+C to detect if text is selected, IDEs will return content even
+    /// when the user hasn't actually selected anything. This causes false positives where
+    /// Extremis thinks there's a selection when there isn't.
+    ///
+    /// ## Heuristic
+    /// IDE "copy line" behavior has a distinctive pattern:
+    /// 1. The text ends with a newline character (`\n`)
+    /// 2. There are no OTHER newline characters in the text (it's a single line)
+    ///
+    /// Example: `"const x = 5;\n"` → single line with trailing `\n` → likely "copy line"
+    /// Example: `"hello world"` → no trailing `\n` → real selection
+    /// Example: `"line1\nline2"` → multiple lines → real selection
+    ///
+    /// ## Trade-off
+    /// This heuristic may incorrectly classify as "no selection" when the user has
+    /// intentionally selected exactly one line INCLUDING its trailing newline character.
+    /// This is a rare edge case and acceptable trade-off to avoid false positives in IDEs.
+    ///
+    /// - Parameter text: The text copied from clipboard via Cmd+C
+    /// - Returns: `true` if the text pattern matches IDE "copy line" behavior
+    private static func isIDECopyLineBehavior(_ text: String) -> Bool {
+        // Check if text ends with a newline character
+        guard text.hasSuffix("\n") else {
+            // No trailing newline → definitely a real selection
+            // (IDE "copy line" always includes the trailing newline)
+            return false
+        }
+
+        // Remove the trailing newline and check if there are any OTHER newlines
+        // If the remaining text has no newlines, it was a single line → likely "copy line"
+        let textWithoutTrailingNewline = String(text.dropLast())
+        let hasInternalNewlines = textWithoutTrailingNewline.contains("\n")
+
+        if hasInternalNewlines {
+            // Multiple lines copied → real selection (user selected across lines)
+            return false
+        }
+
+        // Single line with trailing newline → likely IDE "copy line" behavior
+        // Pattern: "some text here\n" where there's no \n before the final one
+        return true
     }
 
     /// Send Cmd+C keystroke
