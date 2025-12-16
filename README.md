@@ -165,7 +165,6 @@ Extremis/
 
 ## Roadmap
 
-- [ ] **Replace mode** - Option to replace selected text instead of just inserting
 - [x] **Full context capture** - Capture text after cursor (succeeding text) in addition to preceding text
 - [x] **Universal app support** - Works in VS Code and all Electron apps via marker-based capture
 - [x] **Summarization** - Quick summarize selected text or surrounding context
