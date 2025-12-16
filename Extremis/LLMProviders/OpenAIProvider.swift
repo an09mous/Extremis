@@ -94,7 +94,54 @@ final class OpenAIProvider: LLMProvider {
             }
         }
     }
-    
+
+    /// Generate from a raw prompt (already built, no additional processing)
+    func generateRaw(prompt: String) async throws -> Generation {
+        guard let apiKey = apiKey else {
+            throw LLMProviderError.notConfigured(provider: .openai)
+        }
+
+        let startTime = Date()
+        let request = try buildRequest(apiKey: apiKey, prompt: prompt)
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw LLMProviderError.invalidResponse
+        }
+
+        try handleStatusCode(httpResponse.statusCode, data: data)
+
+        let result = try JSONDecoder().decode(OpenAIResponse.self, from: data)
+        let content = result.choices.first?.message.content ?? ""
+        let latencyMs = Int(Date().timeIntervalSince(startTime) * 1000)
+
+        return Generation(
+            instructionId: UUID(),
+            provider: .openai,
+            content: content,
+            tokenUsage: TokenUsage(
+                promptTokens: result.usage?.prompt_tokens ?? 0,
+                completionTokens: result.usage?.completion_tokens ?? 0
+            ),
+            latencyMs: latencyMs
+        )
+    }
+
+    /// Stream from a raw prompt (already built, no additional processing)
+    func generateRawStream(prompt: String) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    let generation = try await generateRaw(prompt: prompt)
+                    continuation.yield(generation.content)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
     // MARK: - Private Methods
 
     private func buildRequest(apiKey: String, prompt: String) throws -> URLRequest {

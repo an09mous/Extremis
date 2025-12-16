@@ -43,6 +43,19 @@ protocol LLMProvider: AnyObject {
         instruction: String,
         context: Context
     ) -> AsyncThrowingStream<String, Error>
+
+    /// Generate a response from a raw prompt (non-streaming)
+    /// Use this when the prompt is already fully built (e.g., summarization)
+    /// - Parameter prompt: The complete prompt to send to the LLM
+    /// - Returns: Generated response
+    /// - Throws: LLMProviderError on failure
+    func generateRaw(prompt: String) async throws -> Generation
+
+    /// Generate a response from a raw prompt with streaming
+    /// Use this when the prompt is already fully built (e.g., summarization)
+    /// - Parameter prompt: The complete prompt to send to the LLM
+    /// - Returns: Async stream of text chunks
+    func generateRawStream(prompt: String) -> AsyncThrowingStream<String, Error>
 }
 
 // MARK: - LLM Provider Registry Protocol
