@@ -36,9 +36,7 @@ The user has selected text and wants you to transform/edit it based on their ins
 {{SELECTED_TEXT}}
 \"\"\"
 
-[Source Context]
-Application: {{APP_NAME}}
-{{WINDOW_TITLE}}
+{{CONTEXT}}
 
 [User Instruction]
 {{INSTRUCTION}}
@@ -50,6 +48,7 @@ Application: {{APP_NAME}}
 - Match the language and general style of the original text
 - Apply the user's instruction precisely
 - If the instruction is unclear, make a reasonable interpretation
+- Use source context to better understand the content being transformed
 """
 
     /// Autocomplete template - used when no instruction is provided
@@ -173,13 +172,15 @@ You are Extremis, a context-aware writing assistant integrated into macOS.
     }
 
     /// Build prompt for selection-based modes (transform or no-instruction)
+    /// Uses the same context formatting as summarization (source info + metadata, no preceding/succeeding text)
     private func buildSelectionPrompt(context: Context, instruction: String) -> String {
-        let windowTitle = context.source.windowTitle.map { "Window: \($0)" } ?? ""
+        // Build context section similar to summarization - includes source info and metadata
+        let contextSection = formatContextForSummarization(context.source, context: context)
+
         return selectionTransformTemplate
             .replacingOccurrences(of: "{{SYSTEM_PROMPT}}", with: systemPrompt)
             .replacingOccurrences(of: "{{SELECTED_TEXT}}", with: context.selectedText ?? "")
-            .replacingOccurrences(of: "{{APP_NAME}}", with: context.source.applicationName)
-            .replacingOccurrences(of: "{{WINDOW_TITLE}}", with: windowTitle)
+            .replacingOccurrences(of: "{{CONTEXT}}", with: contextSection)
             .replacingOccurrences(of: "{{INSTRUCTION}}", with: instruction)
     }
 
