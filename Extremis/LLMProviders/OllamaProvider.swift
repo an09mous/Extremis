@@ -111,6 +111,55 @@ final class OllamaProvider: LLMProvider {
         }
     }
 
+    /// Generate from a raw prompt (already built, no additional processing)
+    func generateRaw(prompt: String) async throws -> Generation {
+        guard serverConnected else {
+            throw LLMProviderError.notConfigured(provider: .ollama)
+        }
+
+        let startTime = Date()
+        let request = try buildRequest(prompt: prompt)
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw LLMProviderError.invalidResponse
+        }
+
+        try handleStatusCode(httpResponse.statusCode, data: data)
+
+        let result = try JSONDecoder().decode(OllamaResponse.self, from: data)
+        let content = result.choices.first?.message.content ?? ""
+        let latencyMs = Int(Date().timeIntervalSince(startTime) * 1000)
+
+        return Generation(
+            instructionId: UUID(),
+            provider: .ollama,
+            content: content,
+            tokenUsage: result.usage.map {
+                TokenUsage(
+                    promptTokens: $0.prompt_tokens,
+                    completionTokens: $0.completion_tokens
+                )
+            },
+            latencyMs: latencyMs
+        )
+    }
+
+    /// Stream from a raw prompt (already built, no additional processing)
+    func generateRawStream(prompt: String) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    let generation = try await generateRaw(prompt: prompt)
+                    continuation.yield(generation.content)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
     // MARK: - Connection & Model Discovery
 
     /// Check if Ollama server is running

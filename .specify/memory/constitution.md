@@ -1,14 +1,10 @@
 <!--
 SYNC IMPACT REPORT
 ==================
-Version change: 0.0.0 → 1.0.0 (Initial constitution)
-Modified principles: N/A (New)
+Version change: 1.0.0 → 1.1.0 (Documentation Sync principle added)
+Modified principles: N/A
 Added sections:
-  - I. Modularity First
-  - II. Code Quality Excellence
-  - III. User Experience Primacy
-  - Quality Gates
-  - Development Workflow
+  - IV. Documentation Synchronization
 Removed sections: None
 Templates requiring updates:
   - .specify/templates/plan-template.md ✅ (compatible)
@@ -63,6 +59,20 @@ Every user-facing decision MUST prioritize exceptional experience:
 
 **Rationale**: Superior UX creates loyal users, reduces support burden, and differentiates the product in the market.
 
+### IV. Documentation Synchronization
+
+Documentation MUST always reflect the current state of the codebase:
+
+- **README Accuracy**: The README MUST be updated whenever functionality, installation steps, or usage patterns change
+- **Doc-Code Parity**: Documentation MUST be updated in the same PR/commit as the code change it describes
+- **API Documentation**: All public APIs MUST have up-to-date documentation including parameters, return values, and examples
+- **Changelog Maintenance**: All user-facing changes MUST be recorded in the changelog with version and date
+- **Architecture Docs**: Significant architectural changes MUST update relevant design documents
+- **Deprecation Notices**: Deprecated features MUST be documented with migration paths and removal timelines
+- **No Stale Docs**: Documentation MUST NOT reference removed features or outdated behaviors
+
+**Rationale**: Synchronized documentation reduces onboarding friction, prevents user confusion, and ensures the codebase remains accessible to all contributors.
+
 ## Quality Gates
 
 Before any code is merged, it MUST pass:
@@ -71,6 +81,7 @@ Before any code is merged, it MUST pass:
 2. **Code Quality Check**: Linting passes; test coverage maintained; no critical static analysis issues
 3. **UX Review**: User-facing changes reviewed for flow smoothness and visual consistency
 4. **Performance Check**: No degradation in key performance metrics
+5. **Documentation Check**: README, API docs, and relevant documentation updated for any functionality change
 
 ## Development Workflow
 
@@ -93,4 +104,4 @@ This constitution supersedes all other development practices. Any conflicts betw
 - Technical debt that violates principles MUST be tracked and prioritized
 - Exceptions require explicit documentation and approval
 
-**Version**: 1.0.0 | **Ratified**: 2025-12-06 | **Last Amended**: 2025-12-06
+**Version**: 1.1.0 | **Ratified**: 2025-12-06 | **Last Amended**: 2025-12-16

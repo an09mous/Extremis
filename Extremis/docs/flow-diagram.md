@@ -1,15 +1,15 @@
 # Extremis Code Flow Diagram
 
-This document describes the complete flow for both **Autocomplete Mode** and **Prompt Mode** in Extremis.
+This document describes the complete flow for **Magic Mode**, **Prompt Mode**, and **Summarization** in Extremis.
 
 
 ================================================================================
-                              AUTOCOMPLETE MODE (⌥+Tab)
+                              MAGIC MODE (⌥+Tab)
 ================================================================================
 
   ┌─────────────────────────────────────────────────────────────────────────┐
-  │                         INSTANT AUTO-COMPLETION                         │
-  │                    No UI - Direct text insertion                        │
+  │                    CONTEXT-AWARE SMART ACTION                           │
+  │         Text Selected → Summarize | No Selection → Autocomplete         │
   └─────────────────────────────────────────────────────────────────────────┘
 
        ⌥+Tab
@@ -22,12 +22,7 @@ This document describes the complete flow for both **Autocomplete Mode** and **P
            │
            ▼
   ┌────────────────────────────┐
-  │ handleAutocompleteActivation│  ← AppDelegate.swift
-  └────────────┬───────────────┘
-               │
-               ▼
-  ┌────────────────────────────┐
-  │ performDirectAutocomplete  │
+  │ handleMagicModeActivation  │  ← AppDelegate.swift
   └────────────┬───────────────┘
                │
                ▼
@@ -38,29 +33,41 @@ This document describes the complete flow for both **Autocomplete Mode** and **P
                │                                   │
                ▼                                   ▼
   ┌────────────────────────────┐      ┌─────────────────────────┐
-  │ Get Active LLM Provider    │      │   CONTEXT CAPTURE       │
-  │ (OpenAI/Anthropic/Gemini)  │      │   (See below)           │
-  └────────────┬───────────────┘      └─────────────────────────┘
-               │
-               ▼
+  │ Check: Has Selected Text?  │      │   CONTEXT CAPTURE       │
+  └────────────┬───────────────┘      │   (See below)           │
+               │                      └─────────────────────────┘
+      ┌────────┴────────┐
+      ▼                 ▼
+  ┌────────┐      ┌────────────┐
+  │  YES   │      │    NO      │
+  │Selected│      │ No Select  │
+  └───┬────┘      └─────┬──────┘
+      │                 │
+      ▼                 ▼
+  ┌────────────┐  ┌────────────────┐
+  │ SUMMARIZE  │  │ AUTOCOMPLETE   │
+  │ Selection  │  │ at cursor      │
+  └─────┬──────┘  └───────┬────────┘
+        │                 │
+        ▼                 ▼
+  ┌────────────┐  ┌────────────────┐
+  │Summarize   │  │generateStream( │
+  │Service     │  │ instruction:"" │
+  │.summarize()│  │ context        │
+  └─────┬──────┘  └───────┬────────┘
+        │                 │
+        └────────┬────────┘
+                 │
+                 ▼
   ┌────────────────────────────┐
-  │ generateStream(            │
-  │   instruction: "",         │  ← Empty instruction = autocomplete
-  │   context: context         │
-  │ )                          │
+  │ TextInserterService        │
+  │   .insert(text, source)    │
   └────────────┬───────────────┘
                │
                ▼
   ┌────────────────────────────┐
-  │ TextInserterService        │
-  │   .insert(text, source)    │──────────────────┐
-  └────────────┬───────────────┘                  │
-               │                                   │
-               ▼                                   ▼
-  ┌────────────────────────────┐      ┌─────────────────────────┐
-  │ ✅ Text Inserted at Cursor │      │   TEXT INSERTION        │
-  └────────────────────────────┘      │   (See below)           │
-                                      └─────────────────────────┘
+  │ ✅ Text Inserted at Cursor │
+  └────────────────────────────┘
 
 
 ================================================================================
@@ -69,7 +76,7 @@ This document describes the complete flow for both **Autocomplete Mode** and **P
 
   ┌─────────────────────────────────────────────────────────────────────────┐
   │                         INTERACTIVE PROMPT UI                           │
-  │              User provides instruction before generation                │
+  │         Summarize, Transform, or Autocomplete with instructions         │
   └─────────────────────────────────────────────────────────────────────────┘
 
        ⌘+⇧+Space
@@ -87,16 +94,6 @@ This document describes the complete flow for both **Autocomplete Mode** and **P
                │
                ▼
   ┌────────────────────────────┐
-  │ hidePrompt()               │  ← Clean state first
-  └────────────┬───────────────┘
-               │
-               ▼
-  ┌────────────────────────────┐
-  │ captureContextAndShowPrompt│
-  └────────────┬───────────────┘
-               │
-               ▼
-  ┌────────────────────────────┐
   │ ContextOrchestrator        │
   │   .captureContext()        │──────────────────┐
   └────────────┬───────────────┘                  │
@@ -109,34 +106,33 @@ This document describes the complete flow for both **Autocomplete Mode** and **P
                │
                ▼
   ┌────────────────────────────┐
-  │ PromptView                 │
-  │   [User types instruction] │
-  │   [Press Enter]            │
+  │ PromptView shows:          │
+  │  - Context info bar        │
+  │  - Instruction text field  │
+  │  - Summarize button        │  ← Shows when hasContext=true
+  │    (if text/context avail) │
   └────────────┬───────────────┘
                │
-               ▼
-  ┌────────────────────────────┐
-  │ PromptViewModel.generate() │
-  └────────────┬───────────────┘
-               │
-               ▼
-  ┌────────────────────────────┐
-  │ provider.generate(         │
-  │   instruction: userText,   │
-  │   context: context         │
-  │ )                          │
-  └────────────┬───────────────┘
-               │
-               ▼
+      ┌────────┴────────┐
+      ▼                 ▼
+  ┌────────────┐  ┌─────────────────┐
+  │ Click      │  │ Type instruction│
+  │ Summarize  │  │ + Press Enter   │
+  └─────┬──────┘  └───────┬─────────┘
+        │                 │
+        ▼                 ▼
+  ┌────────────┐  ┌─────────────────┐
+  │Summarize   │  │ Transform/      │
+  │Service     │  │ Autocomplete    │
+  └─────┬──────┘  └───────┬─────────┘
+        │                 │
+        └────────┬────────┘
+                 │
+                 ▼
   ┌────────────────────────────┐
   │ ResponseView               │
   │   [Shows AI response]      │
   └────────────┬───────────────┘
-               │
-               ▼
-        ┌──────┴──────┐
-        │ User Action │
-        └──────┬──────┘
                │
       ┌────────┼────────┐
       ▼        ▼        ▼
@@ -285,4 +281,75 @@ This document describes the complete flow for both **Autocomplete Mode** and **P
   └────────────────────────────┘
 
 
+================================================================================
+                              SUMMARIZATION FLOW
+================================================================================
 
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │                    Summarize selected text or context                   │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  Triggered via:
+  - Click "Summarize" button in Prompt Mode
+  - ⌥+Tab (Magic Mode) when text is selected
+
+  ┌────────────────────────────┐
+  │ PromptViewModel            │
+  │   .summarizeSelection()    │
+  └────────────┬───────────────┘
+               │
+               ▼
+  ┌────────────────────────────┐
+  │ Determine text to summarize│
+  │  - selectedText (priority) │
+  │  - OR preceding+succeeding │
+  └────────────┬───────────────┘
+               │
+               ▼
+  ┌────────────────────────────┐
+  │ Build SummaryRequest       │
+  │  - text                    │
+  │  - source (app info)       │
+  │  - surroundingContext      │
+  │  - format (paragraph)      │
+  │  - length (normal)         │
+  └────────────┬───────────────┘
+               │
+               ▼
+  ┌────────────────────────────┐
+  │ SummarizationService       │
+  │   .summarizeStream()       │
+  └────────────┬───────────────┘
+               │
+               ▼
+  ┌────────────────────────────┐
+  │ PromptBuilder              │
+  │   .buildSummarizationPrompt│
+  └────────────┬───────────────┘
+               │
+               ▼
+  ┌────────────────────────────────────────────────────┐
+  │ Summarization Prompt includes:                     │
+  │  - System prompt                                   │
+  │  - Text to summarize                               │
+  │  - [Source Information]                            │
+  │      • Application name                            │
+  │      • Window title                                │
+  │      • URL (for browsers)                          │
+  │  - [App Metadata] (Slack/Gmail/GitHub context)     │
+  │  - Format & length instructions                    │
+  │                                                    │
+  │  NOTE: No preceding/succeeding text               │
+  │        (avoids duplicating summarized content)     │
+  └────────────────────────────────────────────────────┘
+               │
+               ▼
+  ┌────────────────────────────┐
+  │ provider.generateRawStream │  ← Uses raw prompt (no re-wrapping)
+  │   (prompt: builtPrompt)    │
+  └────────────┬───────────────┘
+               │
+               ▼
+  ┌────────────────────────────┐
+  │ Stream response to UI      │
+  └────────────────────────────┘

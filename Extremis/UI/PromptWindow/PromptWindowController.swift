@@ -76,6 +76,10 @@ final class PromptWindowController: NSWindowController {
             },
             onReprompt: { [weak self] in
                 self?.viewModel.goBackToPrompt()
+            },
+            onSummarize: { [weak self] in
+                print("📝 Summarize button clicked")
+                self?.viewModel.summarizeSelection()
             }
         ))
         window?.contentView = contentView
@@ -85,13 +89,26 @@ final class PromptWindowController: NSWindowController {
 
     /// Show the prompt window with context
     func showPrompt(with context: Context) {
-        print("📋 PromptWindow: Showing with NEW context from \(context.source.applicationName)")
+        showPromptInternal(with: context, autoSummarize: false)
+    }
+
+    /// Show the prompt window and auto-trigger summarization (for Magic Mode)
+    func showPromptWithAutoSummarize(with context: Context) {
+        showPromptInternal(with: context, autoSummarize: true)
+    }
+
+    /// Internal method to show prompt with optional auto-summarize
+    private func showPromptInternal(with context: Context, autoSummarize: Bool) {
+        print("📋 PromptWindow: Showing with context from \(context.source.applicationName) (autoSummarize: \(autoSummarize))")
 
         // Always set new context first
         currentContext = context
 
         // Reset the view model completely
         viewModel.reset()
+
+        // Set the context on the viewModel so it can access source info for summarization
+        viewModel.currentContext = context
 
         // Build context info string
         var contextInfo = context.source.applicationName
@@ -124,10 +141,38 @@ final class PromptWindowController: NSWindowController {
         }
 
         viewModel.contextInfo = contextInfo
+
+        // Set context state for Summarize button visibility
+        // Show Summarize if there's selected text OR preceding/succeeding text
+        let hasSelectedText = context.selectedText?.isEmpty == false
+        let hasPrecedingText = context.precedingText?.isEmpty == false
+        let hasSucceedingText = context.succeedingText?.isEmpty == false
+        viewModel.hasContext = hasSelectedText || hasPrecedingText || hasSucceedingText
+        viewModel.hasSelection = hasSelectedText
+
+        // Store text for summarization - prefer selected text, otherwise combine preceding/succeeding
+        if hasSelectedText {
+            viewModel.selectedText = context.selectedText
+        } else if hasPrecedingText || hasSucceedingText {
+            // Combine preceding and succeeding text for summarization
+            let combined = [context.precedingText, context.succeedingText]
+                .compactMap { $0 }
+                .joined(separator: "\n")
+            viewModel.selectedText = combined.isEmpty ? nil : combined
+        } else {
+            viewModel.selectedText = nil
+        }
+
         print("📋 PromptWindow: Context info = \(contextInfo)")
 
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+
+        // Auto-trigger summarization if requested (Magic Mode)
+        if autoSummarize, let selectedText = context.selectedText, !selectedText.isEmpty {
+            print("📋 PromptWindow: Auto-triggering summarization...")
+            viewModel.summarize(text: selectedText, source: context.source, surroundingContext: context)
+        }
     }
 
     /// Hide the prompt window and clear context
@@ -153,8 +198,17 @@ final class PromptViewModel: ObservableObject {
     @Published var providerName: String = "No Provider"
     @Published var providerConfigured: Bool = false
 
+    // Context-aware properties for summarization
+    @Published var hasContext: Bool = false  // Has any text context (selected OR preceding/succeeding)
+    @Published var hasSelection: Bool = false  // Has specifically selected text
+    @Published var selectedText: String?  // Text to summarize (selected OR combined preceding/succeeding)
+    @Published var isSummarizing: Bool = false
+
     private var generationTask: Task<Void, Never>?
-    private var currentContext: Context?
+    var currentContext: Context?  // Made internal so PromptWindowController can set it
+
+    /// Summarization service
+    private let summarizationService = SummarizationService.shared
 
     func reset() {
         instructionText = ""
@@ -163,6 +217,10 @@ final class PromptViewModel: ObservableObject {
         error = nil
         showResponse = false
         currentContext = nil
+        hasContext = false
+        hasSelection = false
+        selectedText = nil
+        isSummarizing = false
         updateProviderStatus()
     }
 
@@ -222,21 +280,94 @@ final class PromptViewModel: ObservableObject {
         isGenerating = false
     }
 
-    func regenerate(with context: Context) {
-        response = ""
-        error = nil
-        generate(with: context)
-    }
-
     /// Go back to prompt input view to enter a new instruction
     func goBackToPrompt() {
         generationTask?.cancel()
         isGenerating = false
+        isSummarizing = false
         response = ""
         error = nil
         showResponse = false
         // Keep instructionText so user can edit it, or clear it for fresh start
         // instructionText = ""  // Uncomment to clear instruction
+    }
+
+    // MARK: - Summarization
+
+    /// Summarize the given text (called from Magic Mode or Summarize button)
+    func summarize(text: String, source: ContextSource, surroundingContext: Context? = nil) {
+        print("📝 PromptViewModel: Starting summarization...")
+
+        isSummarizing = true
+        isGenerating = true
+        error = nil
+        showResponse = true
+        response = ""
+
+        generationTask = Task {
+            do {
+                let request = SummaryRequest(
+                    text: text,
+                    source: source,
+                    surroundingContext: surroundingContext
+                )
+
+                // Use streaming for better UX
+                let stream = summarizationService.summarizeStream(request: request)
+
+                for try await chunk in stream {
+                    guard !Task.isCancelled else { return }
+                    response += chunk
+                }
+
+                print("📝 PromptViewModel: Summarization complete")
+            } catch is CancellationError {
+                // User cancelled, don't show error
+                print("📝 PromptViewModel: Summarization cancelled")
+            } catch {
+                print("📝 PromptViewModel: Summarization error: \(error)")
+                self.error = error.localizedDescription
+            }
+            isGenerating = false
+            isSummarizing = false
+        }
+    }
+
+    /// Summarize using current context (selected text or combined preceding/succeeding)
+    func summarizeSelection() {
+        // Determine what text to summarize
+        let textToSummarize: String
+
+        if let selected = selectedText, !selected.isEmpty {
+            // Use selected text if available
+            textToSummarize = selected
+        } else if let context = currentContext {
+            // Combine preceding + succeeding text if no selection
+            let combined = [
+                context.precedingText ?? "",
+                context.succeedingText ?? ""
+            ].filter { !$0.isEmpty }.joined(separator: "\n")
+
+            if combined.isEmpty {
+                error = "No text to summarize"
+                return
+            }
+            textToSummarize = combined
+        } else {
+            error = "No text selected to summarize"
+            return
+        }
+
+        // Use context source or fallback
+        let source = currentContext?.source ?? ContextSource(
+            applicationName: "Unknown",
+            bundleIdentifier: "unknown",
+            windowTitle: nil,
+            url: nil
+        )
+
+        // Pass the full context for additional context (preceding/succeeding text)
+        summarize(text: textToSummarize, source: source, surroundingContext: currentContext)
     }
 }
 
@@ -249,6 +380,7 @@ struct PromptContainerView: View {
     let onCancel: () -> Void
     let onGenerate: () -> Void
     let onReprompt: () -> Void
+    let onSummarize: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -305,8 +437,11 @@ struct PromptContainerView: View {
                     instructionText: $viewModel.instructionText,
                     isGenerating: $viewModel.isGenerating,
                     contextInfo: viewModel.contextInfo,
+                    hasContext: viewModel.hasContext,
+                    hasSelection: viewModel.hasSelection,
                     onSubmit: onGenerate,
-                    onCancel: onCancel
+                    onCancel: onCancel,
+                    onSummarize: onSummarize
                 )
             }
         }

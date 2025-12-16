@@ -9,8 +9,11 @@ struct PromptInputView: View {
     @Binding var instructionText: String
     @Binding var isGenerating: Bool
     let contextInfo: String?
+    let hasContext: Bool  // Has any text context (for Summarize button)
+    let hasSelection: Bool  // Has specifically selected text (for hint text)
     let onSubmit: () -> Void
     let onCancel: () -> Void
+    let onSummarize: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -59,28 +62,70 @@ struct PromptInputView: View {
 
                     Spacer()
 
-                    Text("Enter to submit (empty = autocomplete)")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                    // Summarize button (shown when any text context exists)
+                    if hasContext {
+                        Button(action: onSummarize) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "doc.text.magnifyingglass")
+                                Text("Summarize")
+                            }
+                        }
+                        .disabled(isGenerating)
+                        .help("Summarize text context")
+                    }
+
+                    // Hint text - different based on selection state
+                    if hasSelection {
+                        Text("Enter instruction to transform selected text")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    } else if hasContext {
+                        Text("Enter instruction or summarize context")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("Enter to submit (empty = autocomplete)")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
 
                     Button("Cancel") {
                         onCancel()
                     }
                     .keyboardShortcut(.escape, modifiers: [])
 
-                    Button(action: onSubmit) {
-                        HStack(spacing: 4) {
-                            if isGenerating {
-                                ProgressView()
-                                    .scaleEffect(0.7)
-                                    .frame(width: 16, height: 16)
+                    // Main action button - different based on selection and instruction
+                    let isEmpty = instructionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+                    if hasSelection {
+                        // With selection: only show Generate when instruction is provided
+                        Button(action: onSubmit) {
+                            HStack(spacing: 4) {
+                                if isGenerating {
+                                    ProgressView()
+                                        .scaleEffect(0.7)
+                                        .frame(width: 16, height: 16)
+                                }
+                                Text(isGenerating ? "Generating..." : "Generate")
                             }
-                            let isEmpty = instructionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            Text(isGenerating ? "Generating..." : (isEmpty ? "Autocomplete" : "Generate"))
                         }
+                        .disabled(isGenerating || isEmpty)  // Disable if no instruction
+                        .buttonStyle(.borderedProminent)
+                    } else {
+                        // Without selection: Autocomplete or Generate
+                        Button(action: onSubmit) {
+                            HStack(spacing: 4) {
+                                if isGenerating {
+                                    ProgressView()
+                                        .scaleEffect(0.7)
+                                        .frame(width: 16, height: 16)
+                                }
+                                Text(isGenerating ? "Generating..." : (isEmpty ? "Autocomplete" : "Generate"))
+                            }
+                        }
+                        .disabled(isGenerating)
+                        .buttonStyle(.borderedProminent)
                     }
-                    .disabled(isGenerating)
-                    .buttonStyle(.borderedProminent)
                 }
                 .padding(.horizontal)
                 .padding(.bottom, 16)
@@ -211,14 +256,49 @@ struct ProviderIndicator: View {
 
 struct PromptInputView_Previews: PreviewProvider {
     static var previews: some View {
-        PromptInputView(
-            instructionText: .constant(""),
-            isGenerating: .constant(false),
-            contextInfo: "TextEdit - Untitled",
-            onSubmit: {},
-            onCancel: {}
-        )
-        .frame(width: 500, height: 300)
+        Group {
+            // Without any context
+            PromptInputView(
+                instructionText: .constant(""),
+                isGenerating: .constant(false),
+                contextInfo: "TextEdit - Untitled",
+                hasContext: false,
+                hasSelection: false,
+                onSubmit: {},
+                onCancel: {},
+                onSummarize: {}
+            )
+            .frame(width: 500, height: 300)
+            .previewDisplayName("No Context")
+
+            // With context but no selection (preceding/succeeding text)
+            PromptInputView(
+                instructionText: .constant(""),
+                isGenerating: .constant(false),
+                contextInfo: "TextEdit - Untitled (cursor context)",
+                hasContext: true,
+                hasSelection: false,
+                onSubmit: {},
+                onCancel: {},
+                onSummarize: {}
+            )
+            .frame(width: 500, height: 300)
+            .previewDisplayName("With Context (No Selection)")
+
+            // With selection (shows Summarize button)
+            PromptInputView(
+                instructionText: .constant(""),
+                isGenerating: .constant(false),
+                contextInfo: "TextEdit - Untitled (text selected: Lorem ipsum...)",
+                hasContext: true,
+                hasSelection: true,
+                onSubmit: {},
+                onCancel: {},
+                onSummarize: {}
+            )
+            .frame(width: 500, height: 300)
+            .previewDisplayName("With Selection")
+        }
     }
 }
 

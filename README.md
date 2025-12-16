@@ -5,9 +5,10 @@ A context-aware LLM writing assistant for macOS. Press a global hotkey anywhere 
 ## Features
 
 - **🔥 Global Hotkeys**
-  - `⌘+Shift+Space` - Open prompt window for instructions
-  - `⌥+Tab` - Instant autocomplete at cursor position
+  - `⌘+Shift+Space` - Open prompt window for instructions/summarization
+  - `⌥+Tab` - Magic Mode: auto-summarize selected text OR autocomplete at cursor
 - **🧠 Context-Aware** - Captures surrounding text via keyboard simulation (works in all apps including VS Code)
+- **📋 Smart Summarization** - Quickly summarize selected text or surrounding context with one click
 - **🤖 Multi-Provider LLM Support**
   - OpenAI (GPT-4o)
   - Anthropic (Claude 3.5 Sonnet)
@@ -73,16 +74,37 @@ If you prefer cloud-based models:
 ### Prompt Mode (`⌘+Shift+Space`)
 
 1. Press hotkey anywhere
-2. Type your instruction (e.g., "make this more professional")
-3. Press `Enter` to generate
+2. **With text selected**: Click **Summarize** or type an instruction to transform
+3. **Without selection**: Type your instruction or press Enter for autocomplete
 4. Press `⌘+Enter` to insert or `⌘+C` to copy
 
-### Autocomplete Mode (`⌥+Tab`)
+| Context | Available Actions |
+|---------|------------------|
+| Text selected | Summarize, Transform (with instruction), Copy |
+| Cursor with surrounding text | Summarize context, Autocomplete, Transform |
+| Empty field | Autocomplete, Generate new content |
 
-1. Type some text in any application
-2. Press `⌥+Tab` to auto-complete based on context
-3. A floating "Generating..." indicator appears at the top of your screen
-4. Text is automatically inserted when ready
+### Magic Mode (`⌥+Tab`)
+
+Smart context-aware mode that automatically chooses the best action:
+
+1. **Text selected** → Auto-summarize the selection
+2. **No selection** → Autocomplete at cursor position
+
+A floating indicator appears while generating, and text is automatically inserted when ready.
+
+### Summarization
+
+Extremis can quickly summarize text in multiple ways:
+
+- **Click Summarize button** in Prompt Mode
+- **Press `⌥+Tab` with text selected** for instant summarization
+- Works with selected text OR surrounding context (preceding + succeeding text)
+
+The LLM receives full context including:
+- Application name and window title
+- URL (for browser apps)
+- App-specific metadata (Slack channel, Gmail subject, etc.)
 
 ## Context Extraction
 
@@ -146,9 +168,8 @@ Extremis/
 - [ ] **Replace mode** - Option to replace selected text instead of just inserting
 - [x] **Full context capture** - Capture text after cursor (succeeding text) in addition to preceding text
 - [x] **Universal app support** - Works in VS Code and all Electron apps via marker-based capture
-- [ ] **Summarization** - Quick summarize selected text or page content
+- [x] **Summarization** - Quick summarize selected text or surrounding context
 - [ ] **Chat + Memory** - Conversational interface with persistent memory across sessions
-- [ ] **Streaming response** - Show generated text in real-time as it's being created
 - [ ] **MCP support** - Integration with Model Context Protocol for external tools and data sources
 
 See [open issues](https://github.com/an09mous/Extremis/issues) for more details and to contribute ideas.

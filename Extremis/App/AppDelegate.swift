@@ -377,19 +377,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// Handle direct autocomplete hotkey - captures context, generates, and inserts automatically
-    func handleAutocompleteActivation() {
-        print("⚡ Autocomplete hotkey activated!")
+    /// Handle Magic Mode hotkey - selection-aware: summarize if selected, autocomplete if not
+    func handleMagicModeActivation() {
+        print("✨ Magic Mode hotkey activated!")
 
         Task { @MainActor in
-            await performDirectAutocomplete()
+            // Small delay to let the system settle after hotkey press
+            // This prevents the "no focused element" error caused by hotkey transition
+            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+
+            // Fast selection detection (~10ms)
+            let selectionResult = SelectionDetector.detectSelection()
+
+            if selectionResult.hasSelection,
+               let selectedText = selectionResult.selectedText,
+               let source = selectionResult.source {
+                // Selection exists → Summarize path
+                print("📝 Selection detected: \(selectedText.prefix(50))...")
+                await performSummarization(text: selectedText, source: source)
+            } else {
+                // No selection → Autocomplete path (existing behavior)
+                print("✨ No selection, proceeding with autocomplete...")
+                await performDirectAutocomplete()
+            }
         }
+    }
+
+    /// Legacy alias for handleMagicModeActivation
+    func handleAutocompleteActivation() {
+        handleMagicModeActivation()
+    }
+
+    /// Perform summarization - shows toast and opens PromptWindow with auto-summarize
+    @MainActor
+    private func performSummarization(text: String, source: ContextSource) async {
+        // Show summarizing toast
+        LoadingOverlayController.shared.show(message: "📝 Summarizing...")
+
+        // Create a context with only selected text (fast path - no clipboard capture)
+        let context = Context(
+            source: source,
+            selectedText: text,
+            precedingText: nil,
+            succeedingText: nil,
+            metadata: .generic(GenericMetadata())
+        )
+
+        // Hide toast after brief moment
+        try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
+        LoadingOverlayController.shared.hide()
+
+        // Show prompt window and auto-trigger summarization
+        currentContext = context
+        promptWindowController.showPromptWithAutoSummarize(with: context)
     }
 
     @MainActor
     private func performDirectAutocomplete() async {
-        // Show loading overlay
-        LoadingOverlayController.shared.show(message: "Generating...")
+        // Show completing toast
+        LoadingOverlayController.shared.show(message: "✨ Completing...")
 
         defer {
             // Always hide loading overlay when done
@@ -462,14 +508,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("🚀 EXTREMIS ACTIVATED - Capturing Context...")
             print(String(repeating: "=", count: 60))
 
-            // Capture context from the current app
-            currentContext = try await contextOrchestrator.captureContext()
+            // First, detect if user has text selected using reliable clipboard method
+            // This is fast and gives us selection before any destructive operations
+            let selectionResult = SelectionDetector.detectSelection()
 
-            // Log the captured context
-            logCapturedContext(currentContext!)
+            if selectionResult.hasSelection,
+               let selectedText = selectionResult.selectedText,
+               let source = selectionResult.source {
+                // FAST PATH: User has selection - skip expensive marker-based capture
+                // For selection-based operations (summarize, rewrite, etc.), we don't need preceding/succeeding text
+                print("📋 Selection detected - using fast path (skipping marker-based capture)")
 
-            // Show prompt window with context
-            promptWindowController.showPrompt(with: currentContext!)
+                let context = Context(
+                    source: source,
+                    selectedText: selectedText,
+                    precedingText: nil,
+                    succeedingText: nil
+                )
+                currentContext = context
+                logCapturedContext(context)
+                promptWindowController.showPrompt(with: context)
+            } else {
+                // SLOW PATH: No selection - do full context capture for autocomplete-style usage
+                print("📋 No selection - doing full context capture")
+
+                let context = try await contextOrchestrator.captureContext()
+                currentContext = context
+                logCapturedContext(context)
+                promptWindowController.showPrompt(with: context)
+            }
         } catch {
             print("❌ Failed to capture context: \(error)")
             // Show prompt anyway with minimal context

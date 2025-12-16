@@ -11,13 +11,10 @@ final class PromptBuilder {
     static let shared = PromptBuilder()
     private init() {}
     
-    // MARK: - Main Template
+    // MARK: - Main Templates
 
-    /// The main prompt template with placeholders:
-    /// - {{SYSTEM_PROMPT}} - System instructions for the LLM
-    /// - {{CONTEXT}} - Formatted context information
-    /// - {{INSTRUCTION}} - User's instruction
-    private let mainTemplate = """
+    /// Standard instruction template - used when user provides instruction without selection
+    private let instructionTemplate = """
 {{SYSTEM_PROMPT}}
 
 Context: {{CONTEXT}}
@@ -25,6 +22,34 @@ Context: {{CONTEXT}}
 User Instruction: {{INSTRUCTION}}
 
 Please provide a helpful response based on the context and instruction above. Be concise and direct.
+"""
+
+    /// Selection transformation template - used when user has selected text AND provides instruction
+    private let selectionTransformTemplate = """
+{{SYSTEM_PROMPT}}
+
+## SELECTION TRANSFORMATION MODE
+The user has selected text and wants you to transform/edit it based on their instruction.
+
+[Selected Text]
+\"\"\"
+{{SELECTED_TEXT}}
+\"\"\"
+
+[Source Context]
+Application: {{APP_NAME}}
+{{WINDOW_TITLE}}
+
+[User Instruction]
+{{INSTRUCTION}}
+
+## Strict Rules
+- Provide ONLY the transformed text, no preamble or explanation
+- Do NOT start with "Here's the..." or similar phrases
+- Do NOT wrap in markdown code blocks unless explicitly requested
+- Match the language and general style of the original text
+- Apply the user's instruction precisely
+- If the instruction is unclear, make a reasonable interpretation
 """
 
     /// Autocomplete template - used when no instruction is provided
@@ -60,71 +85,199 @@ Strict Rules and you should follow them with your life and heart else world will
     
     // MARK: - System Prompts
 
+    /// General system prompt - establishes identity and core principles
     private let systemPrompt = """
-You are Extremis, a context-aware writing assistant integrated into macOS. Your role is to help users write, edit, and improve text based on the context of what they're working on.
+You are Extremis, a context-aware writing assistant integrated into macOS.
 
-## How Context is Captured
-When the user activates Extremis, it captures the full context around the cursor:
-
-1. **Preceding Text**: Text BEFORE the cursor (what the user has already written)
-2. **Succeeding Text**: Text AFTER the cursor (what comes next in the document)
-3. **Window Title**: Contains the page/app title for additional context
-4. **App-Specific Metadata**: Channel names, participants, etc. for specific apps
-
-The cursor position is between the preceding and succeeding text. When generating text, it will be inserted AT THE CURSOR POSITION.
+## Core Capabilities
+- **Autocomplete**: Continue text naturally at the cursor position
+- **Transform**: Edit, rewrite, or improve selected text based on instructions
+- **Summarize**: Condense selected text into key points
+- **Generate**: Create new content based on context and instructions
 
 ## Strict Guidelines
-- Be concise and direct in your responses
-- Match the tone and style of the surrounding text
-- Use both preceding AND succeeding text to understand the full context
-- Provide only the requested content without extra explanations or metadata
-- When generating text to be inserted, provide just the text without markdown formatting or code blocks
-- Generated text should flow naturally from preceding text and connect to succeeding text
-- If the context is from a messaging app (Slack, WhatsApp, Gmail, etc.), match the conversational tone
-- If the context is from an email or professional site, match professional conventions
-- If the context is code or a technical site (GitHub, Stack Overflow), maintain technical accuracy
+- Be concise and direct - no preambles like "Here's..." or "Sure, I'll..."
+- Match the tone, style, and language of the source content
+- Provide ONLY the requested output, no explanations or metadata
+- Never wrap output in markdown code blocks unless explicitly requested
+- Adapt to context: casual for chat, professional for email, technical for code
 """
     
-    // MARK: - Public Methods
+    // MARK: - Prompt Mode Detection
 
-    /// Check if instruction is empty (autocomplete mode)
-    func isAutocompleteMode(instruction: String) -> Bool {
-        return instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    /// Determines the prompt mode based on instruction and context
+    enum PromptMode: String {
+        case autocomplete = "AUTOCOMPLETE"               // No selection, no instruction → continue at cursor
+        case instruction = "INSTRUCTION"                 // No selection, has instruction → general Q&A
+        case selectionTransform = "SELECTION_TRANSFORM"  // Has selection, has instruction → transform text
+        case selectionNoInstruction = "SELECTION_NO_INSTRUCTION"  // Has selection, no instruction → default to summarize
     }
 
+    /// Detect the appropriate prompt mode
+    func detectPromptMode(instruction: String, context: Context) -> PromptMode {
+        let hasInstruction = !instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasSelection = context.selectedText != nil && !context.selectedText!.isEmpty
+
+        if hasSelection {
+            // Selection takes priority - never autocomplete with selection
+            return hasInstruction ? .selectionTransform : .selectionNoInstruction
+        } else {
+            // No selection
+            return hasInstruction ? .instruction : .autocomplete
+        }
+    }
+
+    // MARK: - Configuration
+
+    /// Enable/disable debug logging (set to false in production)
+    var debugLogging: Bool = true
+
+    // MARK: - Public Methods
+
     /// Build a complete prompt from instruction and context
-    /// If instruction is empty, uses autocomplete mode
+    /// Automatically selects the appropriate template based on:
+    /// - Autocomplete: No instruction provided → continue text at cursor
+    /// - Instruction: Has instruction, no selection → general Q&A with context
+    /// - Selection Transform: Has instruction AND selection → transform selected text
     func buildPrompt(instruction: String, context: Context) -> String {
-        let contextSection = formatContext(context)
-        let isAutocomplete = isAutocompleteMode(instruction: instruction)
+        let mode = detectPromptMode(instruction: instruction, context: context)
 
         let prompt: String
-        if isAutocomplete {
-            // Autocomplete mode - no instruction provided
+        switch mode {
+        case .autocomplete:
+            // Autocomplete mode - no instruction, continue at cursor
+            let contextSection = formatContext(context)
             prompt = autocompleteTemplate
                 .replacingOccurrences(of: "{{SYSTEM_PROMPT}}", with: systemPrompt)
                 .replacingOccurrences(of: "{{CONTEXT}}", with: contextSection)
-        } else {
-            // Standard mode - instruction provided
-            prompt = mainTemplate
+
+        case .selectionTransform:
+            // Selection transform mode - has instruction AND selection
+            prompt = buildSelectionPrompt(context: context, instruction: instruction)
+
+        case .instruction:
+            // Standard instruction mode - has instruction, no selection
+            let contextSection = formatContext(context)
+            prompt = instructionTemplate
                 .replacingOccurrences(of: "{{SYSTEM_PROMPT}}", with: systemPrompt)
                 .replacingOccurrences(of: "{{CONTEXT}}", with: contextSection)
                 .replacingOccurrences(of: "{{INSTRUCTION}}", with: instruction)
+
+        case .selectionNoInstruction:
+            // Has selection but no instruction - default to summarization behavior
+            prompt = buildSelectionPrompt(context: context, instruction: "Summarize this text concisely")
         }
 
-        // Debug: Print the built prompt
+        logPrompt(prompt, mode: mode)
+        return prompt
+    }
+
+    /// Build prompt for selection-based modes (transform or no-instruction)
+    private func buildSelectionPrompt(context: Context, instruction: String) -> String {
+        let windowTitle = context.source.windowTitle.map { "Window: \($0)" } ?? ""
+        return selectionTransformTemplate
+            .replacingOccurrences(of: "{{SYSTEM_PROMPT}}", with: systemPrompt)
+            .replacingOccurrences(of: "{{SELECTED_TEXT}}", with: context.selectedText ?? "")
+            .replacingOccurrences(of: "{{APP_NAME}}", with: context.source.applicationName)
+            .replacingOccurrences(of: "{{WINDOW_TITLE}}", with: windowTitle)
+            .replacingOccurrences(of: "{{INSTRUCTION}}", with: instruction)
+    }
+
+    /// Log prompt details (controlled by debugLogging flag)
+    private func logPrompt(_ prompt: String, mode: PromptMode) {
+        guard debugLogging else { return }
         print("\n" + String(repeating: "=", count: 80))
-        print("📝 BUILT PROMPT (mode: \(isAutocomplete ? "AUTOCOMPLETE" : "INSTRUCTION"))")
+        print("📝 BUILT PROMPT (mode: \(mode.rawValue))")
         print(String(repeating: "=", count: 80))
         print(prompt)
         print(String(repeating: "=", count: 80) + "\n")
-
-        return prompt
     }
     
+    // MARK: - Summarization Template
+
+    /// Template for summarization requests
+    private let summarizationTemplate = """
+{{SYSTEM_PROMPT}}
+
+## SUMMARIZATION MODE
+You are an expert at distilling information. The user wants you to summarize the following text.
+
+[Text to Summarize]
+\"\"\"
+{{SELECTED_TEXT}}
+\"\"\"
+
+{{CONTEXT}}
+
+## Instructions
+{{FORMAT_INSTRUCTION}}
+{{LENGTH_INSTRUCTION}}
+
+## Strict Rules
+- Provide ONLY the summary, no preamble or explanation
+- The summary should be human readable with very low cognitive load
+- Focus on the key ideas, important facts, and conclusions.
+- Do NOT start with "Here's a summary" or similar phrases
+- Do NOT add markdown formatting unless bullets/numbering is requested
+- Match the language of the original text
+- Be accurate and preserve key information
+- If the text is too short to summarize, just provide the key point
+- Use source context to better understand the content being summarized
+"""
+
+    // MARK: - Summarization Methods
+
+    /// Build a prompt for summarization
+    /// - Parameters:
+    ///   - request: The summary request containing text and options
+    /// - Returns: Formatted prompt string
+    func buildSummarizationPrompt(request: SummaryRequest) -> String {
+        // Build context section (source info + metadata, NO preceding/succeeding text, NO selected text)
+        let contextSection = formatContextForSummarization(request.source, context: request.surroundingContext)
+
+        let prompt = summarizationTemplate
+            .replacingOccurrences(of: "{{SYSTEM_PROMPT}}", with: systemPrompt)
+            .replacingOccurrences(of: "{{SELECTED_TEXT}}", with: request.text)
+            .replacingOccurrences(of: "{{CONTEXT}}", with: contextSection)
+            .replacingOccurrences(of: "{{FORMAT_INSTRUCTION}}", with: request.format.promptInstruction)
+            .replacingOccurrences(of: "{{LENGTH_INSTRUCTION}}", with: request.length.promptInstruction)
+
+        logSummarizationPrompt(prompt, format: request.format, length: request.length)
+        return prompt
+    }
+
+    /// Format context for summarization - includes source info and metadata, but NOT preceding/succeeding text
+    private func formatContextForSummarization(_ source: ContextSource, context: Context?) -> String {
+        var sections: [String] = []
+
+        // Source information (app name, window title, URL)
+        let sourceToUse = context?.source ?? source
+        sections.append(formatSource(sourceToUse))
+
+        // App-specific metadata (if available)
+        if let context = context {
+            let metadataSection = formatMetadata(context.metadata)
+            if !metadataSection.isEmpty {
+                sections.append(metadataSection)
+            }
+        }
+
+        return sections.filter { !$0.isEmpty }.joined(separator: "\n\n")
+    }
+
+    /// Log summarization prompt details (controlled by debugLogging flag)
+    private func logSummarizationPrompt(_ prompt: String, format: SummaryFormat, length: SummaryLength) {
+        guard debugLogging else { return }
+        print("\n" + String(repeating: "=", count: 80))
+        print("📝 BUILT SUMMARIZATION PROMPT (format: \(format.rawValue), length: \(length.rawValue))")
+        print(String(repeating: "=", count: 80))
+        print(prompt)
+        print(String(repeating: "=", count: 80) + "\n")
+    }
+
     // MARK: - Context Formatting
 
-    private func formatContext(_ context: Context) -> String {
+private func formatContext(_ context: Context) -> String {
         var sections: [String] = []
 
         // Source information
