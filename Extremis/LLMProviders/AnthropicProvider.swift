@@ -208,6 +208,83 @@ final class AnthropicProvider: LLMProvider {
         }
     }
 
+    // MARK: - Chat Methods
+
+    func generateChat(messages: [ChatMessage], context: Context?) async throws -> Generation {
+        guard let apiKey = apiKey else {
+            throw LLMProviderError.notConfigured(provider: .anthropic)
+        }
+
+        let startTime = Date()
+        let request = try buildChatRequest(apiKey: apiKey, messages: messages, context: context)
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw LLMProviderError.invalidResponse
+        }
+
+        try handleStatusCode(httpResponse.statusCode, data: data)
+
+        let result = try JSONDecoder().decode(AnthropicResponse.self, from: data)
+        let content = result.content.first?.text ?? ""
+        let latencyMs = Int(Date().timeIntervalSince(startTime) * 1000)
+
+        return Generation(
+            instructionId: UUID(),
+            provider: .anthropic,
+            content: content,
+            tokenUsage: TokenUsage(
+                promptTokens: result.usage?.input_tokens ?? 0,
+                completionTokens: result.usage?.output_tokens ?? 0
+            ),
+            latencyMs: latencyMs
+        )
+    }
+
+    func generateChatStream(messages: [ChatMessage], context: Context?) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    guard let apiKey = self.apiKey else {
+                        continuation.finish(throwing: LLMProviderError.notConfigured(provider: .anthropic))
+                        return
+                    }
+
+                    let request = try self.buildChatStreamRequest(apiKey: apiKey, messages: messages, context: context)
+                    let (bytes, response) = try await self.session.bytes(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        continuation.finish(throwing: LLMProviderError.invalidResponse)
+                        return
+                    }
+
+                    if httpResponse.statusCode != 200 {
+                        var errorData = Data()
+                        for try await byte in bytes {
+                            errorData.append(byte)
+                        }
+                        try self.handleStatusCode(httpResponse.statusCode, data: errorData)
+                    }
+
+                    for try await line in bytes.lines {
+                        if Task.isCancelled {
+                            continuation.finish()
+                            return
+                        }
+
+                        if let content = self.parseSSELine(line) {
+                            continuation.yield(content)
+                        }
+                    }
+
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
     // MARK: - Private Methods
 
     /// Build a non-streaming request
@@ -240,6 +317,63 @@ final class AnthropicProvider: LLMProvider {
             "max_tokens": 2048,
             "messages": [["role": "user", "content": prompt]],
             "stream": true  // Enable SSE streaming
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// Build a non-streaming chat request with messages array
+    /// Anthropic uses a separate system parameter instead of a system message in the array
+    private func buildChatRequest(apiKey: String, messages: [ChatMessage], context: Context?) throws -> URLRequest {
+        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        request.httpMethod = "POST"
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        // Anthropic requires system prompt as separate parameter
+        let systemPrompt = PromptBuilder.shared.buildChatSystemPrompt(context: context)
+
+        // Filter out system messages and format for Anthropic
+        let anthropicMessages = messages.filter { $0.role != .system }.map { message -> [String: String] in
+            [
+                "role": message.role.rawValue,
+                "content": message.content
+            ]
+        }
+
+        let body: [String: Any] = [
+            "model": currentModel.id,
+            "max_tokens": 2048,
+            "system": systemPrompt,
+            "messages": anthropicMessages
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// Build a streaming chat request with messages array
+    private func buildChatStreamRequest(apiKey: String, messages: [ChatMessage], context: Context?) throws -> URLRequest {
+        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        request.httpMethod = "POST"
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let systemPrompt = PromptBuilder.shared.buildChatSystemPrompt(context: context)
+        let anthropicMessages = messages.filter { $0.role != .system }.map { message -> [String: String] in
+            [
+                "role": message.role.rawValue,
+                "content": message.content
+            ]
+        }
+
+        let body: [String: Any] = [
+            "model": currentModel.id,
+            "max_tokens": 2048,
+            "system": systemPrompt,
+            "messages": anthropicMessages,
+            "stream": true
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request

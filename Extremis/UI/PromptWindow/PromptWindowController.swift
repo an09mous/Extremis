@@ -74,9 +74,6 @@ final class PromptWindowController: NSWindowController {
                 print("🔧 Triggering generation with context")
                 self?.viewModel.generate(with: context)
             },
-            onReprompt: { [weak self] in
-                self?.viewModel.goBackToPrompt()
-            },
             onSummarize: { [weak self] in
                 print("📝 Summarize button clicked")
                 self?.viewModel.summarizeSelection()
@@ -204,6 +201,12 @@ final class PromptViewModel: ObservableObject {
     @Published var selectedText: String?  // Text to summarize (selected OR combined preceding/succeeding)
     @Published var isSummarizing: Bool = false
 
+    // Chat mode properties
+    @Published var conversation: ChatConversation?
+    @Published var chatInputText: String = ""
+    @Published var streamingContent: String = ""
+    @Published var isChatMode: Bool = false
+
     private var generationTask: Task<Void, Never>?
     var currentContext: Context?  // Made internal so PromptWindowController can set it
 
@@ -221,6 +224,11 @@ final class PromptViewModel: ObservableObject {
         hasSelection = false
         selectedText = nil
         isSummarizing = false
+        // Reset chat state
+        conversation = nil
+        chatInputText = ""
+        streamingContent = ""
+        isChatMode = false
         updateProviderStatus()
     }
 
@@ -281,18 +289,6 @@ final class PromptViewModel: ObservableObject {
     func cancelGeneration() {
         generationTask?.cancel()
         isGenerating = false
-    }
-
-    /// Go back to prompt input view to enter a new instruction
-    func goBackToPrompt() {
-        generationTask?.cancel()
-        isGenerating = false
-        isSummarizing = false
-        response = ""
-        error = nil
-        showResponse = false
-        // Keep instructionText so user can edit it, or clear it for fresh start
-        // instructionText = ""  // Uncomment to clear instruction
     }
 
     // MARK: - Summarization
@@ -372,6 +368,93 @@ final class PromptViewModel: ObservableObject {
         // Pass the full context for additional context (preceding/succeeding text)
         summarize(text: textToSummarize, source: source, surroundingContext: currentContext)
     }
+
+    // MARK: - Chat Mode
+
+    /// Enable chat mode after initial response is complete
+    func enableChatMode() {
+        guard !response.isEmpty else { return }
+
+        // Create conversation with initial exchange
+        let conv = ChatConversation(originalContext: currentContext, initialRequest: instructionText)
+
+        // Add the initial user message (instruction or summarize request)
+        let userContent = isSummarizing ? "Summarize this text" : instructionText
+        if !userContent.isEmpty {
+            conv.addUserMessage(userContent)
+        }
+
+        // Add the initial assistant response
+        conv.addAssistantMessage(response)
+
+        conversation = conv
+        isChatMode = true
+        chatInputText = ""
+        streamingContent = ""
+
+        print("💬 Chat mode enabled with \(conv.messages.count) messages")
+    }
+
+    /// Send a chat message and get a response
+    func sendChatMessage() {
+        let messageText = chatInputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !messageText.isEmpty else { return }
+        guard let conv = conversation else {
+            // If no conversation exists, create one first
+            enableChatMode()
+            return
+        }
+
+        // Add user message
+        conv.addUserMessage(messageText)
+        chatInputText = ""
+        streamingContent = ""
+        isGenerating = true
+        error = nil
+
+        generationTask = Task {
+            do {
+                guard let provider = LLMProviderRegistry.shared.activeProvider else {
+                    throw LLMProviderError.notConfigured(provider: .openai)
+                }
+
+                // Use chat streaming
+                let stream = provider.generateChatStream(
+                    messages: conv.messages,
+                    context: currentContext
+                )
+
+                for try await chunk in stream {
+                    guard !Task.isCancelled else { return }
+                    streamingContent += chunk
+                }
+
+                // Add completed response to conversation
+                if !streamingContent.isEmpty {
+                    conv.addAssistantMessage(streamingContent)
+                    // Update the response to show latest for Insert/Copy
+                    response = streamingContent
+                }
+                streamingContent = ""
+
+                print("💬 Chat response complete")
+            } catch is CancellationError {
+                print("💬 Chat generation cancelled")
+            } catch {
+                print("💬 Chat error: \(error)")
+                self.error = error.localizedDescription
+            }
+            isGenerating = false
+        }
+    }
+
+    /// Get the content to use for Insert/Copy (latest assistant message)
+    var contentForInsert: String {
+        if isChatMode, let conv = conversation {
+            return conv.lastAssistantContent
+        }
+        return response
+    }
 }
 
 
@@ -382,7 +465,6 @@ struct PromptContainerView: View {
     let onInsert: (String) -> Void
     let onCancel: () -> Void
     let onGenerate: () -> Void
-    let onReprompt: () -> Void
     let onSummarize: () -> Void
 
     var body: some View {
@@ -421,18 +503,23 @@ struct PromptContainerView: View {
             Divider()
 
             if viewModel.showResponse {
-                // Response view
+                // Response view with chat support
                 ResponseView(
-                    response: viewModel.response,
+                    response: viewModel.contentForInsert,
                     isGenerating: viewModel.isGenerating,
                     error: viewModel.error,
-                    onInsert: { onInsert(viewModel.response) },
+                    onInsert: { onInsert(viewModel.contentForInsert) },
                     onCopy: {
                         NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(viewModel.response, forType: .string)
+                        NSPasteboard.general.setString(viewModel.contentForInsert, forType: .string)
                     },
-                    onReprompt: onReprompt,
-                    onCancel: onCancel
+                    onCancel: onCancel,
+                    isChatMode: viewModel.isChatMode,
+                    conversation: viewModel.conversation,
+                    streamingContent: viewModel.streamingContent,
+                    chatInputText: $viewModel.chatInputText,
+                    onSendChat: { viewModel.sendChatMessage() },
+                    onEnableChat: { viewModel.enableChatMode() }
                 )
             } else {
                 // Input view

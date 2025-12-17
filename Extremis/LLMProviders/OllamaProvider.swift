@@ -226,6 +226,85 @@ final class OllamaProvider: LLMProvider {
         }
     }
 
+    // MARK: - Chat Methods
+
+    func generateChat(messages: [ChatMessage], context: Context?) async throws -> Generation {
+        guard serverConnected else {
+            throw LLMProviderError.notConfigured(provider: .ollama)
+        }
+
+        let startTime = Date()
+        let request = try buildChatRequest(messages: messages, context: context)
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw LLMProviderError.invalidResponse
+        }
+
+        try handleStatusCode(httpResponse.statusCode, data: data)
+
+        let result = try JSONDecoder().decode(OllamaResponse.self, from: data)
+        let content = result.choices.first?.message.content ?? ""
+        let latencyMs = Int(Date().timeIntervalSince(startTime) * 1000)
+
+        return Generation(
+            instructionId: UUID(),
+            provider: .ollama,
+            content: content,
+            tokenUsage: result.usage.map {
+                TokenUsage(
+                    promptTokens: $0.prompt_tokens,
+                    completionTokens: $0.completion_tokens
+                )
+            },
+            latencyMs: latencyMs
+        )
+    }
+
+    func generateChatStream(messages: [ChatMessage], context: Context?) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    guard self.serverConnected else {
+                        continuation.finish(throwing: LLMProviderError.notConfigured(provider: .ollama))
+                        return
+                    }
+
+                    let request = try self.buildChatStreamRequest(messages: messages, context: context)
+                    let (bytes, response) = try await self.session.bytes(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        continuation.finish(throwing: LLMProviderError.invalidResponse)
+                        return
+                    }
+
+                    if httpResponse.statusCode != 200 {
+                        var errorData = Data()
+                        for try await byte in bytes {
+                            errorData.append(byte)
+                        }
+                        try self.handleStatusCode(httpResponse.statusCode, data: errorData)
+                    }
+
+                    for try await line in bytes.lines {
+                        if Task.isCancelled {
+                            continuation.finish()
+                            return
+                        }
+
+                        if let content = self.parseSSELine(line) {
+                            continuation.yield(content)
+                        }
+                    }
+
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
     // MARK: - Connection & Model Discovery
 
     /// Check if Ollama server is running
@@ -314,6 +393,38 @@ final class OllamaProvider: LLMProvider {
             "model": currentModel.id,
             "messages": [["role": "user", "content": prompt]],
             "stream": true  // Enable SSE streaming
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// Build a non-streaming chat request with messages array
+    private func buildChatRequest(messages: [ChatMessage], context: Context?) throws -> URLRequest {
+        var request = URLRequest(url: URL(string: "\(baseURL)/v1/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let formattedMessages = PromptBuilder.shared.formatChatMessages(messages: messages, context: context)
+        let body: [String: Any] = [
+            "model": currentModel.id,
+            "messages": formattedMessages,
+            "stream": false
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// Build a streaming chat request with messages array
+    private func buildChatStreamRequest(messages: [ChatMessage], context: Context?) throws -> URLRequest {
+        var request = URLRequest(url: URL(string: "\(baseURL)/v1/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let formattedMessages = PromptBuilder.shared.formatChatMessages(messages: messages, context: context)
+        let body: [String: Any] = [
+            "model": currentModel.id,
+            "messages": formattedMessages,
+            "stream": true
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request

@@ -276,9 +276,112 @@ You are an expert at distilling information. The user wants you to summarize the
         print(String(repeating: "=", count: 80) + "\n")
     }
 
+    // MARK: - Chat Support
+
+    /// Chat system prompt template for multi-turn conversations
+    private let chatSystemPromptTemplate = """
+You are Extremis, a context-aware writing assistant integrated into macOS.
+
+## Current Context
+{{CONTEXT}}
+
+## Conversation Guidelines
+- This is a multi-turn conversation. The user may ask follow-up questions or request refinements.
+- The chat will happen in a terminal so whatever formatiing you do make sure it's human readable in terminal
+- Be concise and direct in your responses
+- Match the tone and style appropriate for the context
+- If the user asks to modify a previous response, provide the full updated version
+- Remember the context of the conversation and build on previous exchanges
+"""
+
+    /// Build a system prompt for chat mode
+    /// - Parameter context: Optional context to include in system prompt
+    /// - Returns: Formatted system prompt for chat
+    func buildChatSystemPrompt(context: Context?) -> String {
+        var contextInfo = ""
+
+        if let context = context {
+            var parts: [String] = []
+
+            // Source info
+            parts.append("Application: \(context.source.applicationName)")
+            if let windowTitle = context.source.windowTitle, !windowTitle.isEmpty {
+                parts.append("Window: \(windowTitle)")
+            }
+            if let url = context.source.url {
+                parts.append("URL: \(url.absoluteString)")
+            }
+
+            // Selected text summary (if any)
+            if let selectedText = context.selectedText, !selectedText.isEmpty {
+                let preview = selectedText.prefix(200)
+                parts.append("Original Selected Text: \"\(preview)\"" + (selectedText.count > 200 ? "..." : ""))
+            }
+
+            contextInfo = parts.joined(separator: "\n")
+        } else {
+            contextInfo = "(No specific context)"
+        }
+
+        let prompt = chatSystemPromptTemplate.replacingOccurrences(of: "{{CONTEXT}}", with: contextInfo)
+        logChatPrompt(prompt, messageCount: 0)
+        return prompt
+    }
+
+    /// Log chat prompt details (controlled by debugLogging flag)
+    private func logChatPrompt(_ prompt: String, messageCount: Int) {
+        guard debugLogging else { return }
+        print("\n" + String(repeating: "=", count: 80))
+        print("💬 BUILT CHAT SYSTEM PROMPT (messages in conversation: \(messageCount))")
+        print(String(repeating: "=", count: 80))
+        print(prompt)
+        print(String(repeating: "=", count: 80) + "\n")
+    }
+
+    /// Format chat messages for provider API
+    /// - Parameters:
+    ///   - messages: Array of chat messages
+    ///   - context: Optional context for system prompt
+    /// - Returns: Array of message dictionaries formatted for API
+    func formatChatMessages(messages: [ChatMessage], context: Context?) -> [[String: String]] {
+        var result: [[String: String]] = []
+
+        // Add system message with context
+        let systemPrompt = buildChatSystemPrompt(context: context)
+        result.append(["role": "system", "content": systemPrompt])
+
+        // Add conversation messages
+        for message in messages {
+            result.append([
+                "role": message.role.rawValue,
+                "content": message.content
+            ])
+        }
+
+        logChatMessages(result)
+        return result
+    }
+
+    /// Log full chat messages being sent (controlled by debugLogging flag)
+    private func logChatMessages(_ messages: [[String: String]]) {
+        guard debugLogging else { return }
+        print("\n" + String(repeating: "-", count: 80))
+        print("💬 CHAT MESSAGES (\(messages.count) total):")
+        print(String(repeating: "-", count: 80))
+        for (index, message) in messages.enumerated() {
+            let role = message["role"] ?? "unknown"
+            let content = message["content"] ?? ""
+            let preview = content.count > 300 ? String(content.prefix(300)) + "..." : content
+            print("[\(index)] \(role.uppercased()):")
+            print(preview)
+            print("")
+        }
+        print(String(repeating: "-", count: 80) + "\n")
+    }
+
     // MARK: - Context Formatting
 
-private func formatContext(_ context: Context) -> String {
+    private func formatContext(_ context: Context) -> String {
         var sections: [String] = []
 
         // Source information
