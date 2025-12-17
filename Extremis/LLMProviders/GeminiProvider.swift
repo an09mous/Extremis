@@ -222,6 +222,85 @@ final class GeminiProvider: LLMProvider {
         }
     }
 
+    // MARK: - Chat Methods
+
+    func generateChat(messages: [ChatMessage], context: Context?) async throws -> Generation {
+        guard let apiKey = apiKey else {
+            throw LLMProviderError.notConfigured(provider: .gemini)
+        }
+
+        let startTime = Date()
+        let request = try buildChatRequest(apiKey: apiKey, messages: messages, context: context)
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw LLMProviderError.invalidResponse
+        }
+
+        try handleStatusCode(httpResponse.statusCode, data: data)
+
+        let result = try JSONDecoder().decode(GeminiResponse.self, from: data)
+        let content = result.candidates?.first?.content.parts.first?.text ?? ""
+        let latencyMs = Int(Date().timeIntervalSince(startTime) * 1000)
+
+        return Generation(
+            instructionId: UUID(),
+            provider: .gemini,
+            content: content,
+            tokenUsage: result.usageMetadata.map {
+                TokenUsage(
+                    promptTokens: $0.promptTokenCount ?? 0,
+                    completionTokens: $0.candidatesTokenCount ?? 0
+                )
+            },
+            latencyMs: latencyMs
+        )
+    }
+
+    func generateChatStream(messages: [ChatMessage], context: Context?) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    guard let apiKey = self.apiKey else {
+                        continuation.finish(throwing: LLMProviderError.notConfigured(provider: .gemini))
+                        return
+                    }
+
+                    let request = try self.buildChatStreamRequest(apiKey: apiKey, messages: messages, context: context)
+                    let (bytes, response) = try await self.session.bytes(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        continuation.finish(throwing: LLMProviderError.invalidResponse)
+                        return
+                    }
+
+                    if httpResponse.statusCode != 200 {
+                        var errorData = Data()
+                        for try await byte in bytes {
+                            errorData.append(byte)
+                        }
+                        try self.handleStatusCode(httpResponse.statusCode, data: errorData)
+                    }
+
+                    for try await line in bytes.lines {
+                        if Task.isCancelled {
+                            continuation.finish()
+                            return
+                        }
+
+                        if let content = self.parseStreamLine(line) {
+                            continuation.yield(content)
+                        }
+                    }
+
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
     // MARK: - Private Methods
 
     /// Build a non-streaming request
@@ -261,6 +340,77 @@ final class GeminiProvider: LLMProvider {
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
+    }
+
+    /// Build a non-streaming chat request with messages array
+    /// Gemini uses a different format: contents array with role and parts
+    private func buildChatRequest(apiKey: String, messages: [ChatMessage], context: Context?) throws -> URLRequest {
+        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(currentModel.id):generateContent?key=\(apiKey)"
+        var request = URLRequest(url: URL(string: urlString)!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let contents = formatMessagesForGemini(messages: messages, context: context)
+        let body: [String: Any] = [
+            "contents": contents,
+            "generationConfig": [
+                "maxOutputTokens": 2048
+            ]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// Build a streaming chat request with messages array
+    private func buildChatStreamRequest(apiKey: String, messages: [ChatMessage], context: Context?) throws -> URLRequest {
+        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(currentModel.id):streamGenerateContent?key=\(apiKey)"
+        var request = URLRequest(url: URL(string: urlString)!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let contents = formatMessagesForGemini(messages: messages, context: context)
+        let body: [String: Any] = [
+            "contents": contents,
+            "generationConfig": [
+                "maxOutputTokens": 2048
+            ]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// Format messages for Gemini API
+    /// Gemini uses "user" and "model" roles, and system messages are prepended to first user message
+    private func formatMessagesForGemini(messages: [ChatMessage], context: Context?) -> [[String: Any]] {
+        var contents: [[String: Any]] = []
+
+        // Build system prompt
+        let systemPrompt = PromptBuilder.shared.buildChatSystemPrompt(context: context)
+        var systemPrepended = false
+
+        for message in messages {
+            // Skip system messages - we'll prepend to first user message
+            if message.role == .system {
+                continue
+            }
+
+            // Map roles: user -> user, assistant -> model
+            let geminiRole = message.role == .user ? "user" : "model"
+            var content = message.content
+
+            // Prepend system prompt to first user message
+            if message.role == .user && !systemPrepended {
+                content = systemPrompt + "\n\n" + content
+                systemPrepended = true
+            }
+
+            contents.append([
+                "role": geminiRole,
+                "parts": [["text": content]]
+            ])
+        }
+
+        return contents
     }
 
     /// Parse a line from Gemini streaming response (NDJSON format)

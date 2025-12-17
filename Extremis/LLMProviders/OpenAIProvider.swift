@@ -214,6 +214,83 @@ final class OpenAIProvider: LLMProvider {
         }
     }
 
+    // MARK: - Chat Methods
+
+    func generateChat(messages: [ChatMessage], context: Context?) async throws -> Generation {
+        guard let apiKey = apiKey else {
+            throw LLMProviderError.notConfigured(provider: .openai)
+        }
+
+        let startTime = Date()
+        let request = try buildChatRequest(apiKey: apiKey, messages: messages, context: context)
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw LLMProviderError.invalidResponse
+        }
+
+        try handleStatusCode(httpResponse.statusCode, data: data)
+
+        let result = try JSONDecoder().decode(OpenAIResponse.self, from: data)
+        let content = result.choices.first?.message.content ?? ""
+        let latencyMs = Int(Date().timeIntervalSince(startTime) * 1000)
+
+        return Generation(
+            instructionId: UUID(),
+            provider: .openai,
+            content: content,
+            tokenUsage: TokenUsage(
+                promptTokens: result.usage?.prompt_tokens ?? 0,
+                completionTokens: result.usage?.completion_tokens ?? 0
+            ),
+            latencyMs: latencyMs
+        )
+    }
+
+    func generateChatStream(messages: [ChatMessage], context: Context?) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    guard let apiKey = self.apiKey else {
+                        continuation.finish(throwing: LLMProviderError.notConfigured(provider: .openai))
+                        return
+                    }
+
+                    let request = try self.buildChatStreamRequest(apiKey: apiKey, messages: messages, context: context)
+                    let (bytes, response) = try await self.session.bytes(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        continuation.finish(throwing: LLMProviderError.invalidResponse)
+                        return
+                    }
+
+                    if httpResponse.statusCode != 200 {
+                        var errorData = Data()
+                        for try await byte in bytes {
+                            errorData.append(byte)
+                        }
+                        try self.handleStatusCode(httpResponse.statusCode, data: errorData)
+                    }
+
+                    for try await line in bytes.lines {
+                        if Task.isCancelled {
+                            continuation.finish()
+                            return
+                        }
+
+                        if let content = self.parseSSELine(line) {
+                            continuation.yield(content)
+                        }
+                    }
+
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
     // MARK: - Private Methods
 
     /// Build a non-streaming request
@@ -244,6 +321,41 @@ final class OpenAIProvider: LLMProvider {
             "messages": [["role": "user", "content": prompt]],
             "max_tokens": 2048,
             "stream": true  // Enable SSE streaming
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// Build a non-streaming chat request with messages array
+    private func buildChatRequest(apiKey: String, messages: [ChatMessage], context: Context?) throws -> URLRequest {
+        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let formattedMessages = PromptBuilder.shared.formatChatMessages(messages: messages, context: context)
+        let body: [String: Any] = [
+            "model": currentModel.id,
+            "messages": formattedMessages,
+            "max_tokens": 2048
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// Build a streaming chat request with messages array
+    private func buildChatStreamRequest(apiKey: String, messages: [ChatMessage], context: Context?) throws -> URLRequest {
+        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let formattedMessages = PromptBuilder.shared.formatChatMessages(messages: messages, context: context)
+        let body: [String: Any] = [
+            "model": currentModel.id,
+            "messages": formattedMessages,
+            "max_tokens": 2048,
+            "stream": true
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request

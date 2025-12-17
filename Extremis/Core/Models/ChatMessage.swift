@@ -1,0 +1,178 @@
+// MARK: - Chat Message Models
+// Models for multi-turn chat conversations
+
+import Foundation
+
+// MARK: - Chat Role
+
+/// Role of a participant in a chat conversation
+enum ChatRole: String, Codable, Equatable {
+    case system
+    case user
+    case assistant
+}
+
+// MARK: - Chat Message
+
+/// A single message in a chat conversation
+struct ChatMessage: Identifiable, Codable, Equatable {
+    let id: UUID
+    let role: ChatRole
+    let content: String
+    let timestamp: Date
+    
+    init(id: UUID = UUID(), role: ChatRole, content: String, timestamp: Date = Date()) {
+        self.id = id
+        self.role = role
+        self.content = content
+        self.timestamp = timestamp
+    }
+    
+    /// Create a user message
+    static func user(_ content: String) -> ChatMessage {
+        ChatMessage(role: .user, content: content)
+    }
+    
+    /// Create an assistant message
+    static func assistant(_ content: String) -> ChatMessage {
+        ChatMessage(role: .assistant, content: content)
+    }
+    
+    /// Create a system message
+    static func system(_ content: String) -> ChatMessage {
+        ChatMessage(role: .system, content: content)
+    }
+}
+
+// MARK: - Chat Conversation
+
+/// Manages a multi-turn chat conversation
+@MainActor
+final class ChatConversation: ObservableObject {
+    /// All messages in the conversation
+    @Published var messages: [ChatMessage] = []
+    
+    /// Original context when conversation started (for system prompt)
+    let originalContext: Context?
+    
+    /// Original request that started the conversation (instruction or "summarize")
+    let initialRequest: String?
+    
+    /// Maximum messages to keep (for context window management)
+    let maxMessages: Int
+    
+    init(
+        originalContext: Context? = nil,
+        initialRequest: String? = nil,
+        maxMessages: Int = 20
+    ) {
+        self.originalContext = originalContext
+        self.initialRequest = initialRequest
+        self.maxMessages = maxMessages
+    }
+    
+    /// Initialize with an existing assistant response
+    convenience init(
+        initialResponse: String,
+        originalContext: Context? = nil,
+        initialRequest: String? = nil,
+        maxMessages: Int = 20
+    ) {
+        self.init(
+            originalContext: originalContext,
+            initialRequest: initialRequest,
+            maxMessages: maxMessages
+        )
+        addAssistantMessage(initialResponse)
+    }
+    
+    // MARK: - Message Management
+    
+    /// Add a message to the conversation
+    func addMessage(_ message: ChatMessage) {
+        messages.append(message)
+        trimIfNeeded()
+    }
+    
+    /// Add a user message
+    func addUserMessage(_ content: String) {
+        addMessage(.user(content))
+    }
+    
+    /// Add an assistant message
+    func addAssistantMessage(_ content: String) {
+        addMessage(.assistant(content))
+    }
+    
+    /// Update the last assistant message (for streaming)
+    func updateLastAssistantMessage(_ content: String) {
+        guard let lastIndex = messages.lastIndex(where: { $0.role == .assistant }) else {
+            // No assistant message yet, add one
+            addAssistantMessage(content)
+            return
+        }
+        let existing = messages[lastIndex]
+        messages[lastIndex] = ChatMessage(
+            id: existing.id,
+            role: .assistant,
+            content: content,
+            timestamp: existing.timestamp
+        )
+    }
+    
+    /// Append to the last assistant message (for streaming chunks)
+    func appendToLastAssistantMessage(_ chunk: String) {
+        guard let lastIndex = messages.lastIndex(where: { $0.role == .assistant }) else {
+            addAssistantMessage(chunk)
+            return
+        }
+        let existing = messages[lastIndex]
+        messages[lastIndex] = ChatMessage(
+            id: existing.id,
+            role: .assistant,
+            content: existing.content + chunk,
+            timestamp: existing.timestamp
+        )
+    }
+    
+    // MARK: - Computed Properties
+    
+    /// The last assistant message
+    var lastAssistantMessage: ChatMessage? {
+        messages.last { $0.role == .assistant }
+    }
+    
+    /// Content of the last assistant message (for Insert/Copy)
+    var lastAssistantContent: String {
+        lastAssistantMessage?.content ?? ""
+    }
+    
+    /// Whether the conversation has any messages
+    var isEmpty: Bool {
+        messages.isEmpty
+    }
+    
+    /// Number of messages
+    var count: Int {
+        messages.count
+    }
+    
+    // MARK: - Private
+    
+    /// Trim old messages if exceeding max, keeping system messages
+    private func trimIfNeeded() {
+        guard messages.count > maxMessages else { return }
+        
+        // Keep system messages at the start
+        let systemMessages = messages.prefix(while: { $0.role == .system })
+        let nonSystemMessages = messages.dropFirst(systemMessages.count)
+        
+        // Keep only recent non-system messages
+        let keepCount = maxMessages - systemMessages.count
+        let recentMessages = nonSystemMessages.suffix(keepCount)
+        
+        messages = Array(systemMessages) + Array(recentMessages)
+        print("[ChatConversation] Trimmed to \(messages.count) messages")
+    }
+}
+

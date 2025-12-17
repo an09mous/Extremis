@@ -9,6 +9,7 @@ A context-aware LLM writing assistant for macOS. Press a global hotkey anywhere 
   - `⌥+Tab` - Magic Mode: auto-summarize selected text OR autocomplete at cursor
 - **🧠 Context-Aware** - Captures surrounding text via keyboard simulation (works in all apps including VS Code)
 - **📋 Smart Summarization** - Quickly summarize selected text or surrounding context with one click
+- **💬 Multi-turn Chat** - Continue chatting with AI after initial response for refinements and follow-ups
 - **🤖 Multi-Provider LLM Support**
   - OpenAI (GPT-4o)
   - Anthropic (Claude 3.5 Sonnet)
@@ -170,7 +171,8 @@ Extremis/
 - [x] **Universal app support** - Works in VS Code and all Electron apps via marker-based capture
 - [x] **Summarization** - Quick summarize selected text or surrounding context
 - [x] **Streaming responses** - Real-time SSE/NDJSON streaming for all providers
-- [ ] **Chat + Memory** - Conversational interface with persistent memory across sessions
+- [x] **Multi-turn chat** - Continue conversations with AI for refinements and follow-up questions
+- [ ] **Persistent memory** - Remember context across sessions
 - [ ] **MCP support** - Integration with Model Context Protocol for external tools and data sources
 
 See [open issues](https://github.com/an09mous/Extremis/issues) for more details and to contribute ideas.

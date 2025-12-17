@@ -3,25 +3,89 @@
 
 import SwiftUI
 
-/// View displaying the AI-generated response
+/// View displaying the AI-generated response with optional chat mode
 struct ResponseView: View {
     let response: String
     let isGenerating: Bool
     let error: String?
     let onInsert: () -> Void
     let onCopy: () -> Void
-    let onReprompt: () -> Void
     let onCancel: () -> Void
+    var onStopGeneration: (() -> Void)?
+
+    // Chat mode properties (optional)
+    var isChatMode: Bool = false
+    var conversation: ChatConversation?
+    var streamingContent: String = ""
+    @Binding var chatInputText: String
+    var onSendChat: (() -> Void)?
+    var onEnableChat: (() -> Void)?
 
     @State private var showCopiedToast = false
+
+    // Convenience initializer for non-chat mode
+    init(
+        response: String,
+        isGenerating: Bool,
+        error: String?,
+        onInsert: @escaping () -> Void,
+        onCopy: @escaping () -> Void,
+        onCancel: @escaping () -> Void,
+        onStopGeneration: (() -> Void)? = nil
+    ) {
+        self.response = response
+        self.isGenerating = isGenerating
+        self.error = error
+        self.onInsert = onInsert
+        self.onCopy = onCopy
+        self.onCancel = onCancel
+        self.onStopGeneration = onStopGeneration
+        self.isChatMode = false
+        self.conversation = nil
+        self.streamingContent = ""
+        self._chatInputText = .constant("")
+        self.onSendChat = nil
+        self.onEnableChat = nil
+    }
+
+    // Full initializer with chat support
+    init(
+        response: String,
+        isGenerating: Bool,
+        error: String?,
+        onInsert: @escaping () -> Void,
+        onCopy: @escaping () -> Void,
+        onCancel: @escaping () -> Void,
+        onStopGeneration: (() -> Void)? = nil,
+        isChatMode: Bool,
+        conversation: ChatConversation?,
+        streamingContent: String,
+        chatInputText: Binding<String>,
+        onSendChat: @escaping () -> Void,
+        onEnableChat: @escaping () -> Void
+    ) {
+        self.response = response
+        self.isGenerating = isGenerating
+        self.error = error
+        self.onInsert = onInsert
+        self.onCopy = onCopy
+        self.onCancel = onCancel
+        self.onStopGeneration = onStopGeneration
+        self.isChatMode = isChatMode
+        self.conversation = conversation
+        self.streamingContent = streamingContent
+        self._chatInputText = chatInputText
+        self.onSendChat = onSendChat
+        self.onEnableChat = onEnableChat
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Image(systemName: "sparkles")
+                Image(systemName: isChatMode ? "bubble.left.and.bubble.right" : "sparkles")
                     .foregroundColor(.accentColor)
-                Text("Response")
+                Text(isChatMode ? "Chat" : "Response")
                     .font(.headline)
                 Spacer()
 
@@ -34,62 +98,108 @@ struct ResponseView: View {
 
             Divider()
 
-            // Content area
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    if let errorMessage = error {
-                        ErrorBanner(message: errorMessage)
-                    } else if response.isEmpty && isGenerating {
-                        GeneratingPlaceholder()
-                    } else {
-                        Text(response)
-                            .font(.body)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+            // Content area - either chat view or simple response
+            if isChatMode, let conv = conversation {
+                ChatView(
+                    conversation: conv,
+                    streamingContent: streamingContent,
+                    isGenerating: isGenerating
+                )
+                .frame(maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let errorMessage = error {
+                            ErrorBanner(message: errorMessage)
+                        } else if response.isEmpty && isGenerating {
+                            GeneratingPlaceholder()
+                        } else {
+                            Text(response)
+                                .font(.body)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
+                    .padding()
                 }
-                .padding()
+                .frame(maxHeight: .infinity)
             }
-            .frame(maxHeight: .infinity)
 
             Divider()
 
-            // Action buttons
-            HStack {
-                Button(action: onReprompt) {
-                    Label("Re-prompt", systemImage: "arrow.uturn.backward")
-                }
-                .disabled(isGenerating)
-
-                Button(action: {
-                    onCopy()
-                    showCopiedToast = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                        showCopiedToast = false
-                    }
-                }) {
-                    Label(showCopiedToast ? "Copied!" : "Copy", systemImage: "doc.on.doc")
-                }
-                .disabled(response.isEmpty || isGenerating)
-
-                Spacer()
-
-                Text("Press Enter to insert")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-
-                Button("Cancel", action: onCancel)
-                    .keyboardShortcut(.escape, modifiers: [])
-
-                Button(action: onInsert) {
-                    Label("Insert", systemImage: "arrow.down.doc")
-                }
-                .keyboardShortcut(.return, modifiers: [])
-                .buttonStyle(.borderedProminent)
-                .disabled(response.isEmpty || isGenerating)
+            // Chat input (shown when in chat mode or when response is complete)
+            if isChatMode || (!isGenerating && !response.isEmpty && onEnableChat != nil) {
+                chatInputSection
+                Divider()
             }
-            .padding()
+
+            // Action buttons
+            actionButtons
         }
+    }
+
+    @ViewBuilder
+    private var chatInputSection: some View {
+        HStack(spacing: 8) {
+            if isChatMode {
+                ChatInputView(
+                    text: $chatInputText,
+                    isEnabled: !isGenerating,
+                    isGenerating: isGenerating,
+                    placeholder: "Ask a follow-up question...",
+                    autoFocus: true,
+                    onSend: { onSendChat?() },
+                    onStopGeneration: onStopGeneration
+                )
+            } else {
+                // Show "Continue chatting" prompt
+                Button(action: { onEnableChat?() }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "bubble.left")
+                        Text("Continue chatting...")
+                            .font(.callout)
+                    }
+                    .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                Spacer()
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        HStack {
+            Button(action: {
+                onCopy()
+                showCopiedToast = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    showCopiedToast = false
+                }
+            }) {
+                Label(showCopiedToast ? "Copied!" : "Copy", systemImage: "doc.on.doc")
+            }
+            .disabled(response.isEmpty || isGenerating)
+
+            Spacer()
+
+            Text(isChatMode ? "Insert latest response" : "Press Enter to insert")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+
+            Button("Cancel", action: onCancel)
+                .keyboardShortcut(.escape, modifiers: [])
+
+            Button(action: onInsert) {
+                Label("Insert", systemImage: "arrow.down.doc")
+            }
+            .keyboardShortcut(.return, modifiers: [])
+            .buttonStyle(.borderedProminent)
+            .disabled(response.isEmpty || isGenerating)
+        }
+        .padding()
     }
 }
 
@@ -140,7 +250,6 @@ struct ResponseView_Previews: PreviewProvider {
             error: nil,
             onInsert: {},
             onCopy: {},
-            onReprompt: {},
             onCancel: {}
         )
         .frame(width: 500, height: 400)
