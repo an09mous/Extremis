@@ -253,22 +253,25 @@ final class PromptViewModel: ObservableObject {
                     throw LLMProviderError.notConfigured(provider: .openai)
                 }
 
-                // Use retry helper for resilient generation
-                let generation = try await RetryHelper.withRetry(
-                    configuration: .default
-                ) {
-                    try await provider.generate(
-                        instruction: self.instructionText,
-                        context: context
-                    )
+                // Use streaming for better UX - response appears incrementally
+                // This matches the pattern used in summarize() for consistency
+                let stream = provider.generateStream(
+                    instruction: self.instructionText,
+                    context: context
+                )
+
+                for try await chunk in stream {
+                    // Check cancellation before appending each chunk
+                    guard !Task.isCancelled else { return }
+                    response += chunk
                 }
 
-                // Check if cancelled
-                guard !Task.isCancelled else { return }
-                response = generation.content
+                print("🔧 Generation complete")
             } catch is CancellationError {
                 // User cancelled, don't show error
+                print("🔧 Generation cancelled")
             } catch {
+                print("🔧 Generation error: \(error)")
                 self.error = error.localizedDescription
             }
             isGenerating = false

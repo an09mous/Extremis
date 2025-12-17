@@ -101,8 +101,43 @@ final class OllamaProvider: LLMProvider {
         AsyncThrowingStream { continuation in
             Task {
                 do {
-                    let generation = try await generate(instruction: instruction, context: context)
-                    continuation.yield(generation.content)
+                    guard self.serverConnected else {
+                        continuation.finish(throwing: LLMProviderError.notConfigured(provider: .ollama))
+                        return
+                    }
+
+                    let prompt = PromptBuilder.shared.buildPrompt(instruction: instruction, context: context)
+                    let request = try self.buildStreamRequest(prompt: prompt)
+
+                    // Use bytes(for:) for SSE streaming
+                    let (bytes, response) = try await self.session.bytes(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        continuation.finish(throwing: LLMProviderError.invalidResponse)
+                        return
+                    }
+
+                    // Check for HTTP errors before streaming
+                    if httpResponse.statusCode != 200 {
+                        var errorData = Data()
+                        for try await byte in bytes {
+                            errorData.append(byte)
+                        }
+                        try self.handleStatusCode(httpResponse.statusCode, data: errorData)
+                    }
+
+                    // Parse SSE stream - Ollama uses OpenAI-compatible format
+                    for try await line in bytes.lines {
+                        if Task.isCancelled {
+                            continuation.finish()
+                            return
+                        }
+
+                        if let content = self.parseSSELine(line) {
+                            continuation.yield(content)
+                        }
+                    }
+
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -150,8 +185,39 @@ final class OllamaProvider: LLMProvider {
         AsyncThrowingStream { continuation in
             Task {
                 do {
-                    let generation = try await generateRaw(prompt: prompt)
-                    continuation.yield(generation.content)
+                    guard self.serverConnected else {
+                        continuation.finish(throwing: LLMProviderError.notConfigured(provider: .ollama))
+                        return
+                    }
+
+                    let request = try self.buildStreamRequest(prompt: prompt)
+
+                    let (bytes, response) = try await self.session.bytes(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        continuation.finish(throwing: LLMProviderError.invalidResponse)
+                        return
+                    }
+
+                    if httpResponse.statusCode != 200 {
+                        var errorData = Data()
+                        for try await byte in bytes {
+                            errorData.append(byte)
+                        }
+                        try self.handleStatusCode(httpResponse.statusCode, data: errorData)
+                    }
+
+                    for try await line in bytes.lines {
+                        if Task.isCancelled {
+                            continuation.finish()
+                            return
+                        }
+
+                        if let content = self.parseSSELine(line) {
+                            continuation.yield(content)
+                        }
+                    }
+
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -222,6 +288,7 @@ final class OllamaProvider: LLMProvider {
 
     // MARK: - Private Methods
 
+    /// Build a non-streaming request
     private func buildRequest(prompt: String) throws -> URLRequest {
         var request = URLRequest(url: URL(string: "\(baseURL)/v1/chat/completions")!)
         request.httpMethod = "POST"
@@ -234,6 +301,51 @@ final class OllamaProvider: LLMProvider {
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
+    }
+
+    /// Build a streaming request with stream: true
+    /// Ollama uses OpenAI-compatible API format
+    private func buildStreamRequest(prompt: String) throws -> URLRequest {
+        var request = URLRequest(url: URL(string: "\(baseURL)/v1/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = [
+            "model": currentModel.id,
+            "messages": [["role": "user", "content": prompt]],
+            "stream": true  // Enable SSE streaming
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// Parse a Server-Sent Events (SSE) line from Ollama streaming response
+    /// Ollama uses OpenAI-compatible format:
+    ///   data: {"id":"...","choices":[{"delta":{"content":"Hello"}}]}
+    ///   data: [DONE]
+    private func parseSSELine(_ line: String) -> String? {
+        // Skip empty lines and non-data lines
+        guard line.hasPrefix("data: ") else { return nil }
+
+        // Remove "data: " prefix
+        let jsonString = String(line.dropFirst(6))
+
+        // Check for stream termination
+        if jsonString == "[DONE]" {
+            return nil
+        }
+
+        // Parse JSON and extract content delta
+        guard let data = jsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let firstChoice = choices.first,
+              let delta = firstChoice["delta"] as? [String: Any],
+              let content = delta["content"] as? String else {
+            return nil
+        }
+
+        return content
     }
 
     private func handleStatusCode(_ code: Int, data: Data) throws {
