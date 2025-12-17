@@ -55,50 +55,45 @@ struct PromptInputView: View {
                 .padding(.horizontal)
                 .frame(minHeight: 100)
 
-                // Action buttons
-                HStack {
-                    // Provider indicator
+                // Action buttons - Layout: [Provider] ... [Hint] [Cancel] [Summarize?] [Primary Action]
+                HStack(spacing: 12) {
+                    // Provider indicator (left-aligned info)
                     ProviderIndicator()
 
                     Spacer()
 
-                    // Summarize button (shown when any text context exists)
-                    if hasContext {
-                        Button(action: onSummarize) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "doc.text.magnifyingglass")
-                                Text("Summarize")
-                            }
+                    // Hint text - contextual guidance
+                    Group {
+                        if hasSelection {
+                            Text("Enter instruction to transform")
+                        } else if hasContext {
+                            Text("Enter instruction or summarize")
+                        } else {
+                            Text("Empty = autocomplete")
                         }
-                        .disabled(isGenerating)
-                        .help("Summarize text context")
                     }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
 
-                    // Hint text - different based on selection state
-                    if hasSelection {
-                        Text("Enter instruction to transform selected text")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    } else if hasContext {
-                        Text("Enter instruction or summarize context")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    } else {
-                        Text("Enter to submit (empty = autocomplete)")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
+                    // Action buttons group (right-aligned)
+                    HStack(spacing: 8) {
+                        Button("Cancel") {
+                            onCancel()
+                        }
+                        .keyboardShortcut(.escape, modifiers: [])
 
-                    Button("Cancel") {
-                        onCancel()
-                    }
-                    .keyboardShortcut(.escape, modifiers: [])
+                        // Summarize button (secondary action, shown when context exists)
+                        if hasContext {
+                            Button(action: onSummarize) {
+                                Label("Summarize", systemImage: "doc.text.magnifyingglass")
+                            }
+                            .disabled(isGenerating)
+                            .help("Summarize text context (quick action)")
+                        }
 
-                    // Main action button - different based on selection and instruction
-                    let isEmpty = instructionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        // Primary action button
+                        let isEmpty = instructionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
-                    if hasSelection {
-                        // With selection: only show Generate when instruction is provided
                         Button(action: onSubmit) {
                             HStack(spacing: 4) {
                                 if isGenerating {
@@ -106,30 +101,30 @@ struct PromptInputView: View {
                                         .scaleEffect(0.7)
                                         .frame(width: 16, height: 16)
                                 }
-                                Text(isGenerating ? "Generating..." : "Generate")
+                                Text(primaryButtonLabel(isEmpty: isEmpty))
                             }
                         }
-                        .disabled(isGenerating || isEmpty)  // Disable if no instruction
+                        .disabled(isGenerating || (hasSelection && isEmpty))
                         .buttonStyle(.borderedProminent)
-                    } else {
-                        // Without selection: Autocomplete or Generate
-                        Button(action: onSubmit) {
-                            HStack(spacing: 4) {
-                                if isGenerating {
-                                    ProgressView()
-                                        .scaleEffect(0.7)
-                                        .frame(width: 16, height: 16)
-                                }
-                                Text(isGenerating ? "Generating..." : (isEmpty ? "Autocomplete" : "Generate"))
-                            }
-                        }
-                        .disabled(isGenerating)
-                        .buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.return, modifiers: [])
                     }
                 }
                 .padding(.horizontal)
                 .padding(.bottom, 16)
             }
+        }
+    }
+
+    // Helper to determine primary button label
+    private func primaryButtonLabel(isEmpty: Bool) -> String {
+        if isGenerating {
+            return "Generating..."
+        } else if hasSelection {
+            return "Generate"
+        } else if isEmpty {
+            return "Autocomplete"
+        } else {
+            return "Generate"
         }
     }
 }
