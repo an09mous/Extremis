@@ -6,23 +6,23 @@ import SwiftUI
 /// View displaying a single chat message bubble
 struct ChatMessageView: View {
     let message: ChatMessage
-    
+
     private var isUser: Bool {
         message.role == .user
     }
-    
+
     private var bubbleColor: Color {
         isUser ? Color.accentColor.opacity(0.15) : Color(NSColor.controlBackgroundColor)
     }
-    
+
     private var alignment: HorizontalAlignment {
         isUser ? .trailing : .leading
     }
-    
+
     var body: some View {
         HStack {
             if isUser { Spacer(minLength: 40) }
-            
+
             VStack(alignment: alignment, spacing: 4) {
                 // Role label
                 HStack(spacing: 4) {
@@ -40,18 +40,24 @@ struct ChatMessageView: View {
                             .foregroundColor(.secondary)
                     }
                 }
-                
-                // Message content
-                Text(message.content)
-                    .font(.body)
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(bubbleColor)
-                    .cornerRadius(12)
-                    .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
+
+                // Message content - Markdown for assistant, plain text for user
+                Group {
+                    if isUser {
+                        Text(message.content)
+                            .font(.body)
+                            .textSelection(.enabled)
+                    } else {
+                        MarkdownTextView(content: message.content)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(bubbleColor)
+                .cornerRadius(12)
+                .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
             }
-            
+
             if !isUser { Spacer(minLength: 40) }
         }
     }
@@ -61,7 +67,7 @@ struct ChatMessageView: View {
 struct StreamingMessageView: View {
     let content: String
     let isGenerating: Bool
-    
+
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
@@ -79,7 +85,7 @@ struct StreamingMessageView: View {
                             .frame(width: 12, height: 12)
                     }
                 }
-                
+
                 // Message content
                 if content.isEmpty && isGenerating {
                     HStack(spacing: 4) {
@@ -94,17 +100,24 @@ struct StreamingMessageView: View {
                     .background(Color(NSColor.controlBackgroundColor))
                     .cornerRadius(12)
                 } else {
-                    Text(content)
-                        .font(.body)
-                        .textSelection(.enabled)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color(NSColor.controlBackgroundColor))
-                        .cornerRadius(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    // Use plain text during streaming for performance, Markdown when done
+                    Group {
+                        if isGenerating {
+                            Text(content)
+                                .font(.body)
+                                .textSelection(.enabled)
+                        } else {
+                            MarkdownTextView(content: content)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color(NSColor.controlBackgroundColor))
+                    .cornerRadius(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            
+
             Spacer(minLength: 40)
         }
     }
@@ -114,14 +127,29 @@ struct StreamingMessageView: View {
 
 struct ChatMessageView_Previews: PreviewProvider {
     static var previews: some View {
-        VStack(spacing: 16) {
-            ChatMessageView(message: ChatMessage(role: .user, content: "Can you help me improve this text?"))
-            ChatMessageView(message: ChatMessage(role: .assistant, content: "Of course! I'd be happy to help you improve your text. Please share what you'd like me to work on."))
-            StreamingMessageView(content: "I'm currently generating...", isGenerating: true)
-            StreamingMessageView(content: "", isGenerating: true)
+        ScrollView {
+            VStack(spacing: 16) {
+                ChatMessageView(message: ChatMessage(role: .user, content: "Can you help me write a Swift function?"))
+                ChatMessageView(message: ChatMessage(role: .assistant, content: """
+                Of course! Here's a simple example:
+
+                ```swift
+                func greet(name: String) -> String {
+                    return "Hello, \\(name)!"
+                }
+                ```
+
+                **Key points:**
+                - The function takes a `String` parameter
+                - It returns a greeting message
+                - Use *string interpolation* for dynamic content
+                """))
+                StreamingMessageView(content: "I'm currently generating...", isGenerating: true)
+                StreamingMessageView(content: "", isGenerating: true)
+            }
+            .padding()
         }
-        .padding()
-        .frame(width: 400)
+        .frame(width: 450, height: 500)
     }
 }
 

@@ -15,11 +15,15 @@ let package = Package(
             targets: ["Extremis"]
         )
     ],
-    dependencies: [],
+    dependencies: [
+        .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.4.1")
+    ],
     targets: [
         .executableTarget(
             name: "Extremis",
-            dependencies: [],
+            dependencies: [
+                .product(name: "MarkdownUI", package: "swift-markdown-ui")
+            ],
             path: ".",
             exclude: [
                 "Package.swift",
