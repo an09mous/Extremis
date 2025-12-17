@@ -514,6 +514,7 @@ struct PromptContainerView: View {
                         NSPasteboard.general.setString(viewModel.contentForInsert, forType: .string)
                     },
                     onCancel: onCancel,
+                    onStopGeneration: { viewModel.cancelGeneration() },
                     isChatMode: viewModel.isChatMode,
                     conversation: viewModel.conversation,
                     streamingContent: viewModel.streamingContent,

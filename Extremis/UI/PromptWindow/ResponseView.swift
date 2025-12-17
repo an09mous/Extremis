@@ -11,6 +11,7 @@ struct ResponseView: View {
     let onInsert: () -> Void
     let onCopy: () -> Void
     let onCancel: () -> Void
+    var onStopGeneration: (() -> Void)?
 
     // Chat mode properties (optional)
     var isChatMode: Bool = false
@@ -29,7 +30,8 @@ struct ResponseView: View {
         error: String?,
         onInsert: @escaping () -> Void,
         onCopy: @escaping () -> Void,
-        onCancel: @escaping () -> Void
+        onCancel: @escaping () -> Void,
+        onStopGeneration: (() -> Void)? = nil
     ) {
         self.response = response
         self.isGenerating = isGenerating
@@ -37,6 +39,7 @@ struct ResponseView: View {
         self.onInsert = onInsert
         self.onCopy = onCopy
         self.onCancel = onCancel
+        self.onStopGeneration = onStopGeneration
         self.isChatMode = false
         self.conversation = nil
         self.streamingContent = ""
@@ -53,6 +56,7 @@ struct ResponseView: View {
         onInsert: @escaping () -> Void,
         onCopy: @escaping () -> Void,
         onCancel: @escaping () -> Void,
+        onStopGeneration: (() -> Void)? = nil,
         isChatMode: Bool,
         conversation: ChatConversation?,
         streamingContent: String,
@@ -66,6 +70,7 @@ struct ResponseView: View {
         self.onInsert = onInsert
         self.onCopy = onCopy
         self.onCancel = onCancel
+        self.onStopGeneration = onStopGeneration
         self.isChatMode = isChatMode
         self.conversation = conversation
         self.streamingContent = streamingContent
@@ -140,9 +145,11 @@ struct ResponseView: View {
                 ChatInputView(
                     text: $chatInputText,
                     isEnabled: !isGenerating,
+                    isGenerating: isGenerating,
                     placeholder: "Ask a follow-up question...",
                     autoFocus: true,
-                    onSend: { onSendChat?() }
+                    onSend: { onSendChat?() },
+                    onStopGeneration: onStopGeneration
                 )
             } else {
                 // Show "Continue chatting" prompt

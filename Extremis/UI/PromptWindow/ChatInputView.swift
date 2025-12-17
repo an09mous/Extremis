@@ -7,9 +7,11 @@ import SwiftUI
 struct ChatInputView: View {
     @Binding var text: String
     let isEnabled: Bool
+    let isGenerating: Bool
     let placeholder: String
     let autoFocus: Bool
     let onSend: () -> Void
+    var onStopGeneration: (() -> Void)?
 
     // Use local state for the TextField to avoid binding issues
     @State private var localText: String = ""
@@ -18,15 +20,19 @@ struct ChatInputView: View {
     init(
         text: Binding<String>,
         isEnabled: Bool = true,
+        isGenerating: Bool = false,
         placeholder: String = "Type a follow-up message...",
         autoFocus: Bool = false,
-        onSend: @escaping () -> Void
+        onSend: @escaping () -> Void,
+        onStopGeneration: (() -> Void)? = nil
     ) {
         self._text = text
         self.isEnabled = isEnabled
+        self.isGenerating = isGenerating
         self.placeholder = placeholder
         self.autoFocus = autoFocus
         self.onSend = onSend
+        self.onStopGeneration = onStopGeneration
     }
 
     var body: some View {
@@ -60,15 +66,25 @@ struct ChatInputView: View {
                     }
                 }
 
-            // Send button
-            Button(action: sendIfNotEmpty) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.title2)
-                    .foregroundColor(canSend ? .accentColor : .secondary)
+            // Show stop button when generating, otherwise show send button
+            if isGenerating {
+                Button(action: { onStopGeneration?() }) {
+                    Image(systemName: "stop.circle.fill")
+                        .font(.title2)
+                        .foregroundColor(.red)
+                }
+                .buttonStyle(.plain)
+                .help("Stop generating")
+            } else {
+                Button(action: sendIfNotEmpty) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.title2)
+                        .foregroundColor(canSend ? .accentColor : .secondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSend)
+                .help("Send message (Enter)")
             }
-            .buttonStyle(.plain)
-            .disabled(!canSend)
-            .help("Send message (Enter)")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
