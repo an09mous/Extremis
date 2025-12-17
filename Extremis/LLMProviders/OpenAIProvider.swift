@@ -85,8 +85,46 @@ final class OpenAIProvider: LLMProvider {
         AsyncThrowingStream { continuation in
             Task {
                 do {
-                    let generation = try await generate(instruction: instruction, context: context)
-                    continuation.yield(generation.content)
+                    guard let apiKey = self.apiKey else {
+                        continuation.finish(throwing: LLMProviderError.notConfigured(provider: .openai))
+                        return
+                    }
+
+                    let prompt = PromptBuilder.shared.buildPrompt(instruction: instruction, context: context)
+                    let request = try self.buildStreamRequest(apiKey: apiKey, prompt: prompt)
+
+                    // Use bytes(for:) for SSE streaming
+                    let (bytes, response) = try await self.session.bytes(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        continuation.finish(throwing: LLMProviderError.invalidResponse)
+                        return
+                    }
+
+                    // Check for HTTP errors before streaming
+                    if httpResponse.statusCode != 200 {
+                        // Collect error response
+                        var errorData = Data()
+                        for try await byte in bytes {
+                            errorData.append(byte)
+                        }
+                        try self.handleStatusCode(httpResponse.statusCode, data: errorData)
+                    }
+
+                    // Parse SSE stream
+                    for try await line in bytes.lines {
+                        // Check for cancellation
+                        if Task.isCancelled {
+                            continuation.finish()
+                            return
+                        }
+
+                        // Parse the SSE line and extract content
+                        if let content = self.parseSSELine(line) {
+                            continuation.yield(content)
+                        }
+                    }
+
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -132,8 +170,42 @@ final class OpenAIProvider: LLMProvider {
         AsyncThrowingStream { continuation in
             Task {
                 do {
-                    let generation = try await generateRaw(prompt: prompt)
-                    continuation.yield(generation.content)
+                    guard let apiKey = self.apiKey else {
+                        continuation.finish(throwing: LLMProviderError.notConfigured(provider: .openai))
+                        return
+                    }
+
+                    let request = try self.buildStreamRequest(apiKey: apiKey, prompt: prompt)
+
+                    // Use bytes(for:) for SSE streaming
+                    let (bytes, response) = try await self.session.bytes(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        continuation.finish(throwing: LLMProviderError.invalidResponse)
+                        return
+                    }
+
+                    // Check for HTTP errors before streaming
+                    if httpResponse.statusCode != 200 {
+                        var errorData = Data()
+                        for try await byte in bytes {
+                            errorData.append(byte)
+                        }
+                        try self.handleStatusCode(httpResponse.statusCode, data: errorData)
+                    }
+
+                    // Parse SSE stream
+                    for try await line in bytes.lines {
+                        if Task.isCancelled {
+                            continuation.finish()
+                            return
+                        }
+
+                        if let content = self.parseSSELine(line) {
+                            continuation.yield(content)
+                        }
+                    }
+
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -144,6 +216,7 @@ final class OpenAIProvider: LLMProvider {
 
     // MARK: - Private Methods
 
+    /// Build a non-streaming request
     private func buildRequest(apiKey: String, prompt: String) throws -> URLRequest {
         var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
         request.httpMethod = "POST"
@@ -157,6 +230,51 @@ final class OpenAIProvider: LLMProvider {
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
+    }
+
+    /// Build a streaming request with stream: true
+    private func buildStreamRequest(apiKey: String, prompt: String) throws -> URLRequest {
+        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = [
+            "model": currentModel.id,
+            "messages": [["role": "user", "content": prompt]],
+            "max_tokens": 2048,
+            "stream": true  // Enable SSE streaming
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// Parse a Server-Sent Events (SSE) line from OpenAI streaming response
+    /// Format: data: {"id":"...","choices":[{"delta":{"content":"Hello"}}]}
+    /// Termination: data: [DONE]
+    private func parseSSELine(_ line: String) -> String? {
+        // Skip empty lines and non-data lines
+        guard line.hasPrefix("data: ") else { return nil }
+
+        // Remove "data: " prefix
+        let jsonString = String(line.dropFirst(6))
+
+        // Check for stream termination
+        if jsonString == "[DONE]" {
+            return nil
+        }
+
+        // Parse JSON and extract content delta
+        guard let data = jsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let firstChoice = choices.first,
+              let delta = firstChoice["delta"] as? [String: Any],
+              let content = delta["content"] as? String else {
+            return nil
+        }
+
+        return content
     }
     
     private func handleStatusCode(_ code: Int, data: Data) throws {

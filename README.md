@@ -14,6 +14,7 @@ A context-aware LLM writing assistant for macOS. Press a global hotkey anywhere 
   - Anthropic (Claude 3.5 Sonnet)
   - Google Gemini (Gemini 1.5 Flash)
   - Ollama (Local models - Llama, Mistral, etc.)
+- **⚡ Real-time Streaming** - Responses appear character-by-character as they're generated
 - **📝 Smart Text Insertion** - Generated text automatically inserted at cursor
 - **🔒 Privacy-First** - No screenshots, uses keyboard simulation for text capture
 - **🎨 Menu Bar App** - Runs quietly in your menu bar, shows active provider/model
@@ -168,6 +169,7 @@ Extremis/
 - [x] **Full context capture** - Capture text after cursor (succeeding text) in addition to preceding text
 - [x] **Universal app support** - Works in VS Code and all Electron apps via marker-based capture
 - [x] **Summarization** - Quick summarize selected text or surrounding context
+- [x] **Streaming responses** - Real-time SSE/NDJSON streaming for all providers
 - [ ] **Chat + Memory** - Conversational interface with persistent memory across sessions
 - [ ] **MCP support** - Integration with Model Context Protocol for external tools and data sources
 

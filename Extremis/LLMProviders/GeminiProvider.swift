@@ -97,8 +97,43 @@ final class GeminiProvider: LLMProvider {
         AsyncThrowingStream { continuation in
             Task {
                 do {
-                    let generation = try await generate(instruction: instruction, context: context)
-                    continuation.yield(generation.content)
+                    guard let apiKey = self.apiKey else {
+                        continuation.finish(throwing: LLMProviderError.notConfigured(provider: .gemini))
+                        return
+                    }
+
+                    let prompt = PromptBuilder.shared.buildPrompt(instruction: instruction, context: context)
+                    let request = try self.buildStreamRequest(apiKey: apiKey, prompt: prompt)
+
+                    // Use bytes(for:) for NDJSON streaming
+                    let (bytes, response) = try await self.session.bytes(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        continuation.finish(throwing: LLMProviderError.invalidResponse)
+                        return
+                    }
+
+                    // Check for HTTP errors before streaming
+                    if httpResponse.statusCode != 200 {
+                        var errorData = Data()
+                        for try await byte in bytes {
+                            errorData.append(byte)
+                        }
+                        try self.handleStatusCode(httpResponse.statusCode, data: errorData)
+                    }
+
+                    // Parse NDJSON stream - Gemini returns JSON objects separated by newlines
+                    for try await line in bytes.lines {
+                        if Task.isCancelled {
+                            continuation.finish()
+                            return
+                        }
+
+                        if let content = self.parseStreamLine(line) {
+                            continuation.yield(content)
+                        }
+                    }
+
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -146,8 +181,39 @@ final class GeminiProvider: LLMProvider {
         AsyncThrowingStream { continuation in
             Task {
                 do {
-                    let generation = try await generateRaw(prompt: prompt)
-                    continuation.yield(generation.content)
+                    guard let apiKey = self.apiKey else {
+                        continuation.finish(throwing: LLMProviderError.notConfigured(provider: .gemini))
+                        return
+                    }
+
+                    let request = try self.buildStreamRequest(apiKey: apiKey, prompt: prompt)
+
+                    let (bytes, response) = try await self.session.bytes(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        continuation.finish(throwing: LLMProviderError.invalidResponse)
+                        return
+                    }
+
+                    if httpResponse.statusCode != 200 {
+                        var errorData = Data()
+                        for try await byte in bytes {
+                            errorData.append(byte)
+                        }
+                        try self.handleStatusCode(httpResponse.statusCode, data: errorData)
+                    }
+
+                    for try await line in bytes.lines {
+                        if Task.isCancelled {
+                            continuation.finish()
+                            return
+                        }
+
+                        if let content = self.parseStreamLine(line) {
+                            continuation.yield(content)
+                        }
+                    }
+
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -158,6 +224,7 @@ final class GeminiProvider: LLMProvider {
 
     // MARK: - Private Methods
 
+    /// Build a non-streaming request
     private func buildRequest(apiKey: String, prompt: String) throws -> URLRequest {
         let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(currentModel.id):generateContent?key=\(apiKey)"
         var request = URLRequest(url: URL(string: urlString)!)
@@ -175,7 +242,61 @@ final class GeminiProvider: LLMProvider {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
     }
-    
+
+    /// Build a streaming request using streamGenerateContent endpoint
+    private func buildStreamRequest(apiKey: String, prompt: String) throws -> URLRequest {
+        // Gemini uses a different endpoint for streaming: streamGenerateContent instead of generateContent
+        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(currentModel.id):streamGenerateContent?key=\(apiKey)"
+        var request = URLRequest(url: URL(string: urlString)!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = [
+            "contents": [
+                ["parts": [["text": prompt]]]
+            ],
+            "generationConfig": [
+                "maxOutputTokens": 2048
+            ]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// Parse a line from Gemini streaming response (NDJSON format)
+    /// Gemini streams JSON objects, each containing candidates with text parts
+    /// Format: {"candidates":[{"content":{"parts":[{"text":"Hello"}]}}]}
+    ///
+    /// Note: Gemini wraps the entire response in a JSON array, so we may see
+    /// lines starting with '[', ',', or ']' which we skip
+    private func parseStreamLine(_ line: String) -> String? {
+        // Skip empty lines and array delimiters
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty || trimmed == "[" || trimmed == "]" || trimmed == "," {
+            return nil
+        }
+
+        // Remove leading comma if present (array element separator)
+        var jsonString = trimmed
+        if jsonString.hasPrefix(",") {
+            jsonString = String(jsonString.dropFirst()).trimmingCharacters(in: .whitespaces)
+        }
+
+        // Parse JSON and extract text
+        guard let data = jsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let candidates = json["candidates"] as? [[String: Any]],
+              let firstCandidate = candidates.first,
+              let content = firstCandidate["content"] as? [String: Any],
+              let parts = content["parts"] as? [[String: Any]],
+              let firstPart = parts.first,
+              let text = firstPart["text"] as? String else {
+            return nil
+        }
+
+        return text
+    }
+
     private func handleStatusCode(_ code: Int, data: Data) throws {
         switch code {
         case 200...299: return

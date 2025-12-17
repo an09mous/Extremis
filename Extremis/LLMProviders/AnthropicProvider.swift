@@ -85,8 +85,43 @@ final class AnthropicProvider: LLMProvider {
         AsyncThrowingStream { continuation in
             Task {
                 do {
-                    let generation = try await generate(instruction: instruction, context: context)
-                    continuation.yield(generation.content)
+                    guard let apiKey = self.apiKey else {
+                        continuation.finish(throwing: LLMProviderError.notConfigured(provider: .anthropic))
+                        return
+                    }
+
+                    let prompt = PromptBuilder.shared.buildPrompt(instruction: instruction, context: context)
+                    let request = try self.buildStreamRequest(apiKey: apiKey, prompt: prompt)
+
+                    // Use bytes(for:) for SSE streaming
+                    let (bytes, response) = try await self.session.bytes(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        continuation.finish(throwing: LLMProviderError.invalidResponse)
+                        return
+                    }
+
+                    // Check for HTTP errors before streaming
+                    if httpResponse.statusCode != 200 {
+                        var errorData = Data()
+                        for try await byte in bytes {
+                            errorData.append(byte)
+                        }
+                        try self.handleStatusCode(httpResponse.statusCode, data: errorData)
+                    }
+
+                    // Parse SSE stream - Anthropic format
+                    for try await line in bytes.lines {
+                        if Task.isCancelled {
+                            continuation.finish()
+                            return
+                        }
+
+                        if let content = self.parseSSELine(line) {
+                            continuation.yield(content)
+                        }
+                    }
+
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -132,8 +167,39 @@ final class AnthropicProvider: LLMProvider {
         AsyncThrowingStream { continuation in
             Task {
                 do {
-                    let generation = try await generateRaw(prompt: prompt)
-                    continuation.yield(generation.content)
+                    guard let apiKey = self.apiKey else {
+                        continuation.finish(throwing: LLMProviderError.notConfigured(provider: .anthropic))
+                        return
+                    }
+
+                    let request = try self.buildStreamRequest(apiKey: apiKey, prompt: prompt)
+
+                    let (bytes, response) = try await self.session.bytes(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        continuation.finish(throwing: LLMProviderError.invalidResponse)
+                        return
+                    }
+
+                    if httpResponse.statusCode != 200 {
+                        var errorData = Data()
+                        for try await byte in bytes {
+                            errorData.append(byte)
+                        }
+                        try self.handleStatusCode(httpResponse.statusCode, data: errorData)
+                    }
+
+                    for try await line in bytes.lines {
+                        if Task.isCancelled {
+                            continuation.finish()
+                            return
+                        }
+
+                        if let content = self.parseSSELine(line) {
+                            continuation.yield(content)
+                        }
+                    }
+
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -144,6 +210,7 @@ final class AnthropicProvider: LLMProvider {
 
     // MARK: - Private Methods
 
+    /// Build a non-streaming request
     private func buildRequest(apiKey: String, prompt: String) throws -> URLRequest {
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         request.httpMethod = "POST"
@@ -159,7 +226,53 @@ final class AnthropicProvider: LLMProvider {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
     }
-    
+
+    /// Build a streaming request with stream: true
+    private func buildStreamRequest(apiKey: String, prompt: String) throws -> URLRequest {
+        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        request.httpMethod = "POST"
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = [
+            "model": currentModel.id,
+            "max_tokens": 2048,
+            "messages": [["role": "user", "content": prompt]],
+            "stream": true  // Enable SSE streaming
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// Parse a Server-Sent Events (SSE) line from Anthropic streaming response
+    /// Anthropic format:
+    ///   event: content_block_delta
+    ///   data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hello"}}
+    ///
+    /// We only care about content_block_delta events with text_delta
+    private func parseSSELine(_ line: String) -> String? {
+        // Skip empty lines, event lines, and non-data lines
+        guard line.hasPrefix("data: ") else { return nil }
+
+        // Remove "data: " prefix
+        let jsonString = String(line.dropFirst(6))
+
+        // Parse JSON and extract text delta
+        guard let data = jsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = json["type"] as? String,
+              type == "content_block_delta",
+              let delta = json["delta"] as? [String: Any],
+              let deltaType = delta["type"] as? String,
+              deltaType == "text_delta",
+              let text = delta["text"] as? String else {
+            return nil
+        }
+
+        return text
+    }
+
     private func handleStatusCode(_ code: Int, data: Data) throws {
         switch code {
         case 200...299: return
