@@ -103,7 +103,8 @@ struct ResponseView: View {
                 ChatView(
                     conversation: conv,
                     streamingContent: streamingContent,
-                    isGenerating: isGenerating
+                    isGenerating: isGenerating,
+                    error: error
                 )
                 .frame(maxHeight: .infinity)
             } else {
@@ -172,16 +173,19 @@ struct ResponseView: View {
     @ViewBuilder
     private var actionButtons: some View {
         HStack {
-            Button(action: {
-                onCopy()
-                showCopiedToast = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                    showCopiedToast = false
+            // Only show copy button in non-chat mode (chat mode has per-message copy)
+            if !isChatMode {
+                Button(action: {
+                    onCopy()
+                    showCopiedToast = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        showCopiedToast = false
+                    }
+                }) {
+                    Label(showCopiedToast ? "Copied!" : "Copy", systemImage: "doc.on.doc")
                 }
-            }) {
-                Label(showCopiedToast ? "Copied!" : "Copy", systemImage: "doc.on.doc")
+                .disabled(response.isEmpty || isGenerating)
             }
-            .disabled(response.isEmpty || isGenerating)
 
             Spacer()
 

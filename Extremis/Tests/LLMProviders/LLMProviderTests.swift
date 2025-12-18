@@ -262,12 +262,81 @@ struct AnthropicProviderTests {
 
 // MARK: - Gemini Provider Tests
 
+/// Gemini JSON chunk parser - parses a complete JSON object (not line-by-line)
+/// This mirrors the parseGeminiChunk method in GeminiProvider
+func parseGeminiChunk(_ data: Data) -> String? {
+    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let candidates = json["candidates"] as? [[String: Any]],
+          let firstCandidate = candidates.first,
+          let content = firstCandidate["content"] as? [String: Any],
+          let parts = content["parts"] as? [[String: Any]] else {
+        return nil
+    }
+
+    var text = ""
+    for part in parts {
+        if let partText = part["text"] as? String {
+            text += partText
+        }
+    }
+    return text.isEmpty ? nil : text
+}
+
+/// Simulates the JSON object boundary detection used in streamJsonObjects
+/// Returns array of extracted texts from detected JSON objects
+func parseGeminiPrettyPrintedStream(_ input: String) -> [String] {
+    var results: [String] = []
+    var buffer = ""
+    var braceDepth = 0
+    var inString = false
+    var escapeNext = false
+    var objectStart: String.Index? = nil
+
+    for char in input {
+        buffer.append(char)
+
+        if escapeNext {
+            escapeNext = false
+            continue
+        }
+        if char == "\\" && inString {
+            escapeNext = true
+            continue
+        }
+        if char == "\"" {
+            inString = !inString
+            continue
+        }
+        if inString { continue }
+
+        if char == "{" {
+            if braceDepth == 0 {
+                objectStart = buffer.index(buffer.endIndex, offsetBy: -1)
+            }
+            braceDepth += 1
+        } else if char == "}" {
+            braceDepth -= 1
+            if braceDepth == 0, let start = objectStart {
+                let objectString = String(buffer[start...])
+                if let data = objectString.data(using: .utf8),
+                   let text = parseGeminiChunk(data) {
+                    results.append(text)
+                }
+                objectStart = nil
+            }
+        }
+    }
+
+    return results
+}
+
 struct GeminiProviderTests {
 
     static func runAll() {
         print("\n📦 Gemini Provider Tests")
         print(String(repeating: "-", count: 40))
 
+        // Legacy line-by-line tests (still valid for single-line JSON)
         testParseValidStreamLine()
         testParseArrayStart()
         testParseArrayEnd()
@@ -279,6 +348,13 @@ struct GeminiProviderTests {
         testParseWithUnicode()
         testParseMalformedJSON()
         testParseWithWhitespace()
+
+        // New tests for pretty-printed JSON parsing
+        testParsePrettyPrintedSingleObject()
+        testParsePrettyPrintedMultipleObjects()
+        testParsePrettyPrintedWithBracesInString()
+        testParsePrettyPrintedWithEscapedQuotes()
+        testParsePrettyPrintedRealWorldResponse()
     }
 
     static func testParseValidStreamLine() {
@@ -356,6 +432,128 @@ struct GeminiProviderTests {
         let line = "  " + #"{"candidates":[{"content":{"parts":[{"text":"Spaced"}]}}]}"# + "  "
         let result = parseGeminiStreamLine(line)
         TestRunner.assertEqual(result, "Spaced", "Gemini: Parse line with whitespace")
+    }
+
+    // MARK: - Pretty-printed JSON tests (new streaming implementation)
+
+    static func testParsePrettyPrintedSingleObject() {
+        let prettyJson = """
+        {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "text": "Hello World"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+        """
+        let results = parseGeminiPrettyPrintedStream(prettyJson)
+        TestRunner.assertEqual(results.count, 1, "Gemini Pretty: Single object count")
+        TestRunner.assertEqual(results.first, "Hello World", "Gemini Pretty: Single object text")
+    }
+
+    static func testParsePrettyPrintedMultipleObjects() {
+        let prettyJson = """
+        [
+        {
+          "candidates": [{"content": {"parts": [{"text": "First"}]}}]
+        },
+        {
+          "candidates": [{"content": {"parts": [{"text": " chunk"}]}}]
+        }
+        ]
+        """
+        let results = parseGeminiPrettyPrintedStream(prettyJson)
+        TestRunner.assertEqual(results.count, 2, "Gemini Pretty: Multiple objects count")
+        TestRunner.assertEqual(results.joined(), "First chunk", "Gemini Pretty: Multiple objects combined")
+    }
+
+    static func testParsePrettyPrintedWithBracesInString() {
+        // Test that braces inside strings don't break parsing
+        let prettyJson = """
+        {
+          "candidates": [{
+            "content": {
+              "parts": [{
+                "text": "Here is JSON: {\\\"key\\\": \\\"value\\\"}"
+              }]
+            }
+          }]
+        }
+        """
+        let results = parseGeminiPrettyPrintedStream(prettyJson)
+        TestRunner.assertEqual(results.count, 1, "Gemini Pretty: Braces in string count")
+        TestRunner.assertTrue(results.first?.contains("JSON") ?? false, "Gemini Pretty: Braces in string content")
+    }
+
+    static func testParsePrettyPrintedWithEscapedQuotes() {
+        let prettyJson = """
+        {
+          "candidates": [{
+            "content": {
+              "parts": [{
+                "text": "Say \\"Hello\\""
+              }]
+            }
+          }]
+        }
+        """
+        let results = parseGeminiPrettyPrintedStream(prettyJson)
+        TestRunner.assertEqual(results.count, 1, "Gemini Pretty: Escaped quotes count")
+        TestRunner.assertEqual(results.first, "Say \"Hello\"", "Gemini Pretty: Escaped quotes content")
+    }
+
+    static func testParsePrettyPrintedRealWorldResponse() {
+        // Simulates actual Gemini API response format
+        let realWorldJson = """
+        [
+        {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "text": "The quick "
+                  }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP",
+              "avgLogprobs": -0.1
+            }
+          ],
+          "usageMetadata": {
+            "promptTokenCount": 10,
+            "candidatesTokenCount": 5,
+            "totalTokenCount": 15
+          },
+          "modelVersion": "gemini-2.5-flash"
+        },
+        {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "text": "brown fox"
+                  }
+                ],
+                "role": "model"
+              }
+            }
+          ],
+          "modelVersion": "gemini-2.5-flash"
+        }
+        ]
+        """
+        let results = parseGeminiPrettyPrintedStream(realWorldJson)
+        TestRunner.assertEqual(results.count, 2, "Gemini Pretty: Real-world response count")
+        TestRunner.assertEqual(results.joined(), "The quick brown fox", "Gemini Pretty: Real-world combined text")
     }
 }
 

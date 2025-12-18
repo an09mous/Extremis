@@ -17,6 +17,9 @@ final class GeminiProvider: LLMProvider {
 
     var isConfigured: Bool { apiKey != nil && !apiKey!.isEmpty }
 
+    /// Enable/disable debug logging (set to false in production)
+    var debugLogging: Bool = true
+
     // MARK: - Initialization
 
     init(model: LLMModel? = nil) {
@@ -25,13 +28,6 @@ final class GeminiProvider: LLMProvider {
 
         // Try to load API key from keychain
         self.apiKey = try? KeychainHelper.shared.retrieveAPIKey(for: .gemini)
-
-        // Log API key status
-        if self.apiKey != nil {
-            print("🔑 GeminiProvider: API key loaded from keychain")
-        } else {
-            print("⚠️ GeminiProvider: No API key found in keychain")
-        }
 
         // Try to load saved model
         if let savedModelId = UserDefaults.standard.string(forKey: "gemini_model"),
@@ -52,7 +48,6 @@ final class GeminiProvider: LLMProvider {
     func setModel(_ model: LLMModel) {
         self.currentModel = model
         UserDefaults.standard.set(model.id, forKey: "gemini_model")
-        print("✅ Gemini model set to: \(model.name)")
     }
     
     func generate(instruction: String, context: Context) async throws -> Generation {
@@ -62,8 +57,6 @@ final class GeminiProvider: LLMProvider {
         
         let startTime = Date()
         let prompt = PromptBuilder.shared.buildPrompt(instruction: instruction, context: context)
-        print("📋 PromptBuilder: context = \(context)")
-        print("📋 PromptBuilder: prompt = \(prompt)")
 
         let request = try buildRequest(apiKey: apiKey, prompt: prompt)
         let (data, response) = try await session.data(for: request)
@@ -105,7 +98,6 @@ final class GeminiProvider: LLMProvider {
                     let prompt = PromptBuilder.shared.buildPrompt(instruction: instruction, context: context)
                     let request = try self.buildStreamRequest(apiKey: apiKey, prompt: prompt)
 
-                    // Use bytes(for:) for NDJSON streaming
                     let (bytes, response) = try await self.session.bytes(for: request)
 
                     guard let httpResponse = response as? HTTPURLResponse else {
@@ -113,7 +105,6 @@ final class GeminiProvider: LLMProvider {
                         return
                     }
 
-                    // Check for HTTP errors before streaming
                     if httpResponse.statusCode != 200 {
                         var errorData = Data()
                         for try await byte in bytes {
@@ -122,16 +113,13 @@ final class GeminiProvider: LLMProvider {
                         try self.handleStatusCode(httpResponse.statusCode, data: errorData)
                     }
 
-                    // Parse NDJSON stream - Gemini returns JSON objects separated by newlines
-                    for try await line in bytes.lines {
+                    // Stream JSON objects as they complete
+                    for try await text in self.streamJsonObjects(from: bytes) {
                         if Task.isCancelled {
                             continuation.finish()
                             return
                         }
-
-                        if let content = self.parseStreamLine(line) {
-                            continuation.yield(content)
-                        }
+                        continuation.yield(text)
                     }
 
                     continuation.finish()
@@ -203,15 +191,13 @@ final class GeminiProvider: LLMProvider {
                         try self.handleStatusCode(httpResponse.statusCode, data: errorData)
                     }
 
-                    for try await line in bytes.lines {
+                    // Stream JSON objects as they complete
+                    for try await text in self.streamJsonObjects(from: bytes) {
                         if Task.isCancelled {
                             continuation.finish()
                             return
                         }
-
-                        if let content = self.parseStreamLine(line) {
-                            continuation.yield(content)
-                        }
+                        continuation.yield(text)
                     }
 
                     continuation.finish()
@@ -267,6 +253,7 @@ final class GeminiProvider: LLMProvider {
                     }
 
                     let request = try self.buildChatStreamRequest(apiKey: apiKey, messages: messages, context: context)
+
                     let (bytes, response) = try await self.session.bytes(for: request)
 
                     guard let httpResponse = response as? HTTPURLResponse else {
@@ -282,15 +269,13 @@ final class GeminiProvider: LLMProvider {
                         try self.handleStatusCode(httpResponse.statusCode, data: errorData)
                     }
 
-                    for try await line in bytes.lines {
+                    // Stream JSON objects as they complete
+                    for try await text in self.streamJsonObjects(from: bytes) {
                         if Task.isCancelled {
                             continuation.finish()
                             return
                         }
-
-                        if let content = self.parseStreamLine(line) {
-                            continuation.yield(content)
-                        }
+                        continuation.yield(text)
                     }
 
                     continuation.finish()
@@ -410,15 +395,76 @@ final class GeminiProvider: LLMProvider {
             ])
         }
 
+        logChatMessages(messages: messages, formattedCount: contents.count)
         return contents
     }
 
+    /// Log chat messages (controlled by debugLogging flag)
+    private func logChatMessages(messages: [ChatMessage], formattedCount: Int) {
+        guard debugLogging else { return }
+        print("\n" + String(repeating: "-", count: 80))
+        print("💬 GEMINI CHAT MESSAGES (\(messages.count) incoming, \(formattedCount) formatted):")
+        print(String(repeating: "-", count: 80))
+        for (index, message) in messages.enumerated() {
+            let preview = message.content.prefix(100)
+            let truncated = message.content.count > 100 ? "..." : ""
+            print("  [\(index)] \(message.role.rawValue): \(preview)\(truncated)")
+        }
+        print(String(repeating: "-", count: 80) + "\n")
+    }
+
+    /// Parse a single JSON chunk from Gemini streaming (for incremental parsing)
+    private func parseGeminiChunk(_ data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return extractTextFromCandidate(json)
+    }
+
+    /// Parse complete Gemini JSON response (can be array or single object)
+    /// Gemini returns pretty-printed JSON, so we accumulate all bytes and parse at once
+    private func parseGeminiResponse(_ data: Data) -> String? {
+        // Try parsing as array first (streaming response wraps in array)
+        if let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+            // Concatenate all text parts from all candidates
+            var allText = ""
+            for json in jsonArray {
+                if let text = extractTextFromCandidate(json) {
+                    allText += text
+                }
+            }
+            return allText.isEmpty ? nil : allText
+        }
+
+        // Try parsing as single object
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return extractTextFromCandidate(json)
+        }
+
+        return nil
+    }
+
+    /// Extract text from a Gemini candidate JSON object
+    private func extractTextFromCandidate(_ json: [String: Any]) -> String? {
+        guard let candidates = json["candidates"] as? [[String: Any]],
+              let firstCandidate = candidates.first,
+              let content = firstCandidate["content"] as? [String: Any],
+              let parts = content["parts"] as? [[String: Any]] else {
+            return nil
+        }
+
+        // Concatenate all text parts
+        var text = ""
+        for part in parts {
+            if let partText = part["text"] as? String {
+                text += partText
+            }
+        }
+        return text.isEmpty ? nil : text
+    }
+
     /// Parse a line from Gemini streaming response (NDJSON format)
-    /// Gemini streams JSON objects, each containing candidates with text parts
-    /// Format: {"candidates":[{"content":{"parts":[{"text":"Hello"}]}}]}
-    ///
-    /// Note: Gemini wraps the entire response in a JSON array, so we may see
-    /// lines starting with '[', ',', or ']' which we skip
+    /// Note: This is kept for potential future use but Gemini currently returns pretty-printed JSON
     private func parseStreamLine(_ line: String) -> String? {
         // Skip empty lines and array delimiters
         let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -434,17 +480,11 @@ final class GeminiProvider: LLMProvider {
 
         // Parse JSON and extract text
         guard let data = jsonString.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let candidates = json["candidates"] as? [[String: Any]],
-              let firstCandidate = candidates.first,
-              let content = firstCandidate["content"] as? [String: Any],
-              let parts = content["parts"] as? [[String: Any]],
-              let firstPart = parts.first,
-              let text = firstPart["text"] as? String else {
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
 
-        return text
+        return extractTextFromCandidate(json)
     }
 
     private func handleStatusCode(_ code: Int, data: Data) throws {
@@ -456,6 +496,63 @@ final class GeminiProvider: LLMProvider {
         default:
             let message = String(data: data, encoding: .utf8)
             throw LLMProviderError.serverError(statusCode: code, message: message)
+        }
+    }
+
+    /// Stream JSON objects from Gemini's pretty-printed response
+    /// Detects complete JSON objects by tracking brace depth and yields text from each
+    private func streamJsonObjects(from bytes: URLSession.AsyncBytes) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                var buffer = Data()
+                var braceDepth = 0
+                var inString = false
+                var escapeNext = false
+                var objectStart: Int? = nil
+
+                do {
+                    for try await byte in bytes {
+                        buffer.append(byte)
+                        let char = Character(UnicodeScalar(byte))
+
+                        // Track string boundaries to ignore braces inside strings
+                        if escapeNext {
+                            escapeNext = false
+                            continue
+                        }
+                        if char == "\\" && inString {
+                            escapeNext = true
+                            continue
+                        }
+                        if char == "\"" {
+                            inString = !inString
+                            continue
+                        }
+                        if inString { continue }
+
+                        // Track object boundaries
+                        if char == "{" {
+                            if braceDepth == 0 {
+                                objectStart = buffer.count - 1
+                            }
+                            braceDepth += 1
+                        } else if char == "}" {
+                            braceDepth -= 1
+                            if braceDepth == 0, let start = objectStart {
+                                // Complete JSON object found
+                                let objectData = buffer.subdata(in: start..<buffer.count)
+                                if let text = self.parseGeminiChunk(objectData) {
+                                    continuation.yield(text)
+                                }
+                                objectStart = nil
+                            }
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
         }
     }
 }

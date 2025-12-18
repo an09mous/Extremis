@@ -2,27 +2,31 @@
 // Individual message bubble for chat conversations
 
 import SwiftUI
+import AppKit
 
-/// View displaying a single chat message bubble
+/// View displaying a single chat message bubble with copy functionality
 struct ChatMessageView: View {
     let message: ChatMessage
-    
+
+    @State private var isHovering = false
+    @State private var showCopied = false
+
     private var isUser: Bool {
         message.role == .user
     }
-    
+
     private var bubbleColor: Color {
         isUser ? Color.accentColor.opacity(0.15) : Color(NSColor.controlBackgroundColor)
     }
-    
+
     private var alignment: HorizontalAlignment {
         isUser ? .trailing : .leading
     }
-    
+
     var body: some View {
         HStack {
             if isUser { Spacer(minLength: 40) }
-            
+
             VStack(alignment: alignment, spacing: 4) {
                 // Role label
                 HStack(spacing: 4) {
@@ -40,7 +44,7 @@ struct ChatMessageView: View {
                             .foregroundColor(.secondary)
                     }
                 }
-                
+
                 // Message content
                 Text(message.content)
                     .font(.body)
@@ -49,10 +53,39 @@ struct ChatMessageView: View {
                     .padding(.vertical, 8)
                     .background(bubbleColor)
                     .cornerRadius(12)
-                    .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
+
+                // Copy button at bottom (always in layout, visibility controlled by opacity)
+                HStack(spacing: 4) {
+                    Button(action: copyMessage) {
+                        HStack(spacing: 3) {
+                            Image(systemName: showCopied ? "checkmark" : "doc.on.doc")
+                                .font(.system(size: 10))
+                            Text(showCopied ? "Copied" : "Copy")
+                                .font(.system(size: 10))
+                        }
+                        .foregroundColor(showCopied ? .green : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Copy message")
+                }
+                .opacity(isHovering || showCopied ? 1 : 0)
             }
-            
+
             if !isUser { Spacer(minLength: 40) }
+        }
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovering = hovering
+            }
+        }
+    }
+
+    private func copyMessage() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(message.content, forType: .string)
+        showCopied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            showCopied = false
         }
     }
 }
@@ -61,7 +94,14 @@ struct ChatMessageView: View {
 struct StreamingMessageView: View {
     let content: String
     let isGenerating: Bool
-    
+
+    @State private var isHovering = false
+    @State private var showCopied = false
+
+    private var canCopy: Bool {
+        !content.isEmpty && !isGenerating
+    }
+
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
@@ -79,7 +119,7 @@ struct StreamingMessageView: View {
                             .frame(width: 12, height: 12)
                     }
                 }
-                
+
                 // Message content
                 if content.isEmpty && isGenerating {
                     HStack(spacing: 4) {
@@ -101,11 +141,41 @@ struct StreamingMessageView: View {
                         .padding(.vertical, 8)
                         .background(Color(NSColor.controlBackgroundColor))
                         .cornerRadius(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
+
+                // Copy button at bottom (always in layout, visibility controlled by opacity)
+                HStack(spacing: 4) {
+                    Button(action: copyContent) {
+                        HStack(spacing: 3) {
+                            Image(systemName: showCopied ? "checkmark" : "doc.on.doc")
+                                .font(.system(size: 10))
+                            Text(showCopied ? "Copied" : "Copy")
+                                .font(.system(size: 10))
+                        }
+                        .foregroundColor(showCopied ? .green : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Copy message")
+                    .disabled(!canCopy)
+                }
+                .opacity(canCopy && (isHovering || showCopied) ? 1 : 0)
             }
-            
+
             Spacer(minLength: 40)
+        }
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovering = hovering
+            }
+        }
+    }
+
+    private func copyContent() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(content, forType: .string)
+        showCopied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            showCopied = false
         }
     }
 }

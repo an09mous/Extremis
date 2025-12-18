@@ -236,7 +236,7 @@ final class SlackExtractor: ContextExtractor {
             if childCount > 0 {
                 // Limit children at deeper levels
                 let limit = depth < 3 ? 30 : (depth < 6 ? 20 : 10)
-                for (index, child) in children.prefix(limit).enumerated() {
+                for child in children.prefix(limit) {
                     printAXTree(child, depth: depth + 1, maxDepth: maxDepth)
                 }
                 if childCount > limit {
@@ -334,7 +334,7 @@ final class SlackExtractor: ContextExtractor {
 
         var helpValue: CFTypeRef?
         AXUIElementCopyAttributeValue(element, kAXHelpAttribute as CFString, &helpValue)
-        let help = helpValue as? String
+        _ = helpValue as? String  // help attribute retrieved but not currently used
 
         // Collect text content
         let indent = String(repeating: "  ", count: min(depth, 5))

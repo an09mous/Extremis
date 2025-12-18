@@ -324,15 +324,15 @@ You are Extremis, a context-aware writing assistant integrated into macOS.
         }
 
         let prompt = chatSystemPromptTemplate.replacingOccurrences(of: "{{CONTEXT}}", with: contextInfo)
-        logChatPrompt(prompt, messageCount: 0)
+        logChatSystemPrompt(prompt)
         return prompt
     }
 
-    /// Log chat prompt details (controlled by debugLogging flag)
-    private func logChatPrompt(_ prompt: String, messageCount: Int) {
+    /// Log chat system prompt (controlled by debugLogging flag)
+    private func logChatSystemPrompt(_ prompt: String) {
         guard debugLogging else { return }
         print("\n" + String(repeating: "=", count: 80))
-        print("💬 BUILT CHAT SYSTEM PROMPT (messages in conversation: \(messageCount))")
+        print("💬 BUILT CHAT SYSTEM PROMPT")
         print(String(repeating: "=", count: 80))
         print(prompt)
         print(String(repeating: "=", count: 80) + "\n")
