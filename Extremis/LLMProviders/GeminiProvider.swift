@@ -17,6 +17,9 @@ final class GeminiProvider: LLMProvider {
 
     var isConfigured: Bool { apiKey != nil && !apiKey!.isEmpty }
 
+    /// Enable/disable debug logging (set to false in production)
+    var debugLogging: Bool = true
+
     // MARK: - Initialization
 
     init(model: LLMModel? = nil) {
@@ -25,13 +28,6 @@ final class GeminiProvider: LLMProvider {
 
         // Try to load API key from keychain
         self.apiKey = try? KeychainHelper.shared.retrieveAPIKey(for: .gemini)
-
-        // Log API key status
-        if self.apiKey != nil {
-            print("🔑 GeminiProvider: API key loaded from keychain")
-        } else {
-            print("⚠️ GeminiProvider: No API key found in keychain")
-        }
 
         // Try to load saved model
         if let savedModelId = UserDefaults.standard.string(forKey: "gemini_model"),
@@ -52,7 +48,6 @@ final class GeminiProvider: LLMProvider {
     func setModel(_ model: LLMModel) {
         self.currentModel = model
         UserDefaults.standard.set(model.id, forKey: "gemini_model")
-        print("✅ Gemini model set to: \(model.name)")
     }
     
     func generate(instruction: String, context: Context) async throws -> Generation {
@@ -62,8 +57,6 @@ final class GeminiProvider: LLMProvider {
         
         let startTime = Date()
         let prompt = PromptBuilder.shared.buildPrompt(instruction: instruction, context: context)
-        print("📋 PromptBuilder: context = \(context)")
-        print("📋 PromptBuilder: prompt = \(prompt)")
 
         let request = try buildRequest(apiKey: apiKey, prompt: prompt)
         let (data, response) = try await session.data(for: request)
@@ -98,49 +91,39 @@ final class GeminiProvider: LLMProvider {
             Task {
                 do {
                     guard let apiKey = self.apiKey else {
-                        print("❌ GeminiProvider: No API key configured")
                         continuation.finish(throwing: LLMProviderError.notConfigured(provider: .gemini))
                         return
                     }
 
                     let prompt = PromptBuilder.shared.buildPrompt(instruction: instruction, context: context)
-                    print("🚀 GeminiProvider: Starting stream for instruction: \(instruction.prefix(50))...")
                     let request = try self.buildStreamRequest(apiKey: apiKey, prompt: prompt)
 
                     let (bytes, response) = try await self.session.bytes(for: request)
 
                     guard let httpResponse = response as? HTTPURLResponse else {
-                        print("❌ GeminiProvider: Invalid response type")
                         continuation.finish(throwing: LLMProviderError.invalidResponse)
                         return
                     }
-
-                    print("📥 GeminiProvider: HTTP status code: \(httpResponse.statusCode)")
 
                     if httpResponse.statusCode != 200 {
                         var errorData = Data()
                         for try await byte in bytes {
                             errorData.append(byte)
                         }
-                        let errorString = String(data: errorData, encoding: .utf8) ?? "unknown"
-                        print("❌ GeminiProvider: Error response: \(errorString)")
                         try self.handleStatusCode(httpResponse.statusCode, data: errorData)
                     }
 
                     // Stream JSON objects as they complete
                     for try await text in self.streamJsonObjects(from: bytes) {
                         if Task.isCancelled {
-                            print("⏹️ GeminiProvider: Task cancelled")
                             continuation.finish()
                             return
                         }
                         continuation.yield(text)
                     }
 
-                    print("✅ GeminiProvider: Stream finished")
                     continuation.finish()
                 } catch {
-                    print("❌ GeminiProvider: Error: \(error)")
                     continuation.finish(throwing: error)
                 }
             }
@@ -187,48 +170,38 @@ final class GeminiProvider: LLMProvider {
             Task {
                 do {
                     guard let apiKey = self.apiKey else {
-                        print("❌ GeminiProvider (raw): No API key configured")
                         continuation.finish(throwing: LLMProviderError.notConfigured(provider: .gemini))
                         return
                     }
 
-                    print("🚀 GeminiProvider (raw): Starting stream for prompt (\(prompt.count) chars)")
                     let request = try self.buildStreamRequest(apiKey: apiKey, prompt: prompt)
 
                     let (bytes, response) = try await self.session.bytes(for: request)
 
                     guard let httpResponse = response as? HTTPURLResponse else {
-                        print("❌ GeminiProvider (raw): Invalid response type")
                         continuation.finish(throwing: LLMProviderError.invalidResponse)
                         return
                     }
-
-                    print("📥 GeminiProvider (raw): HTTP status code: \(httpResponse.statusCode)")
 
                     if httpResponse.statusCode != 200 {
                         var errorData = Data()
                         for try await byte in bytes {
                             errorData.append(byte)
                         }
-                        let errorString = String(data: errorData, encoding: .utf8) ?? "unknown"
-                        print("❌ GeminiProvider (raw): Error response: \(errorString)")
                         try self.handleStatusCode(httpResponse.statusCode, data: errorData)
                     }
 
                     // Stream JSON objects as they complete
                     for try await text in self.streamJsonObjects(from: bytes) {
                         if Task.isCancelled {
-                            print("⏹️ GeminiProvider (raw): Task cancelled")
                             continuation.finish()
                             return
                         }
                         continuation.yield(text)
                     }
 
-                    print("✅ GeminiProvider (raw): Stream finished")
                     continuation.finish()
                 } catch {
-                    print("❌ GeminiProvider (raw): Error: \(error)")
                     continuation.finish(throwing: error)
                 }
             }
@@ -275,48 +248,38 @@ final class GeminiProvider: LLMProvider {
             Task {
                 do {
                     guard let apiKey = self.apiKey else {
-                        print("❌ GeminiProvider: No API key configured")
                         continuation.finish(throwing: LLMProviderError.notConfigured(provider: .gemini))
                         return
                     }
 
-                    print("🚀 GeminiProvider: Starting chat stream with \(messages.count) messages")
                     let request = try self.buildChatStreamRequest(apiKey: apiKey, messages: messages, context: context)
 
                     let (bytes, response) = try await self.session.bytes(for: request)
 
                     guard let httpResponse = response as? HTTPURLResponse else {
-                        print("❌ GeminiProvider: Invalid response type")
                         continuation.finish(throwing: LLMProviderError.invalidResponse)
                         return
                     }
-
-                    print("📥 GeminiProvider: HTTP status code: \(httpResponse.statusCode)")
 
                     if httpResponse.statusCode != 200 {
                         var errorData = Data()
                         for try await byte in bytes {
                             errorData.append(byte)
                         }
-                        let errorString = String(data: errorData, encoding: .utf8) ?? "unknown"
-                        print("❌ GeminiProvider: Error response: \(errorString)")
                         try self.handleStatusCode(httpResponse.statusCode, data: errorData)
                     }
 
                     // Stream JSON objects as they complete
                     for try await text in self.streamJsonObjects(from: bytes) {
                         if Task.isCancelled {
-                            print("⏹️ GeminiProvider: Task cancelled")
                             continuation.finish()
                             return
                         }
                         continuation.yield(text)
                     }
 
-                    print("✅ GeminiProvider: Stream finished")
                     continuation.finish()
                 } catch {
-                    print("❌ GeminiProvider: Error: \(error)")
                     continuation.finish(throwing: error)
                 }
             }
@@ -432,7 +395,22 @@ final class GeminiProvider: LLMProvider {
             ])
         }
 
+        logChatMessages(messages: messages, formattedCount: contents.count)
         return contents
+    }
+
+    /// Log chat messages (controlled by debugLogging flag)
+    private func logChatMessages(messages: [ChatMessage], formattedCount: Int) {
+        guard debugLogging else { return }
+        print("\n" + String(repeating: "-", count: 80))
+        print("💬 GEMINI CHAT MESSAGES (\(messages.count) incoming, \(formattedCount) formatted):")
+        print(String(repeating: "-", count: 80))
+        for (index, message) in messages.enumerated() {
+            let preview = message.content.prefix(100)
+            let truncated = message.content.count > 100 ? "..." : ""
+            print("  [\(index)] \(message.role.rawValue): \(preview)\(truncated)")
+        }
+        print(String(repeating: "-", count: 80) + "\n")
     }
 
     /// Parse a single JSON chunk from Gemini streaming (for incremental parsing)
@@ -463,7 +441,6 @@ final class GeminiProvider: LLMProvider {
             return extractTextFromCandidate(json)
         }
 
-        print("⚠️ GeminiProvider: Could not parse response as JSON")
         return nil
     }
 
