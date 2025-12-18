@@ -103,7 +103,8 @@ struct ResponseView: View {
                 ChatView(
                     conversation: conv,
                     streamingContent: streamingContent,
-                    isGenerating: isGenerating
+                    isGenerating: isGenerating,
+                    error: error
                 )
                 .frame(maxHeight: .infinity)
             } else {

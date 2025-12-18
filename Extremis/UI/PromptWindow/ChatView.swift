@@ -8,9 +8,10 @@ struct ChatView: View {
     @ObservedObject var conversation: ChatConversation
     let streamingContent: String
     let isGenerating: Bool
-    
+    let error: String?
+
     @State private var scrollProxy: ScrollViewProxy?
-    
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -20,7 +21,7 @@ struct ChatView: View {
                         ChatMessageView(message: message)
                             .id(message.id)
                     }
-                    
+
                     // Display streaming message if generating
                     if isGenerating || !streamingContent.isEmpty {
                         StreamingMessageView(
@@ -29,7 +30,13 @@ struct ChatView: View {
                         )
                         .id("streaming")
                     }
-                    
+
+                    // Display error if present (after streaming content)
+                    if let errorMessage = error, !isGenerating {
+                        ChatErrorView(message: errorMessage)
+                            .id("error")
+                    }
+
                     // Invisible anchor for scrolling to bottom
                     Color.clear
                         .frame(height: 1)
@@ -47,13 +54,45 @@ struct ChatView: View {
             .onChange(of: streamingContent) { _ in
                 scrollToBottom(proxy: proxy)
             }
+            .onChange(of: error) { _ in
+                scrollToBottom(proxy: proxy)
+            }
         }
     }
-    
+
     private func scrollToBottom(proxy: ScrollViewProxy) {
         withAnimation(.easeOut(duration: 0.2)) {
             proxy.scrollTo("bottom", anchor: .bottom)
         }
+    }
+}
+
+// MARK: - Chat Error View
+
+/// Error view styled for chat context
+struct ChatErrorView: View {
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.title3)
+                .foregroundColor(.red)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Error")
+                    .font(.headline)
+                    .foregroundColor(.red)
+                Text(message)
+                    .font(.body)
+                    .foregroundColor(.primary)
+            }
+
+            Spacer()
+        }
+        .padding()
+        .background(Color.red.opacity(0.1))
+        .cornerRadius(12)
     }
 }
 
@@ -104,7 +143,8 @@ struct ChatView_Previews: PreviewProvider {
             ChatView(
                 conversation: conversation,
                 streamingContent: "Here's an improved version...",
-                isGenerating: true
+                isGenerating: true,
+                error: nil
             )
             .frame(height: 300)
 
