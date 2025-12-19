@@ -92,6 +92,8 @@ struct ChatInputView: View {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         onSend()
         text = ""
+        // Reset content height to minimum when text is cleared
+        contentHeight = minHeight
     }
 
     private var canSend: Bool {
