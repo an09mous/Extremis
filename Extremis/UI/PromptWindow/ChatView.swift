@@ -10,58 +10,85 @@ struct ChatView: View {
     let isGenerating: Bool
     let error: String?
 
-    @State private var scrollProxy: ScrollViewProxy?
+    // Track if user has manually scrolled away from bottom
+    @State private var userHasScrolledUp = false
+    @State private var lastContentLength = 0
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 16) {
-                    // Display all completed messages
-                    ForEach(conversation.messages) { message in
-                        ChatMessageView(message: message)
-                            .id(message.id)
-                    }
+        GeometryReader { geometry in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 16) {
+                        // Display all completed messages
+                        ForEach(conversation.messages) { message in
+                            ChatMessageView(message: message)
+                                .id(message.id)
+                        }
 
-                    // Display streaming message if generating
-                    if isGenerating || !streamingContent.isEmpty {
-                        StreamingMessageView(
-                            content: streamingContent,
-                            isGenerating: isGenerating
-                        )
-                        .id("streaming")
-                    }
+                        // Display streaming message if generating
+                        if isGenerating || !streamingContent.isEmpty {
+                            StreamingMessageView(
+                                content: streamingContent,
+                                isGenerating: isGenerating
+                            )
+                            .id("streaming")
+                        }
 
-                    // Display error if present (after streaming content)
-                    if let errorMessage = error, !isGenerating {
-                        ChatErrorView(message: errorMessage)
-                            .id("error")
-                    }
+                        // Display error if present (after streaming content)
+                        if let errorMessage = error, !isGenerating {
+                            ChatErrorView(message: errorMessage)
+                                .id("error")
+                        }
 
-                    // Invisible anchor for scrolling to bottom
-                    Color.clear
-                        .frame(height: 1)
-                        .id("bottom")
+                        // Bottom anchor for scrolling
+                        Color.clear
+                            .frame(height: 1)
+                            .id("bottom")
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // Ensure content fills at least the available height so messages align to bottom
+                    .frame(minHeight: geometry.size.height, alignment: .bottom)
                 }
-                .padding()
-            }
-            .onAppear {
-                scrollProxy = proxy
-                scrollToBottom(proxy: proxy)
-            }
-            .onChange(of: conversation.messages.count) { _ in
-                scrollToBottom(proxy: proxy)
-            }
-            .onChange(of: streamingContent) { _ in
-                scrollToBottom(proxy: proxy)
-            }
-            .onChange(of: error) { _ in
-                scrollToBottom(proxy: proxy)
+                .onAppear {
+                    scrollToBottom(proxy: proxy)
+                }
+                .onChange(of: conversation.messages.count) { _ in
+                    // Always scroll when new message is added
+                    userHasScrolledUp = false
+                    scrollToBottom(proxy: proxy)
+                }
+                .onChange(of: isGenerating) { generating in
+                    if generating {
+                        // Reset scroll tracking when generation starts
+                        userHasScrolledUp = false
+                        lastContentLength = 0
+                    }
+                    scrollToBottom(proxy: proxy)
+                }
+                .onChange(of: streamingContent) { newValue in
+                    // Only auto-scroll if user hasn't manually scrolled up
+                    // and only every ~100 characters to reduce scroll calls
+                    guard !userHasScrolledUp else { return }
+                    let newLength = newValue.count
+                    if newLength == 0 || newLength - lastContentLength > 100 {
+                        lastContentLength = newLength
+                        scrollToBottom(proxy: proxy, animated: false)
+                    }
+                }
+                .onChange(of: error) { _ in
+                    scrollToBottom(proxy: proxy)
+                }
             }
         }
     }
 
-    private func scrollToBottom(proxy: ScrollViewProxy) {
-        withAnimation(.easeOut(duration: 0.2)) {
+    private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool = true) {
+        if animated {
+            withAnimation(.easeOut(duration: 0.15)) {
+                proxy.scrollTo("bottom", anchor: .bottom)
+            }
+        } else {
             proxy.scrollTo("bottom", anchor: .bottom)
         }
     }
