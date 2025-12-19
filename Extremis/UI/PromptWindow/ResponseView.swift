@@ -81,23 +81,6 @@ struct ResponseView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            HStack {
-                Image(systemName: isChatMode ? "bubble.left.and.bubble.right" : "sparkles")
-                    .foregroundColor(.accentColor)
-                Text(isChatMode ? "Chat" : "Response")
-                    .font(.headline)
-                Spacer()
-
-                if isGenerating {
-                    LoadingIndicator(style: .spinning)
-                }
-            }
-            .padding()
-            .background(Color(NSColor.controlBackgroundColor))
-
-            Divider()
-
             // Content area - either chat view or simple response
             if isChatMode, let conv = conversation {
                 ChatView(
