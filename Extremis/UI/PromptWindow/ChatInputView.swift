@@ -2,6 +2,7 @@
 // Text input field for sending chat messages
 
 import SwiftUI
+import AppKit
 
 /// View for entering and sending chat messages
 struct ChatInputView: View {
@@ -13,9 +14,7 @@ struct ChatInputView: View {
     let onSend: () -> Void
     var onStopGeneration: (() -> Void)?
 
-    // Use local state for the TextField to avoid binding issues
-    @State private var localText: String = ""
-    @FocusState private var isFocused: Bool
+    @State private var isFocused: Bool = false
 
     init(
         text: Binding<String>,
@@ -35,36 +34,29 @@ struct ChatInputView: View {
         self.onStopGeneration = onStopGeneration
     }
 
+    // Track the actual content height from NSTextView
+    @State private var contentHeight: CGFloat = 20
+
+    private let minHeight: CGFloat = 20
+    private let maxHeight: CGFloat = 100
+
+    private var textHeight: CGFloat {
+        min(max(minHeight, contentHeight), maxHeight)
+    }
+
     var body: some View {
-        HStack(spacing: 8) {
-            // Text field - uses onSubmit for Enter key handling
-            TextField(placeholder, text: $localText, axis: .vertical)
-                .textFieldStyle(.plain)
-                .lineLimit(1...4)
-                .focused($isFocused)
-                .disabled(!isEnabled)
-                .onSubmit {
-                    sendIfNotEmpty()
-                }
-                .onChange(of: localText) { _ in
-                    // Sync local state to binding
-                    text = localText
-                }
-                .onChange(of: text) { newValue in
-                    // Sync binding to local state (for external clears)
-                    if newValue != localText {
-                        localText = newValue
-                    }
-                }
-                .onAppear {
-                    localText = text
-                    // Auto-focus the text field if requested
-                    if autoFocus {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            isFocused = true
-                        }
-                    }
-                }
+        HStack(alignment: .bottom, spacing: 8) {
+            // Scrollable text input using NSTextView for performance
+            ScrollableChatTextEditor(
+                text: $text,
+                placeholder: placeholder,
+                isEnabled: isEnabled,
+                autoFocus: autoFocus,
+                isFocused: $isFocused,
+                contentHeight: $contentHeight,
+                onSend: sendIfNotEmpty
+            )
+            .frame(height: textHeight)
 
             // Show stop button when generating, otherwise show send button
             if isGenerating {
@@ -97,14 +89,159 @@ struct ChatInputView: View {
     }
 
     private func sendIfNotEmpty() {
-        guard !localText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         onSend()
-        // Clear local state immediately - this will propagate to binding via onChange
-        localText = ""
+        text = ""
     }
 
     private var canSend: Bool {
-        isEnabled && !localText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        isEnabled && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+// MARK: - Scrollable Chat Text Editor (NSTextView-based for performance)
+
+struct ScrollableChatTextEditor: NSViewRepresentable {
+    typealias NSViewType = NSScrollView
+
+    @Binding var text: String
+    let placeholder: String
+    let isEnabled: Bool
+    let autoFocus: Bool
+    @Binding var isFocused: Bool
+    @Binding var contentHeight: CGFloat
+    let onSend: () -> Void
+
+    func makeNSView(context: NSViewRepresentableContext<ScrollableChatTextEditor>) -> NSScrollView {
+        let scrollView = NSTextView.scrollableTextView()
+        let textView = scrollView.documentView as! NSTextView
+
+        textView.delegate = context.coordinator
+        textView.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        textView.isRichText = false
+        textView.allowsUndo = true
+        textView.isEditable = isEnabled
+        textView.isSelectable = true
+        textView.backgroundColor = .clear
+        textView.drawsBackground = false
+        textView.textContainerInset = NSSize(width: 0, height: 2)
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+
+        // Setup placeholder
+        context.coordinator.setupPlaceholder(textView: textView, placeholder: placeholder)
+
+        // Auto-focus if requested
+        if autoFocus {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                textView.window?.makeFirstResponder(textView)
+            }
+        }
+
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: NSViewRepresentableContext<ScrollableChatTextEditor>) {
+        guard let textView = scrollView.documentView as? NSTextView else { return }
+
+        // Update text only if different to avoid cursor jump
+        if textView.string != text {
+            textView.string = text
+        }
+
+        textView.isEditable = isEnabled
+
+        // Update placeholder visibility
+        context.coordinator.updatePlaceholderVisibility(isEmpty: text.isEmpty)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, isFocused: $isFocused, contentHeight: $contentHeight, onSend: onSend)
+    }
+
+    class Coordinator: NSObject, NSTextViewDelegate {
+        @Binding var text: String
+        @Binding var isFocused: Bool
+        @Binding var contentHeight: CGFloat
+        let onSend: () -> Void
+        private var placeholderLabel: NSTextField?
+
+        init(text: Binding<String>, isFocused: Binding<Bool>, contentHeight: Binding<CGFloat>, onSend: @escaping () -> Void) {
+            _text = text
+            _isFocused = isFocused
+            _contentHeight = contentHeight
+            self.onSend = onSend
+        }
+
+        func setupPlaceholder(textView: NSTextView, placeholder: String) {
+            let label = NSTextField(labelWithString: placeholder)
+            label.textColor = .placeholderTextColor
+            label.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+            label.isEditable = false
+            label.isSelectable = false
+            label.drawsBackground = false
+            label.isBordered = false
+            textView.addSubview(label)
+            label.frame.origin = NSPoint(x: 5, y: 2)
+            placeholderLabel = label
+        }
+
+        func updatePlaceholderVisibility(isEmpty: Bool) {
+            placeholderLabel?.isHidden = !isEmpty
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            text = textView.string
+            updatePlaceholderVisibility(isEmpty: textView.string.isEmpty)
+            updateContentHeight(textView: textView)
+        }
+
+        func updateContentHeight(textView: NSTextView) {
+            // Force layout to ensure we get accurate measurements
+            textView.layoutManager?.ensureLayout(for: textView.textContainer!)
+
+            // Get the used rect from the layout manager which accounts for wrapped text
+            if let layoutManager = textView.layoutManager,
+               let textContainer = textView.textContainer {
+                let usedRect = layoutManager.usedRect(for: textContainer)
+                let newHeight = usedRect.height + 4  // Add small padding
+                DispatchQueue.main.async {
+                    self.contentHeight = newHeight
+                }
+            }
+        }
+
+        func textDidBeginEditing(_ notification: Notification) {
+            isFocused = true
+        }
+
+        func textDidEndEditing(_ notification: Notification) {
+            isFocused = false
+        }
+
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            // Intercept Enter key to send
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                let shiftPressed = NSEvent.modifierFlags.contains(.shift)
+                if shiftPressed {
+                    // Shift+Enter: insert newline
+                    textView.insertNewlineIgnoringFieldEditor(nil)
+                    return true
+                } else {
+                    // Enter alone: send message
+                    onSend()
+                    return true
+                }
+            }
+            return false
+        }
     }
 }
 
