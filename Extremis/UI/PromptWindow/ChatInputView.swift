@@ -165,6 +165,14 @@ struct ScrollableChatTextEditor: NSViewRepresentable {
         Coordinator(text: $text, isFocused: $isFocused, contentHeight: $contentHeight, onSend: onSend)
     }
 
+    // Custom NSTextField that passes through mouse clicks to the text view behind it
+    class ClickThroughTextField: NSTextField {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            // Return nil to let clicks pass through to the NSTextView behind
+            return nil
+        }
+    }
+
     class Coordinator: NSObject, NSTextViewDelegate {
         @Binding var text: String
         @Binding var isFocused: Bool
@@ -180,7 +188,7 @@ struct ScrollableChatTextEditor: NSViewRepresentable {
         }
 
         func setupPlaceholder(textView: NSTextView, placeholder: String) {
-            let label = NSTextField(labelWithString: placeholder)
+            let label = ClickThroughTextField(labelWithString: placeholder)
             label.textColor = .placeholderTextColor
             label.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
             label.isEditable = false
