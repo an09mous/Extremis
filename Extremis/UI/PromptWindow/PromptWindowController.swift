@@ -243,7 +243,6 @@ final class PromptViewModel: ObservableObject {
         chatInputText = ""
         streamingContent = ""
         isChatMode = false
-        // Note: updateProviderStatus() is now handled by the subscription
     }
 
     func updateProviderStatus() {
