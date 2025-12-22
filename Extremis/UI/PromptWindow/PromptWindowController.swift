@@ -213,6 +213,20 @@ final class PromptViewModel: ObservableObject {
     /// Summarization service
     private let summarizationService = SummarizationService.shared
 
+    /// Cancellable for provider change subscription
+    private var providerCancellable: AnyCancellable?
+
+    init() {
+        // Subscribe to provider changes
+        providerCancellable = LLMProviderRegistry.shared.$activeProvider
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateProviderStatus()
+            }
+        // Initial update
+        updateProviderStatus()
+    }
+
     func reset() {
         instructionText = ""
         response = ""
@@ -229,7 +243,7 @@ final class PromptViewModel: ObservableObject {
         chatInputText = ""
         streamingContent = ""
         isChatMode = false
-        updateProviderStatus()
+        // Note: updateProviderStatus() is now handled by the subscription
     }
 
     func updateProviderStatus() {
