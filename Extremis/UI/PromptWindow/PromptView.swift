@@ -235,12 +235,14 @@ struct ContextBanner: View {
 // MARK: - Provider Indicator
 
 struct ProviderIndicator: View {
+    @ObservedObject private var registry = LLMProviderRegistry.shared
+
     var body: some View {
         HStack(spacing: 4) {
             Circle()
                 .fill(Color.green)
                 .frame(width: 6, height: 6)
-            Text(LLMProviderRegistry.shared.activeProviderType?.displayName ?? "No Provider")
+            Text(registry.activeProvider?.displayName ?? "No Provider")
                 .font(.caption)
                 .foregroundColor(.secondary)
         }

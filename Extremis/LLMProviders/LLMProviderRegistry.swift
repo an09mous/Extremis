@@ -2,24 +2,25 @@
 // Manages available LLM providers
 
 import Foundation
+import Combine
 
 /// Registry for managing LLM providers
-final class LLMProviderRegistry: LLMProviderRegistryProtocol {
-    
+final class LLMProviderRegistry: LLMProviderRegistryProtocol, ObservableObject {
+
     // MARK: - Properties
-    
+
     /// All registered providers
     private(set) var providers: [LLMProvider] = []
-    
-    /// Currently active provider
-    private(set) var activeProvider: LLMProvider?
-    
+
+    /// Currently active provider - published for UI observation
+    @Published private(set) var activeProvider: LLMProvider?
+
     /// Keychain helper for API key storage
     private let keychainHelper: KeychainHelper
-    
+
     /// User defaults for preferences
     private let userDefaults: UserDefaultsHelper
-    
+
     /// Shared instance
     static let shared = LLMProviderRegistry()
     
