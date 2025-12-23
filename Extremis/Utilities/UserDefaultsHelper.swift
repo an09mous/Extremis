@@ -8,9 +8,10 @@ import Combine
 final class UserDefaultsHelper: PreferencesStore {
     
     // MARK: - Keys
-    
+
     private enum Keys {
         static let preferences = "extremis.preferences"
+        static let hasShownAccessibilityPrompt = "extremis.hasShownAccessibilityPrompt"
     }
     
     // MARK: - Properties
@@ -114,6 +115,14 @@ extension UserDefaultsHelper {
             updated.appearance = newValue
             try? update(updated)
         }
+    }
+
+    // MARK: - Accessibility Prompt Tracking
+
+    /// Whether the accessibility permission explanation has been shown
+    var hasShownAccessibilityPrompt: Bool {
+        get { defaults.bool(forKey: Keys.hasShownAccessibilityPrompt) }
+        set { defaults.set(newValue, forKey: Keys.hasShownAccessibilityPrompt) }
     }
 }
 

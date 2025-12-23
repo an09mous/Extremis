@@ -37,6 +37,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var apiKeyProviderType: LLMProviderType?
     private var apiKeyInputField: NSTextField?
 
+    /// Welcome window controller for onboarding
+    private var welcomeWindowController: WelcomeWindowController?
+
     // MARK: - Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -336,10 +339,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func checkPermissions() {
-        if !permissionManager.isAccessibilityEnabled() {
+        let isEnabled = permissionManager.isAccessibilityEnabled()
+        let hasShownPrompt = UserDefaultsHelper.shared.hasShownAccessibilityPrompt
+
+        print("🔐 checkPermissions: isAccessibilityEnabled=\(isEnabled), hasShownPrompt=\(hasShownPrompt)")
+
+        if !isEnabled {
             print("⚠️ Accessibility permission not granted")
-            permissionManager.requestAccessibility()
+
+            // Show welcome window if not shown before
+            if !hasShownPrompt {
+                print("📋 Showing welcome window...")
+                showWelcomeWindow()
+            } else {
+                // User has seen welcome before, just request permission
+                print("📋 Welcome already shown, requesting permission directly...")
+                permissionManager.requestAccessibility()
+            }
+        } else {
+            print("✅ Accessibility permission already granted")
         }
+    }
+
+    private func showWelcomeWindow() {
+        welcomeWindowController = WelcomeWindowController()
+        welcomeWindowController?.show()
     }
 
     // MARK: - Actions
