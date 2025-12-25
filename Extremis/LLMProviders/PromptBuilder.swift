@@ -5,103 +5,53 @@ import Foundation
 
 /// Builds prompts from templates with context and instruction placeholders
 final class PromptBuilder {
-    
+
     // MARK: - Singleton
-    
+
     static let shared = PromptBuilder()
-    private init() {}
-    
-    // MARK: - Main Templates
 
-    /// Standard instruction template - used when user provides instruction without selection
-    private let instructionTemplate = """
-{{SYSTEM_PROMPT}}
+    // MARK: - Dependencies
 
-Context: {{CONTEXT}}
+    private let templateLoader: PromptTemplateLoader
 
-User Instruction: {{INSTRUCTION}}
+    // MARK: - Initialization
 
-Please provide a helpful response based on the context and instruction above. Be concise and direct.
-"""
+    init(templateLoader: PromptTemplateLoader = .shared) {
+        self.templateLoader = templateLoader
+    }
 
-    /// Selection transformation template - used when user has selected text AND provides instruction
-    private let selectionTransformTemplate = """
-{{SYSTEM_PROMPT}}
+    // MARK: - Template Properties
 
-## SELECTION TRANSFORMATION MODE
-The user has selected text and wants you to transform/edit it based on their instruction.
+    /// System prompt loaded from template
+    private var systemPrompt: String {
+        try! templateLoader.load(.system)
+    }
 
-[Selected Text]
-\"\"\"
-{{SELECTED_TEXT}}
-\"\"\"
+    /// Instruction template loaded from file
+    private var instructionTemplate: String {
+        try! templateLoader.load(.instruction)
+    }
 
-{{CONTEXT}}
+    /// Selection transform template loaded from file
+    private var selectionTransformTemplate: String {
+        try! templateLoader.load(.selectionTransform)
+    }
 
-[User Instruction]
-{{INSTRUCTION}}
+    /// Autocomplete template loaded from file
+    private var autocompleteTemplate: String {
+        try! templateLoader.load(.autocomplete)
+    }
 
-## Strict Rules
-- Provide ONLY the transformed text, no preamble or explanation
-- Do NOT start with "Here's the..." or similar phrases
-- Do NOT wrap in markdown code blocks unless explicitly requested
-- Match the language and general style of the original text
-- Apply the user's instruction precisely
-- If the instruction is unclear, make a reasonable interpretation
-- Use source context to better understand the content being transformed
-"""
+    /// Summarization template loaded from file
+    private var summarizationTemplate: String {
+        try! templateLoader.load(.summarization)
+    }
 
-    /// Autocomplete template - used when no instruction is provided
-    private let autocompleteTemplate = """
-{{SYSTEM_PROMPT}}
+    /// Chat system prompt template loaded from file
+    private var chatSystemPromptTemplate: String {
+        try! templateLoader.load(.chatSystem)
+    }
 
-Context: {{CONTEXT}}
-
-## AUTOCOMPLETE MODE
-The user has selected autocomplete mode. This means they want you to **autocomplete** the text at the cursor position.
-
-You have access to:
-- **Preceding Text**: Text BEFORE the cursor (what the user has already written)
-- **Succeeding Text**: Text AFTER the cursor (what comes next in the document, if any)
-
-Your task:
-1. Analyze the preceding text to understand what the user is writing
-2. Consider the succeeding text (if present) to understand the broader context
-3. Generate text that fits naturally at the cursor position
-4. If succeeding text exists, bridge smoothly between preceding and succeeding
-5. Match the exact style, tone, and format of the existing content
-
-Strict Rules and you should follow them with your life and heart else world will end:
-- Do NOT add any explanations or metadata
-- Since it's an autocomplete request, make sure you are adding appropriate spaces, new lines, indentation, curly braces, or punctuation as needed to make the continuation flow naturally
-- Do NOT repeat what's already written (neither preceding nor succeeding text)
-- Just provide the text that should appear AT THE CURSOR POSITION
-- If it's a message, complete the message naturally
-- If it's code, complete the code logically
-- If it's an email, continue the email appropriately
-- Keep the continuation concise and relevant
-"""
-    
-    // MARK: - System Prompts
-
-    /// General system prompt - establishes identity and core principles
-    private let systemPrompt = """
-You are Extremis, a context-aware writing assistant integrated into macOS.
-
-## Core Capabilities
-- **Autocomplete**: Continue text naturally at the cursor position
-- **Transform**: Edit, rewrite, or improve selected text based on instructions
-- **Summarize**: Condense selected text into key points
-- **Generate**: Create new content based on context and instructions
-
-## Strict Guidelines
-- Be concise and direct - no preambles like "Here's..." or "Sure, I'll..."
-- Match the tone, style, and language of the source content
-- Provide ONLY the requested output, no explanations or metadata
-- Never wrap output in markdown code blocks unless explicitly requested
-- Adapt to context: casual for chat, professional for email, technical for code
-"""
-    
     // MARK: - Prompt Mode Detection
 
     /// Determines the prompt mode based on instruction and context
@@ -194,38 +144,6 @@ You are Extremis, a context-aware writing assistant integrated into macOS.
         print(String(repeating: "=", count: 80) + "\n")
     }
     
-    // MARK: - Summarization Template
-
-    /// Template for summarization requests
-    private let summarizationTemplate = """
-{{SYSTEM_PROMPT}}
-
-## SUMMARIZATION MODE
-You are an expert at distilling information. The user wants you to summarize the following text.
-
-[Text to Summarize]
-\"\"\"
-{{SELECTED_TEXT}}
-\"\"\"
-
-{{CONTEXT}}
-
-## Instructions
-{{FORMAT_INSTRUCTION}}
-{{LENGTH_INSTRUCTION}}
-
-## Strict Rules
-- Provide ONLY the summary, no preamble or explanation
-- The summary should be human readable with very low cognitive load
-- Focus on the key ideas, important facts, and conclusions.
-- Do NOT start with "Here's a summary" or similar phrases
-- Do NOT add markdown formatting unless bullets/numbering is requested
-- Match the language of the original text
-- Be accurate and preserve key information
-- If the text is too short to summarize, just provide the key point
-- Use source context to better understand the content being summarized
-"""
-
     // MARK: - Summarization Methods
 
     /// Build a prompt for summarization
@@ -277,22 +195,6 @@ You are an expert at distilling information. The user wants you to summarize the
     }
 
     // MARK: - Chat Support
-
-    /// Chat system prompt template for multi-turn conversations
-    private let chatSystemPromptTemplate = """
-You are Extremis, a context-aware writing assistant integrated into macOS.
-
-## Current Context
-{{CONTEXT}}
-
-## Strict Conversation Guidelines
-- This is a multi-turn conversation. The user may ask follow-up questions or request refinements.
-- Don't use markdown in response unless explicitly asked by the user
-- Be concise and direct in your responses
-- Match the tone and style appropriate for the context
-- If the user asks to modify a previous response, provide the full updated version
-- Remember the context of the conversation and build on previous exchanges
-"""
 
     /// Build a system prompt for chat mode
     /// - Parameter context: Optional context to include in system prompt
