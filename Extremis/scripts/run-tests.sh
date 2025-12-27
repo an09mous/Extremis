@@ -90,6 +90,11 @@ run_test_suite "ModelConfigLoader Tests" \
     "Foundation"
 popd > /dev/null
 
+# 4. KeychainHelper Tests (secure storage)
+run_test_suite "KeychainHelper Tests" \
+    "$PROJECT_DIR/Tests/Utilities/KeychainHelperTests.swift" \
+    "Foundation" "Security"
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------
