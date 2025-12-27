@@ -504,11 +504,6 @@ struct PromptContainerView: View {
                 .cornerRadius(12)
 
                 Spacer()
-                Button(action: onCancel) {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
             }
             .padding()
             .background(Color(NSColor.windowBackgroundColor))
