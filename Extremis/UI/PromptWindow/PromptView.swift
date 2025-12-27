@@ -55,14 +55,9 @@ struct PromptInputView: View {
                 .padding(.horizontal)
                 .frame(minHeight: 100)
 
-                // Action buttons - Layout: [Provider] ... [Hint] [Cancel] [Summarize?] [Primary Action]
+                // Action buttons - Layout: [Hint] ... [Cancel] [Summarize?] [Primary Action]
                 HStack(spacing: 12) {
-                    // Provider indicator (left-aligned info)
-                    ProviderIndicator()
-
-                    Spacer()
-
-                    // Hint text - contextual guidance
+                    // Hint text - contextual guidance (left-aligned)
                     Group {
                         if hasSelection {
                             Text("Enter instruction to transform")
@@ -74,6 +69,8 @@ struct PromptInputView: View {
                     }
                     .font(.caption)
                     .foregroundColor(.secondary)
+
+                    Spacer()
 
                     // Action buttons group (right-aligned)
                     HStack(spacing: 8) {
@@ -229,23 +226,6 @@ struct ContextBanner: View {
         .padding(.horizontal)
         .padding(.vertical, 8)
         .background(Color(NSColor.controlBackgroundColor))
-    }
-}
-
-// MARK: - Provider Indicator
-
-struct ProviderIndicator: View {
-    @ObservedObject private var registry = LLMProviderRegistry.shared
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(Color.green)
-                .frame(width: 6, height: 6)
-            Text(registry.activeProvider?.displayName ?? "No Provider")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
     }
 }
 
