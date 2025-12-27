@@ -207,6 +207,21 @@ struct ModelConfigLoaderTests {
         testCachingReturnsSameResults()
         testClearCacheWorks()
         testMultipleModelsPerProvider()
+
+        print("\n📦 JSON Loading Validation Tests")
+        print(String(repeating: "-", count: 40))
+
+        testOpenAIExactModels()
+        testAnthropicExactModels()
+        testGeminiExactModels()
+        testOpenAIDefaultModel()
+        testAnthropicDefaultModel()
+        testGeminiDefaultModel()
+        testAllModelsHaveValidIds()
+        testAllModelsHaveValidNames()
+        testAllModelsHaveValidDescriptions()
+        testNoEmptyModelLists()
+        testModelIdUniquenessPerProvider()
     }
 
     static func testLoadOpenAIModels() {
@@ -287,6 +302,98 @@ struct ModelConfigLoaderTests {
         for provider in [LLMProviderType.openai, .anthropic, .gemini] {
             let models = ModelConfigLoader.shared.models(for: provider)
             TestRunner.assertTrue(models.count >= 2, "\(provider.rawValue): Multiple models")
+        }
+    }
+
+    // MARK: - JSON Loading Validation Tests
+
+    static func testOpenAIExactModels() {
+        let models = ModelConfigLoader.shared.models(for: .openai)
+        let expectedIds = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4"]
+        TestRunner.assertEqual(models.count, expectedIds.count, "OpenAI: Exact model count")
+        for id in expectedIds {
+            TestRunner.assertTrue(models.contains { $0.id == id }, "OpenAI: Contains \(id)")
+        }
+    }
+
+    static func testAnthropicExactModels() {
+        let models = ModelConfigLoader.shared.models(for: .anthropic)
+        let expectedIds = ["claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001", "claude-opus-4-5-20251101"]
+        TestRunner.assertEqual(models.count, expectedIds.count, "Anthropic: Exact model count")
+        for id in expectedIds {
+            TestRunner.assertTrue(models.contains { $0.id == id }, "Anthropic: Contains \(id)")
+        }
+    }
+
+    static func testGeminiExactModels() {
+        let models = ModelConfigLoader.shared.models(for: .gemini)
+        let expectedIds = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"]
+        TestRunner.assertEqual(models.count, expectedIds.count, "Gemini: Exact model count")
+        for id in expectedIds {
+            TestRunner.assertTrue(models.contains { $0.id == id }, "Gemini: Contains \(id)")
+        }
+    }
+
+    static func testOpenAIDefaultModel() {
+        let defaultModel = ModelConfigLoader.shared.defaultModel(for: .openai)
+        TestRunner.assertTrue(defaultModel != nil, "OpenAI: Default model exists")
+        TestRunner.assertEqual(defaultModel?.id, "gpt-4o", "OpenAI: Default is gpt-4o")
+    }
+
+    static func testAnthropicDefaultModel() {
+        let defaultModel = ModelConfigLoader.shared.defaultModel(for: .anthropic)
+        TestRunner.assertTrue(defaultModel != nil, "Anthropic: Default model exists")
+        TestRunner.assertEqual(defaultModel?.id, "claude-sonnet-4-5-20250929", "Anthropic: Default is claude-sonnet-4-5")
+    }
+
+    static func testGeminiDefaultModel() {
+        let defaultModel = ModelConfigLoader.shared.defaultModel(for: .gemini)
+        TestRunner.assertTrue(defaultModel != nil, "Gemini: Default model exists")
+        TestRunner.assertEqual(defaultModel?.id, "gemini-2.5-flash", "Gemini: Default is gemini-2.5-flash")
+    }
+
+    static func testAllModelsHaveValidIds() {
+        for provider in [LLMProviderType.openai, .anthropic, .gemini] {
+            let models = ModelConfigLoader.shared.models(for: provider)
+            for model in models {
+                TestRunner.assertTrue(!model.id.isEmpty, "\(provider.rawValue): \(model.name) has valid id")
+                TestRunner.assertTrue(!model.id.contains(" "), "\(provider.rawValue): \(model.id) has no spaces")
+            }
+        }
+    }
+
+    static func testAllModelsHaveValidNames() {
+        for provider in [LLMProviderType.openai, .anthropic, .gemini] {
+            let models = ModelConfigLoader.shared.models(for: provider)
+            for model in models {
+                TestRunner.assertTrue(!model.name.isEmpty, "\(provider.rawValue): Model \(model.id) has name")
+                TestRunner.assertTrue(model.name.count >= 3, "\(provider.rawValue): \(model.id) name is readable")
+            }
+        }
+    }
+
+    static func testAllModelsHaveValidDescriptions() {
+        for provider in [LLMProviderType.openai, .anthropic, .gemini] {
+            let models = ModelConfigLoader.shared.models(for: provider)
+            for model in models {
+                TestRunner.assertTrue(!model.description.isEmpty, "\(provider.rawValue): \(model.id) has description")
+            }
+        }
+    }
+
+    static func testNoEmptyModelLists() {
+        for provider in [LLMProviderType.openai, .anthropic, .gemini] {
+            let models = ModelConfigLoader.shared.models(for: provider)
+            TestRunner.assertTrue(!models.isEmpty, "\(provider.rawValue): Model list not empty (JSON loaded)")
+        }
+    }
+
+    static func testModelIdUniquenessPerProvider() {
+        for provider in [LLMProviderType.openai, .anthropic, .gemini] {
+            let models = ModelConfigLoader.shared.models(for: provider)
+            let ids = models.map { $0.id }
+            let uniqueIds = Set(ids)
+            TestRunner.assertEqual(ids.count, uniqueIds.count, "\(provider.rawValue): All model IDs unique")
         }
     }
 }

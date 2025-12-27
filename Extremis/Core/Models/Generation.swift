@@ -81,41 +81,11 @@ enum LLMProviderType: String, Codable, CaseIterable, Identifiable {
     var availableModels: [LLMModel] {
         switch self {
         case .ollama:
-            // Default fallback models - actual list is fetched dynamically from Ollama server
-            return [
-                LLMModel(id: "llama3.2", name: "Llama 3.2", description: "Meta's latest model"),
-                LLMModel(id: "mistral", name: "Mistral", description: "Fast and capable"),
-                LLMModel(id: "codellama", name: "Code Llama", description: "Optimized for code"),
-                LLMModel(id: "gemma2", name: "Gemma 2", description: "Google's open model"),
-            ]
+            // Models are fetched dynamically from Ollama server
+            return []
         default:
             // Cloud providers: load from JSON configuration
-            let models = ModelConfigLoader.shared.models(for: self)
-            // Fall back to hardcoded models if JSON loading fails
-            return models.isEmpty ? hardcodedModels : models
-        }
-    }
-
-    /// Hardcoded fallback models (only used if JSON loading fails)
-    private var hardcodedModels: [LLMModel] {
-        switch self {
-        case .openai:
-            return [
-                LLMModel(id: "gpt-4o", name: "GPT-4o", description: "Most capable, multimodal"),
-                LLMModel(id: "gpt-4o-mini", name: "GPT-4o Mini", description: "Fast and affordable"),
-            ]
-        case .anthropic:
-            return [
-                LLMModel(id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4", description: "Best balance"),
-                LLMModel(id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet", description: "Fast"),
-            ]
-        case .gemini:
-            return [
-                LLMModel(id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", description: "Latest, fastest"),
-                LLMModel(id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", description: "Best for complex tasks"),
-            ]
-        case .ollama:
-            return [] // Never used - Ollama handled above
+            return ModelConfigLoader.shared.models(for: self)
         }
     }
 
