@@ -82,6 +82,14 @@ run_test_suite "ClipboardCapture Tests" \
     "$PROJECT_DIR/Tests/Utilities/ClipboardCaptureTests.swift" \
     "AppKit" "Foundation"
 
+# 3. ModelConfigLoader Tests (JSON model configuration)
+# Note: This test needs to run from the Extremis directory to find Resources/models.json
+pushd "$PROJECT_DIR" > /dev/null
+run_test_suite "ModelConfigLoader Tests" \
+    "$PROJECT_DIR/Tests/LLMProviders/ModelConfigLoaderTests.swift" \
+    "Foundation"
+popd > /dev/null
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------
