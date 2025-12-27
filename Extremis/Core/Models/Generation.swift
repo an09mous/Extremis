@@ -77,40 +77,15 @@ enum LLMProviderType: String, Codable, CaseIterable, Identifiable {
     }
 
     /// Available models for this provider
+    /// Cloud providers load from models.json, Ollama uses dynamic API discovery
     var availableModels: [LLMModel] {
         switch self {
-        case .openai:
-            return [
-                LLMModel(id: "gpt-4o", name: "GPT-4o", description: "Most capable, multimodal"),
-                LLMModel(id: "gpt-4o-mini", name: "GPT-4o Mini", description: "Fast and affordable"),
-                LLMModel(id: "gpt-4-turbo", name: "GPT-4 Turbo", description: "Powerful with vision"),
-                LLMModel(id: "gpt-4", name: "GPT-4", description: "Original GPT-4"),
-                LLMModel(id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo", description: "Fast and cheap"),
-            ]
-        case .anthropic:
-            return [
-                LLMModel(id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4", description: "Best balance of speed and intelligence"),
-                LLMModel(id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet", description: "Fast and intelligent"),
-                LLMModel(id: "claude-3-5-haiku-20241022", name: "Claude 3.5 Haiku", description: "Fastest, most affordable"),
-                LLMModel(id: "claude-3-opus-20240229", name: "Claude 3 Opus", description: "Most capable"),
-                LLMModel(id: "claude-3-sonnet-20240229", name: "Claude 3 Sonnet", description: "Balanced"),
-                LLMModel(id: "claude-3-haiku-20240307", name: "Claude 3 Haiku", description: "Fast and compact"),
-            ]
-        case .gemini:
-            return [
-                LLMModel(id: "gemini-2.5-flash", name: "Gemini 2.0 Flash", description: "Latest, fastest"),
-                LLMModel(id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", description: "Best for complex tasks"),
-                LLMModel(id: "gemini-1.5-flash", name: "Gemini 1.5 Flash", description: "Fast and versatile"),
-                LLMModel(id: "gemini-1.0-pro", name: "Gemini 1.0 Pro", description: "Stable, reliable"),
-            ]
         case .ollama:
-            // Default models - actual list is fetched dynamically from Ollama server
-            return [
-                LLMModel(id: "llama3.2", name: "Llama 3.2", description: "Meta's latest model"),
-                LLMModel(id: "mistral", name: "Mistral", description: "Fast and capable"),
-                LLMModel(id: "codellama", name: "Code Llama", description: "Optimized for code"),
-                LLMModel(id: "gemma2", name: "Gemma 2", description: "Google's open model"),
-            ]
+            // Models are fetched dynamically from Ollama server
+            return []
+        default:
+            // Cloud providers: load from JSON configuration
+            return ModelConfigLoader.shared.models(for: self)
         }
     }
 

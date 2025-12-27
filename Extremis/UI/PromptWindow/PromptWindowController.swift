@@ -482,38 +482,26 @@ struct PromptContainerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header with provider status
-            HStack {
+            // Header with provider status - compact inline style
+            HStack(spacing: 6) {
                 Image(systemName: "sparkles")
+                    .font(.system(size: 12))
                     .foregroundColor(.accentColor)
                 Text("Extremis")
-                    .font(.headline)
+                    .font(.system(size: 13, weight: .semibold))
 
-                // Provider status badge
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(viewModel.providerConfigured ? Color.green : Color.orange)
-                        .frame(width: 8, height: 8)
-                    Text(viewModel.providerName)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.secondary.opacity(0.1))
-                .cornerRadius(12)
+                Circle()
+                    .fill(viewModel.providerConfigured ? Color.green : Color.orange)
+                    .frame(width: 6, height: 6)
+                Text(viewModel.providerName)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
 
                 Spacer()
-                Button(action: onCancel) {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
             }
-            .padding()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .background(Color(NSColor.windowBackgroundColor))
-
-            Divider()
 
             if viewModel.showResponse {
                 // Response view with chat support

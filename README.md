@@ -11,9 +11,9 @@ A context-aware LLM writing assistant for macOS. Press a global hotkey anywhere 
 - **📋 Smart Summarization** - Quickly summarize selected text or surrounding context with one click
 - **💬 Multi-turn Chat** - Continue chatting with AI after initial response for refinements and follow-ups
 - **🤖 Multi-Provider LLM Support**
-  - OpenAI (GPT-4o)
-  - Anthropic (Claude 3.5 Sonnet)
-  - Google Gemini (Gemini 1.5 Flash)
+  - OpenAI (GPT-4o, GPT-4o Mini, GPT-4 Turbo, GPT-4)
+  - Anthropic (Claude Sonnet 4.5, Claude Haiku 4.5, Claude Opus 4.5)
+  - Google Gemini (Gemini 2.5 Flash, Gemini 2.5 Pro, Gemini 2.0 Flash)
   - Ollama (Local models - Llama, Mistral, etc.)
 - **⚡ Real-time Streaming** - Responses appear character-by-character as they're generated
 - **📝 Smart Text Insertion** - Generated text automatically inserted at cursor

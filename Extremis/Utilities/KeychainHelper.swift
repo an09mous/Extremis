@@ -1,122 +1,162 @@
 // MARK: - Keychain Helper
 // Secure storage for API keys using macOS Keychain
+// Uses a SINGLE keychain entry to store all API keys as JSON to minimize keychain prompts
 
 import Foundation
 import Security
 
 /// Secure storage implementation using macOS Keychain
+/// Stores all API keys in a single keychain entry as JSON to require only ONE keychain access prompt
 final class KeychainHelper: SecureStorage {
-    
+
     // MARK: - Properties
-    
+
     /// Service name for keychain items
     private let service: String
-    
+
+    /// Account name for the single keychain entry that stores all API keys
+    private let keychainAccount = "api_keys"
+
+    /// In-memory cache for API keys (loaded from single keychain entry)
+    private var apiKeys: [String: String] = [:]
+
+    /// Flag to track if keys have been loaded from keychain
+    private var isLoaded: Bool = false
+
+    /// Thread-safe lock for cache access
+    private let cacheLock = NSLock()
+
     /// Shared instance
     static let shared = KeychainHelper()
-    
+
     // MARK: - Initialization
-    
+
     init(service: String = "com.extremis.app") {
         self.service = service
+        loadFromKeychain()
     }
-    
-    // MARK: - SecureStorage Protocol
-    
-    func store(key: String, value: String) throws {
-        guard let data = value.data(using: .utf8) else {
-            throw PreferencesError.keychainWriteFailed
-        }
-        
-        // Delete existing item first
-        try? delete(key: key)
-        
+
+    // MARK: - Keychain Storage (Single Entry)
+
+    /// Load all API keys from the single keychain entry
+    private func loadFromKeychain() {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: key,
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
-        ]
-        
-        let status = SecItemAdd(query as CFDictionary, nil)
-        
-        guard status == errSecSuccess else {
-            throw PreferencesError.keychainWriteFailed
-        }
-    }
-    
-    func retrieve(key: String) throws -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: key,
+            kSecAttrAccount as String: keychainAccount,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
-        
+
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        
+
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+
+        isLoaded = true
+
         switch status {
         case errSecSuccess:
-            guard let data = result as? Data,
-                  let value = String(data: data, encoding: .utf8) else {
-                return nil
+            if let data = result as? Data,
+               let dict = try? JSONDecoder().decode([String: String].self, from: data) {
+                apiKeys = dict
+            } else {
+                print("[KeychainHelper] Failed to decode keychain data")
             }
-            return value
-            
+
         case errSecItemNotFound:
-            return nil
-            
+            apiKeys = [:]
+
         default:
-            throw PreferencesError.keychainAccessDenied
+            print("[KeychainHelper] Load failed with status: \(status)")
+            apiKeys = [:]
         }
     }
-    
+
+    /// Save all API keys to the single keychain entry
+    private func saveToKeychain() throws {
+        guard let data = try? JSONEncoder().encode(apiKeys) else {
+            print("[KeychainHelper] Failed to encode API keys")
+            throw PreferencesError.keychainWriteFailed
+        }
+
+        // Delete existing entry first
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: keychainAccount
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+
+        // Add new entry (only if we have keys to store)
+        if !apiKeys.isEmpty {
+            let addQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: keychainAccount,
+                kSecValueData as String: data,
+                kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
+            ]
+
+            let status = SecItemAdd(addQuery as CFDictionary, nil)
+
+            guard status == errSecSuccess else {
+                print("[KeychainHelper] Save failed with status: \(status)")
+                throw PreferencesError.keychainWriteFailed
+            }
+        }
+    }
+
+    // MARK: - SecureStorage Protocol
+
+    func store(key: String, value: String) throws {
+        cacheLock.lock()
+        apiKeys[key] = value
+        cacheLock.unlock()
+
+        try saveToKeychain()
+    }
+
+    func retrieve(key: String) throws -> String? {
+        cacheLock.lock()
+        let value = apiKeys[key]
+        cacheLock.unlock()
+        return value
+    }
+
     func delete(key: String) throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: key
-        ]
-        
-        let status = SecItemDelete(query as CFDictionary)
-        
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw PreferencesError.keychainAccessDenied
-        }
+        cacheLock.lock()
+        apiKeys.removeValue(forKey: key)
+        cacheLock.unlock()
+
+        try saveToKeychain()
     }
-    
+
     func exists(key: String) -> Bool {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: key,
-            kSecReturnData as String: false
-        ]
-        
-        let status = SecItemCopyMatching(query as CFDictionary, nil)
-        return status == errSecSuccess
+        cacheLock.lock()
+        let exists = apiKeys[key] != nil && !apiKeys[key]!.isEmpty
+        cacheLock.unlock()
+        return exists
     }
-    
+
     // MARK: - Convenience Methods
-    
+
     /// Store an API key for a provider
     func storeAPIKey(_ apiKey: String, for provider: LLMProviderType) throws {
         try store(key: "api_key_\(provider.rawValue)", value: apiKey)
     }
-    
+
     /// Retrieve an API key for a provider
     func retrieveAPIKey(for provider: LLMProviderType) throws -> String? {
         try retrieve(key: "api_key_\(provider.rawValue)")
     }
-    
+
     /// Delete an API key for a provider
     func deleteAPIKey(for provider: LLMProviderType) throws {
         try delete(key: "api_key_\(provider.rawValue)")
     }
-    
+
     /// Check if an API key exists for a provider
     func hasAPIKey(for provider: LLMProviderType) -> Bool {
         exists(key: "api_key_\(provider.rawValue)")

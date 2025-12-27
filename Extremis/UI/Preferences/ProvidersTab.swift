@@ -15,44 +15,55 @@ struct ProvidersTab: View {
     @State private var ollamaModels: [LLMModel] = []
     @State private var ollamaSelectedModelId: String = ""
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // API Keys Section
-            VStack(alignment: .leading, spacing: 12) {
-                Text("LLM Providers")
-                    .font(.headline)
+    // Model selection state for cloud providers
+    @State private var openaiSelectedModelId: String = ""
+    @State private var anthropicSelectedModelId: String = ""
+    @State private var geminiSelectedModelId: String = ""
 
-                ForEach(LLMProviderType.allCases, id: \.self) { provider in
-                    if provider == .ollama {
-                        OllamaProviderRow(
-                            isConnected: $ollamaConnected,
-                            baseURL: $ollamaBaseURL,
-                            availableModels: $ollamaModels,
-                            selectedModelId: $ollamaSelectedModelId,
-                            isActive: provider == selectedProvider,
-                            onCheckConnection: { checkOllamaConnection() },
-                            onSetActive: { setActiveProvider(provider) },
-                            onSelectModel: { model in selectOllamaModel(model) }
-                        )
-                    } else {
-                        ProviderKeyRow(
-                            provider: provider,
-                            apiKey: binding(for: provider),
-                            maskedKey: maskedKeys[provider] ?? "",
-                            isVisible: showBinding(for: provider),
-                            isConfigured: isConfigured(provider),
-                            isActive: provider == selectedProvider,
-                            onSave: { saveAPIKey(for: provider) },
-                            onDelete: { deleteAPIKey(for: provider) },
-                            onSetActive: { setActiveProvider(provider) }
-                        )
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    // API Keys Section
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("LLM Providers")
+                            .font(.headline)
+
+                        ForEach(LLMProviderType.allCases, id: \.self) { provider in
+                            if provider == .ollama {
+                                OllamaProviderRow(
+                                    isConnected: $ollamaConnected,
+                                    baseURL: $ollamaBaseURL,
+                                    availableModels: $ollamaModels,
+                                    selectedModelId: $ollamaSelectedModelId,
+                                    isActive: provider == selectedProvider,
+                                    onCheckConnection: { checkOllamaConnection() },
+                                    onSetActive: { setActiveProvider(provider) },
+                                    onSelectModel: { model in selectOllamaModel(model) }
+                                )
+                            } else {
+                                ProviderKeyRow(
+                                    provider: provider,
+                                    apiKey: binding(for: provider),
+                                    maskedKey: maskedKeys[provider] ?? "",
+                                    isVisible: showBinding(for: provider),
+                                    isConfigured: isConfigured(provider),
+                                    isActive: provider == selectedProvider,
+                                    selectedModelId: modelIdBinding(for: provider),
+                                    availableModels: provider.availableModels,
+                                    onSave: { saveAPIKey(for: provider) },
+                                    onDelete: { deleteAPIKey(for: provider) },
+                                    onSetActive: { setActiveProvider(provider) },
+                                    onSelectModel: { model in selectModel(model, for: provider) }
+                                )
+                            }
+                        }
                     }
+                    .padding(.vertical, 8)
                 }
             }
 
-            Spacer()
-
-            // Status Message
+            // Status Message (fixed at bottom, outside scroll)
             if let message = statusMessage {
                 HStack {
                     Image(systemName: isError ? "exclamationmark.triangle" : "checkmark.circle")
@@ -63,7 +74,6 @@ struct ProvidersTab: View {
                 .padding(.vertical, 4)
             }
         }
-        .padding(.vertical, 8)
         .onAppear {
             loadCurrentSettings()
         }
@@ -74,6 +84,14 @@ struct ProvidersTab: View {
     private func loadCurrentSettings() {
         // Load active provider
         selectedProvider = LLMProviderRegistry.shared.activeProviderType ?? .gemini
+
+        // Load selected models for cloud providers
+        openaiSelectedModelId = LLMProviderRegistry.shared.currentModel(for: .openai)?.id
+            ?? LLMProviderType.openai.defaultModel.id
+        anthropicSelectedModelId = LLMProviderRegistry.shared.currentModel(for: .anthropic)?.id
+            ?? LLMProviderType.anthropic.defaultModel.id
+        geminiSelectedModelId = LLMProviderRegistry.shared.currentModel(for: .gemini)?.id
+            ?? LLMProviderType.gemini.defaultModel.id
 
         // Load masked keys from keychain for display
         for provider in LLMProviderType.allCases {
@@ -116,6 +134,24 @@ struct ProvidersTab: View {
             get: { showingAPIKey[provider] ?? false },
             set: { showingAPIKey[provider] = $0 }
         )
+    }
+
+    private func modelIdBinding(for provider: LLMProviderType) -> Binding<String> {
+        switch provider {
+        case .openai:
+            return $openaiSelectedModelId
+        case .anthropic:
+            return $anthropicSelectedModelId
+        case .gemini:
+            return $geminiSelectedModelId
+        case .ollama:
+            return $ollamaSelectedModelId
+        }
+    }
+
+    private func selectModel(_ model: LLMModel, for provider: LLMProviderType) {
+        LLMProviderRegistry.shared.setModel(model, for: provider)
+        refreshMenuBar()
     }
 
     private func isConfigured(_ provider: LLMProviderType) -> Bool {
@@ -333,9 +369,14 @@ struct ProviderKeyRow: View {
     @Binding var isVisible: Bool
     let isConfigured: Bool
     let isActive: Bool
+    @Binding var selectedModelId: String
+    let availableModels: [LLMModel]
     let onSave: () -> Void
     let onDelete: () -> Void
     let onSetActive: () -> Void
+    let onSelectModel: (LLMModel) -> Void
+
+    @State private var isEditingKey: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -380,30 +421,75 @@ struct ProviderKeyRow: View {
                 }
             }
 
-            // Show current key
-            if isConfigured && !maskedKey.isEmpty {
-                Text("Key: \(maskedKey)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+            // Configured state: show masked key with edit button
+            if isConfigured && !isEditingKey {
+                HStack {
+                    Text("Key: \(maskedKey)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Button(action: {
+                        isEditingKey = true
+                        apiKey = "" // Clear for new input
+                    }) {
+                        Image(systemName: "pencil")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Change API Key")
+                }
             }
 
-            // Input for new/update key
-            HStack {
-                if isVisible {
-                    TextField("Enter API Key", text: $apiKey)
-                        .textFieldStyle(.roundedBorder)
-                } else {
-                    SecureField("Enter API Key", text: $apiKey)
-                        .textFieldStyle(.roundedBorder)
-                }
+            // Not configured OR editing: show input field
+            if !isConfigured || isEditingKey {
+                HStack {
+                    if isVisible {
+                        TextField(isConfigured ? "Enter new API Key" : "Enter API Key", text: $apiKey)
+                            .textFieldStyle(.roundedBorder)
+                    } else {
+                        SecureField(isConfigured ? "Enter new API Key" : "Enter API Key", text: $apiKey)
+                            .textFieldStyle(.roundedBorder)
+                    }
 
-                Button(action: { isVisible.toggle() }) {
-                    Image(systemName: isVisible ? "eye.slash" : "eye")
-                }
-                .buttonStyle(.borderless)
+                    Button(action: { isVisible.toggle() }) {
+                        Image(systemName: isVisible ? "eye.slash" : "eye")
+                    }
+                    .buttonStyle(.borderless)
 
-                Button(isConfigured ? "Update" : "Save") { onSave() }
+                    Button(isConfigured ? "Update" : "Save") {
+                        onSave()
+                        isEditingKey = false
+                    }
                     .disabled(apiKey.isEmpty)
+
+                    // Cancel button when editing existing key
+                    if isConfigured && isEditingKey {
+                        Button("Cancel") {
+                            isEditingKey = false
+                            apiKey = ""
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            }
+
+            // Model selection - only show if configured and models available
+            if isConfigured && !availableModels.isEmpty {
+                HStack {
+                    Text("Model:")
+                        .font(.caption)
+
+                    Picker("", selection: $selectedModelId) {
+                        ForEach(availableModels, id: \.id) { model in
+                            Text(model.name).tag(model.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .onChange(of: selectedModelId) { newValue in
+                        if let model = availableModels.first(where: { $0.id == newValue }) {
+                            onSelectModel(model)
+                        }
+                    }
+                }
             }
         }
         .padding(.vertical, 8)

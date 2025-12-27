@@ -1,0 +1,23 @@
+{{SYSTEM_PROMPT}}
+
+## SELECTION TRANSFORMATION MODE
+The user has selected text and wants you to transform/edit it based on their instruction.
+
+[Selected Text]
+"""
+{{SELECTED_TEXT}}
+"""
+
+{{CONTEXT}}
+
+[User Instruction]
+{{INSTRUCTION}}
+
+## Strict Rules
+- Provide ONLY the transformed text, no preamble or explanation
+- Do NOT start with "Here's the..." or similar phrases
+- Do NOT wrap in markdown code blocks unless explicitly requested
+- Match the language and general style of the original text
+- Apply the user's instruction precisely
+- If the instruction is unclear, make a reasonable interpretation
+- Use source context to better understand the content being transformed
