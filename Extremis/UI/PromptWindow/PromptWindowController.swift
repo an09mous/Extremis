@@ -480,6 +480,8 @@ struct PromptContainerView: View {
     let onGenerate: () -> Void
     let onSummarize: () -> Void
 
+    @State private var showContextViewer = false
+
     var body: some View {
         VStack(spacing: 0) {
             // Header with provider status - compact inline style
@@ -533,11 +535,20 @@ struct PromptContainerView: View {
                     hasSelection: viewModel.hasSelection,
                     onSubmit: onGenerate,
                     onCancel: onCancel,
-                    onSummarize: onSummarize
+                    onSummarize: onSummarize,
+                    onViewContext: viewModel.currentContext != nil ? { showContextViewer = true } : nil
                 )
             }
         }
         .frame(minWidth: 550, minHeight: 400)
+        .sheet(isPresented: $showContextViewer) {
+            if let context = viewModel.currentContext {
+                ContextViewerSheet(
+                    context: context,
+                    onDismiss: { showContextViewer = false }
+                )
+            }
+        }
     }
 }
 

@@ -14,12 +14,13 @@ struct PromptInputView: View {
     let onSubmit: () -> Void
     let onCancel: () -> Void
     let onSummarize: () -> Void
+    var onViewContext: (() -> Void)? = nil  // Optional callback to view full context
 
     var body: some View {
         VStack(spacing: 0) {
             // Context indicator
             if let info = contextInfo, !info.isEmpty {
-                ContextBanner(text: info)
+                ContextBanner(text: info, onViewContext: onViewContext)
             }
 
             // Instruction input area
@@ -212,7 +213,8 @@ struct SubmittableTextEditor: NSViewRepresentable {
 
 struct ContextBanner: View {
     let text: String
-    
+    var onViewContext: (() -> Void)? = nil
+
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "doc.text")
@@ -222,6 +224,17 @@ struct ContextBanner: View {
                 .foregroundColor(.secondary)
                 .lineLimit(1)
             Spacer()
+
+            // View button (only if callback provided)
+            if let onViewContext = onViewContext {
+                Button(action: onViewContext) {
+                    Image(systemName: "eye")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("View full context")
+            }
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
@@ -243,7 +256,8 @@ struct PromptInputView_Previews: PreviewProvider {
                 hasSelection: false,
                 onSubmit: {},
                 onCancel: {},
-                onSummarize: {}
+                onSummarize: {},
+                onViewContext: nil
             )
             .frame(width: 500, height: 300)
             .previewDisplayName("No Context")
@@ -257,7 +271,8 @@ struct PromptInputView_Previews: PreviewProvider {
                 hasSelection: false,
                 onSubmit: {},
                 onCancel: {},
-                onSummarize: {}
+                onSummarize: {},
+                onViewContext: { print("View context tapped") }
             )
             .frame(width: 500, height: 300)
             .previewDisplayName("With Context (No Selection)")
@@ -271,11 +286,31 @@ struct PromptInputView_Previews: PreviewProvider {
                 hasSelection: true,
                 onSubmit: {},
                 onCancel: {},
-                onSummarize: {}
+                onSummarize: {},
+                onViewContext: { print("View context tapped") }
             )
             .frame(width: 500, height: 300)
             .previewDisplayName("With Selection")
         }
+    }
+}
+
+// MARK: - Context Banner Preview
+
+struct ContextBanner_Previews: PreviewProvider {
+    static var previews: some View {
+        Group {
+            ContextBanner(text: "TextEdit - Untitled (text selected: Lorem ipsum...)")
+                .previewDisplayName("Without View Button")
+
+            ContextBanner(
+                text: "TextEdit - Untitled (text selected: Lorem ipsum...)",
+                onViewContext: { print("View tapped") }
+            )
+            .previewDisplayName("With View Button")
+        }
+        .padding()
+        .previewLayout(.sizeThatFits)
     }
 }
 
