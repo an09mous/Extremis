@@ -3,6 +3,20 @@
 
 import Foundation
 
+// MARK: - Context Truncation Limits
+// These constants control how much context text is included in prompts.
+// Increase these values for models with larger context windows.
+// Maximum recommended: 50000 characters (~12,500-15,000 tokens)
+
+/// Maximum characters for preceding text (text before cursor)
+let kMaxPrecedingTextLength = 50000
+
+/// Maximum characters for succeeding text (text after cursor)
+let kMaxSucceedingTextLength = 50000
+
+/// Maximum characters for selected text in chat system prompt
+let kMaxChatSelectedTextLength = 50000
+
 /// Builds prompts from templates with context and instruction placeholders
 final class PromptBuilder {
 
@@ -214,10 +228,9 @@ final class PromptBuilder {
                 parts.append("URL: \(url.absoluteString)")
             }
 
-            // Selected text summary (if any)
+            // Selected text (truncated if exceeds limit)
             if let selectedText = context.selectedText, !selectedText.isEmpty {
-                let preview = selectedText.prefix(200)
-                parts.append("Original Selected Text: \"\(preview)\"" + (selectedText.count > 200 ? "..." : ""))
+                parts.append("Original Selected Text: \"\(truncateChatSelectedText(selectedText))\"")
             }
 
             contextInfo = parts.joined(separator: "\n")
@@ -318,16 +331,10 @@ final class PromptBuilder {
 
     private func formatPrecedingText(_ text: String?) -> String {
         if let text = text, !text.isEmpty {
-            // Truncate if too long
-            let maxLength = 2000
-            let truncatedText = text.count > maxLength
-                ? String(text.prefix(maxLength)) + "... [truncated]"
-                : text
-
             return """
             [Preceding Text - BEFORE Cursor]
             \"\"\"
-            \(truncatedText)
+            \(truncatePrecedingText(text))
             \"\"\"
             """
         } else {
@@ -340,16 +347,10 @@ final class PromptBuilder {
 
     private func formatSucceedingText(_ text: String?) -> String {
         if let text = text, !text.isEmpty {
-            // Truncate if too long
-            let maxLength = 1500
-            let truncatedText = text.count > maxLength
-                ? String(text.prefix(maxLength)) + "... [truncated]"
-                : text
-
             return """
             [Succeeding Text - AFTER Cursor]
             \"\"\"
-            \(truncatedText)
+            \(truncateSucceedingText(text))
             \"\"\"
             """
         } else {
@@ -433,40 +434,40 @@ final class PromptBuilder {
                 lines.append("  From \(msg.sender): \(msg.content.prefix(200))...")
             }
         }
-        
+
         return lines.count > 1 ? lines.joined(separator: "\n") : ""
     }
-    
+
     private func formatGitHubMetadata(_ meta: GitHubMetadata) -> String {
         var lines = ["[GitHub Context]"]
-        
+
         if let repo = meta.repoName {
             lines.append("Repository: \(repo)")
         }
-        
+
         if let prNum = meta.prNumber, let prTitle = meta.prTitle {
             lines.append("PR #\(prNum): \(prTitle)")
         }
-        
+
         if let base = meta.baseBranch, let head = meta.headBranch {
             lines.append("Branches: \(head) → \(base)")
         }
-        
+
         if let desc = meta.prDescription, !desc.isEmpty {
             lines.append("\nPR Description:\n\"\"\"\n\(desc.prefix(500))\n\"\"\"")
         }
-        
+
         if !meta.changedFiles.isEmpty {
             lines.append("\nChanged Files: \(meta.changedFiles.prefix(10).joined(separator: ", "))")
         }
-        
+
         if !meta.comments.isEmpty {
             lines.append("\nRecent Comments:")
             for comment in meta.comments.suffix(3) {
                 lines.append("  @\(comment.author): \(comment.body.prefix(150))...")
             }
         }
-        
+
         return lines.count > 1 ? lines.joined(separator: "\n") : ""
     }
     
@@ -482,6 +483,32 @@ final class PromptBuilder {
         }
         
         return lines.isEmpty ? "" : "[UI Context]\n" + lines.joined(separator: "\n")
+    }
+
+    // MARK: - Test Helpers (internal visibility for unit testing)
+
+    /// Truncates preceding text from the beginning, keeping the suffix (closest to cursor)
+    /// - Parameter text: The text to truncate
+    /// - Returns: Truncated text with marker if truncation occurred
+    func truncatePrecedingText(_ text: String) -> String {
+        guard text.count > kMaxPrecedingTextLength else { return text }
+        return "[truncated] ..." + String(text.suffix(kMaxPrecedingTextLength))
+    }
+
+    /// Truncates succeeding text from the end, keeping the prefix (closest to cursor)
+    /// - Parameter text: The text to truncate
+    /// - Returns: Truncated text with marker if truncation occurred
+    func truncateSucceedingText(_ text: String) -> String {
+        guard text.count > kMaxSucceedingTextLength else { return text }
+        return String(text.prefix(kMaxSucceedingTextLength)) + "... [truncated]"
+    }
+
+    /// Truncates selected text for chat system prompt from the end
+    /// - Parameter text: The text to truncate
+    /// - Returns: Truncated text with marker if truncation occurred
+    func truncateChatSelectedText(_ text: String) -> String {
+        guard text.count > kMaxChatSelectedTextLength else { return text }
+        return String(text.prefix(kMaxChatSelectedTextLength)) + "... [truncated]"
     }
 }
 

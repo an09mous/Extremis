@@ -77,6 +77,11 @@ run_test_suite "LLM Provider Tests" \
     "$PROJECT_DIR/Tests/LLMProviders/LLMProviderTests.swift" \
     "Foundation"
 
+# 2. PromptBuilder Truncation Tests (context truncation logic)
+run_test_suite "PromptBuilder Truncation Tests" \
+    "$PROJECT_DIR/Tests/LLMProviders/PromptBuilderTruncationTests.swift" \
+    "Foundation"
+
 # 2. ClipboardCapture Tests (marker-based text capture)
 run_test_suite "ClipboardCapture Tests" \
     "$PROJECT_DIR/Tests/Utilities/ClipboardCaptureTests.swift" \
