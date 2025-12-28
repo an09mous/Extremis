@@ -30,6 +30,18 @@ mkdir -p "$APP_BUNDLE/Contents/Resources"
 # Copy binary
 cp ".build/release/Extremis" "$APP_BUNDLE/Contents/MacOS/"
 
+# Copy SPM resource bundle (contains models.json and prompt templates)
+# SPM generates this bundle with name: {PackageName}_{TargetName}.bundle
+# IMPORTANT: Bundle.module looks for it at Bundle.main.bundleURL (the .app root), NOT Contents/Resources
+RESOURCE_BUNDLE=".build/release/Extremis_Extremis.bundle"
+if [ -d "$RESOURCE_BUNDLE" ]; then
+    echo "📦 Copying resource bundle..."
+    cp -r "$RESOURCE_BUNDLE" "$APP_BUNDLE/"
+else
+    echo "⚠️  Warning: Resource bundle not found at $RESOURCE_BUNDLE"
+    echo "   The app may crash on startup without resources."
+fi
+
 # Copy Info.plist
 cp "Info.plist" "$APP_BUNDLE/Contents/"
 
