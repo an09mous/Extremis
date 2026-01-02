@@ -49,7 +49,7 @@ final class ClipboardCapture {
 
         // Type the marker character at cursor position
         typeText(marker)
-        Thread.sleep(forTimeInterval: 0.05)
+        Thread.sleep(forTimeInterval: 0.02)
 
         if verbose {
             print("⚡ Step 3: Cmd+Shift+Up (select before cursor including marker)...")
@@ -57,7 +57,7 @@ final class ClipboardCapture {
 
         // Simulate Cmd+Shift+Up (Select all content BEFORE cursor, including marker)
         simulateKeyPress(keyCode: 0x7E, withCommand: true, withShift: true)
-        Thread.sleep(forTimeInterval: 0.05)
+        Thread.sleep(forTimeInterval: 0.02)
 
         if verbose {
             print("⚡ Step 4: Cmd+C (copy selection)...")
@@ -65,11 +65,11 @@ final class ClipboardCapture {
 
         // Simulate Cmd+C (Copy)
         simulateKeyPress(keyCode: 0x08, withCommand: true, withShift: false)
-        Thread.sleep(forTimeInterval: 0.05)
+        Thread.sleep(forTimeInterval: 0.05)  // Keep higher - clipboard needs time
 
         // Release all modifiers
         releaseModifiers()
-        Thread.sleep(forTimeInterval: 0.05)
+        Thread.sleep(forTimeInterval: 0.02)
 
         if verbose {
             print("⚡ Step 5: Right arrow (deselect, cursor at marker)...")
@@ -77,7 +77,7 @@ final class ClipboardCapture {
 
         // Right arrow to deselect and position cursor at end of selection (after marker)
         simulateKeyPress(keyCode: 0x7C, withCommand: false, withShift: false)
-        Thread.sleep(forTimeInterval: 0.05)
+        Thread.sleep(forTimeInterval: 0.02)
 
         if verbose {
             print("⚡ Step 6: Backspace (delete marker)...")
@@ -85,7 +85,7 @@ final class ClipboardCapture {
 
         // Backspace to delete the marker
         simulateKeyPress(keyCode: 0x33, withCommand: false, withShift: false) // 0x33 = Backspace
-        Thread.sleep(forTimeInterval: 0.05)
+        Thread.sleep(forTimeInterval: 0.02)
 
         // Read clipboard content
         var copiedContent = pasteboard.string(forType: .string)
@@ -152,7 +152,7 @@ final class ClipboardCapture {
 
         // Type the marker character at cursor position
         typeText(marker)
-        Thread.sleep(forTimeInterval: 0.05)
+        Thread.sleep(forTimeInterval: 0.02)
 
         if verbose {
             print("⚡ Step 3: Left arrow (move cursor before marker)...")
@@ -160,7 +160,7 @@ final class ClipboardCapture {
 
         // Move cursor before the marker
         simulateKeyPress(keyCode: 0x7B, withCommand: false, withShift: false) // 0x7B = Left Arrow
-        Thread.sleep(forTimeInterval: 0.05)
+        Thread.sleep(forTimeInterval: 0.02)
 
         if verbose {
             print("⚡ Step 4: Cmd+Shift+Down (select after cursor including marker)...")
@@ -168,7 +168,7 @@ final class ClipboardCapture {
 
         // Simulate Cmd+Shift+Down (Select all content AFTER cursor, including marker)
         simulateKeyPress(keyCode: 0x7D, withCommand: true, withShift: true)
-        Thread.sleep(forTimeInterval: 0.05)
+        Thread.sleep(forTimeInterval: 0.02)
 
         if verbose {
             print("⚡ Step 5: Cmd+C (copy selection)...")
@@ -176,11 +176,11 @@ final class ClipboardCapture {
 
         // Simulate Cmd+C (Copy)
         simulateKeyPress(keyCode: 0x08, withCommand: true, withShift: false)
-        Thread.sleep(forTimeInterval: 0.05)
+        Thread.sleep(forTimeInterval: 0.05)  // Keep higher - clipboard needs time
 
         // Release all modifiers
         releaseModifiers()
-        Thread.sleep(forTimeInterval: 0.05)
+        Thread.sleep(forTimeInterval: 0.02)
 
         if verbose {
             print("⚡ Step 6: Left arrow (deselect, cursor at original position)...")
@@ -188,7 +188,7 @@ final class ClipboardCapture {
 
         // Left arrow to deselect and position cursor at start of selection (original position)
         simulateKeyPress(keyCode: 0x7B, withCommand: false, withShift: false)
-        Thread.sleep(forTimeInterval: 0.05)
+        Thread.sleep(forTimeInterval: 0.02)
 
         if verbose {
             print("⚡ Step 7: Delete (forward delete marker)...")
@@ -196,7 +196,7 @@ final class ClipboardCapture {
 
         // Forward delete (fn+Backspace) to delete the marker which is now after cursor
         simulateKeyPress(keyCode: 0x75, withCommand: false, withShift: false) // 0x75 = Forward Delete
-        Thread.sleep(forTimeInterval: 0.05)
+        Thread.sleep(forTimeInterval: 0.02)
 
         // Read clipboard content
         var copiedContent = pasteboard.string(forType: .string)
@@ -285,7 +285,7 @@ final class ClipboardCapture {
         }
 
         // Small delay between down and up
-        Thread.sleep(forTimeInterval: 0.05)
+        Thread.sleep(forTimeInterval: 0.02)
 
         // Key up
         if let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) {
