@@ -135,23 +135,50 @@ final class ChatConversation: ObservableObject {
         )
     }
     
+    /// Remove a message by its ID and all messages that follow it
+    /// Returns the user message that preceded the removed assistant message (for retry)
+    @discardableResult
+    func removeMessageAndFollowing(id: UUID) -> ChatMessage? {
+        guard let index = messages.firstIndex(where: { $0.id == id }) else {
+            return nil
+        }
+
+        // Find the user message that preceded this assistant message (for retry)
+        var precedingUserMessage: ChatMessage?
+        if index > 0 {
+            // Look backwards for the most recent user message before this assistant message
+            for i in stride(from: index - 1, through: 0, by: -1) {
+                if messages[i].role == .user {
+                    precedingUserMessage = messages[i]
+                    break
+                }
+            }
+        }
+
+        // Remove the message and all following messages
+        messages.removeSubrange(index...)
+        print("[ChatConversation] Removed message at index \(index) and following, now have \(messages.count) messages")
+
+        return precedingUserMessage
+    }
+
     // MARK: - Computed Properties
-    
+
     /// The last assistant message
     var lastAssistantMessage: ChatMessage? {
         messages.last { $0.role == .assistant }
     }
-    
+
     /// Content of the last assistant message (for Insert/Copy)
     var lastAssistantContent: String {
         lastAssistantMessage?.content ?? ""
     }
-    
+
     /// Whether the conversation has any messages
     var isEmpty: Bool {
         messages.isEmpty
     }
-    
+
     /// Number of messages
     var count: Int {
         messages.count

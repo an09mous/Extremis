@@ -20,6 +20,8 @@ struct ResponseView: View {
     @Binding var chatInputText: String
     var onSendChat: (() -> Void)?
     var onEnableChat: (() -> Void)?
+    var onRetryMessage: ((UUID) -> Void)?
+    var onRetryError: (() -> Void)?
 
     @State private var showCopiedToast = false
 
@@ -46,6 +48,8 @@ struct ResponseView: View {
         self._chatInputText = .constant("")
         self.onSendChat = nil
         self.onEnableChat = nil
+        self.onRetryMessage = nil
+        self.onRetryError = nil
     }
 
     // Full initializer with chat support
@@ -62,7 +66,9 @@ struct ResponseView: View {
         streamingContent: String,
         chatInputText: Binding<String>,
         onSendChat: @escaping () -> Void,
-        onEnableChat: @escaping () -> Void
+        onEnableChat: @escaping () -> Void,
+        onRetryMessage: ((UUID) -> Void)? = nil,
+        onRetryError: (() -> Void)? = nil
     ) {
         self.response = response
         self.isGenerating = isGenerating
@@ -77,6 +83,8 @@ struct ResponseView: View {
         self._chatInputText = chatInputText
         self.onSendChat = onSendChat
         self.onEnableChat = onEnableChat
+        self.onRetryMessage = onRetryMessage
+        self.onRetryError = onRetryError
     }
 
     var body: some View {
@@ -87,7 +95,9 @@ struct ResponseView: View {
                     conversation: conv,
                     streamingContent: streamingContent,
                     isGenerating: isGenerating,
-                    error: error
+                    error: error,
+                    onRetryMessage: onRetryMessage,
+                    onRetryError: onRetryError
                 )
                 .frame(maxHeight: .infinity)
             } else {

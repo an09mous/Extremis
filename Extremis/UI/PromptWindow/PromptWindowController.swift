@@ -228,6 +228,10 @@ final class PromptViewModel: ObservableObject {
     }
 
     func reset() {
+        // Cancel any in-progress generation to prevent stale updates
+        generationTask?.cancel()
+        generationTask = nil
+
         instructionText = ""
         response = ""
         isGenerating = false
@@ -243,6 +247,11 @@ final class PromptViewModel: ObservableObject {
         chatInputText = ""
         streamingContent = ""
         isChatMode = false
+    }
+
+    deinit {
+        generationTask?.cancel()
+        providerCancellable?.cancel()
     }
 
     func updateProviderStatus() {
@@ -301,6 +310,7 @@ final class PromptViewModel: ObservableObject {
 
     func cancelGeneration() {
         generationTask?.cancel()
+        generationTask = nil
         isGenerating = false
     }
 
@@ -461,6 +471,131 @@ final class PromptViewModel: ObservableObject {
         }
     }
 
+    /// Retry/regenerate a specific assistant message
+    /// Removes the message and all following messages, then regenerates using the same user input
+    func retryMessage(id: UUID) {
+        guard let conv = conversation else {
+            print("🔄 Retry failed: No conversation")
+            return
+        }
+
+        guard !isGenerating else {
+            print("🔄 Retry blocked: Already generating")
+            return
+        }
+
+        // Remove the assistant message and all following messages
+        // The preceding user message is kept in the conversation
+        guard let precedingUserMessage = conv.removeMessageAndFollowing(id: id) else {
+            print("🔄 Retry failed: Could not find message or preceding user message")
+            return
+        }
+
+        print("🔄 Retrying with user message: \(precedingUserMessage.content.prefix(50))...")
+
+        // Clear streaming content and regenerate
+        // Note: We do NOT re-add the user message - it's still in conv.messages
+        streamingContent = ""
+        isGenerating = true
+        error = nil
+
+        generationTask = Task {
+            do {
+                guard let provider = LLMProviderRegistry.shared.activeProvider else {
+                    throw LLMProviderError.notConfigured(provider: .openai)
+                }
+
+                // Use chat streaming with the current messages
+                let stream = provider.generateChatStream(
+                    messages: conv.messages,
+                    context: currentContext
+                )
+
+                for try await chunk in stream {
+                    guard !Task.isCancelled else { return }
+                    streamingContent += chunk
+                }
+
+                // Add completed response to conversation
+                if !streamingContent.isEmpty {
+                    conv.addAssistantMessage(streamingContent)
+                    // Update the response to show latest for Insert/Copy
+                    response = streamingContent
+                }
+                streamingContent = ""
+
+                print("🔄 Retry complete")
+            } catch is CancellationError {
+                print("🔄 Retry cancelled")
+            } catch {
+                print("🔄 Retry error: \(error)")
+                self.error = error.localizedDescription
+            }
+            isGenerating = false
+        }
+    }
+
+    /// Retry after an error - finds the last user message and regenerates
+    func retryError() {
+        guard let conv = conversation else {
+            print("🔄 Retry error failed: No conversation")
+            return
+        }
+
+        guard !isGenerating else {
+            print("🔄 Retry error blocked: Already generating")
+            return
+        }
+
+        // Find the last user message in the conversation
+        guard let lastUserMessage = conv.messages.last(where: { $0.role == .user }) else {
+            print("🔄 Retry error failed: No user message found")
+            return
+        }
+
+        print("🔄 Retrying after error with user message: \(lastUserMessage.content.prefix(50))...")
+
+        // Clear the error and regenerate
+        error = nil
+        streamingContent = ""
+        isGenerating = true
+
+        generationTask = Task {
+            do {
+                guard let provider = LLMProviderRegistry.shared.activeProvider else {
+                    throw LLMProviderError.notConfigured(provider: .openai)
+                }
+
+                // Use chat streaming with the current messages
+                let stream = provider.generateChatStream(
+                    messages: conv.messages,
+                    context: currentContext
+                )
+
+                for try await chunk in stream {
+                    guard !Task.isCancelled else { return }
+                    streamingContent += chunk
+                }
+
+                // Add completed response to conversation
+                if !streamingContent.isEmpty {
+                    conv.addAssistantMessage(streamingContent)
+                    // Update the response to show latest for Insert/Copy
+                    response = streamingContent
+                }
+                streamingContent = ""
+
+                print("🔄 Retry after error complete")
+            } catch is CancellationError {
+                print("🔄 Retry cancelled")
+            } catch {
+                print("🔄 Retry error: \(error)")
+                self.error = error.localizedDescription
+            }
+            isGenerating = false
+        }
+    }
+
     /// Get the content to use for Insert/Copy (latest assistant message)
     var contentForInsert: String {
         if isChatMode, let conv = conversation {
@@ -523,7 +658,9 @@ struct PromptContainerView: View {
                     streamingContent: viewModel.streamingContent,
                     chatInputText: $viewModel.chatInputText,
                     onSendChat: { viewModel.sendChatMessage() },
-                    onEnableChat: { viewModel.enableChatMode() }
+                    onEnableChat: { viewModel.enableChatMode() },
+                    onRetryMessage: { messageId in viewModel.retryMessage(id: messageId) },
+                    onRetryError: { viewModel.retryError() }
                 )
             } else {
                 // Input view

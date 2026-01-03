@@ -9,6 +9,10 @@ struct ChatView: View {
     let streamingContent: String
     let isGenerating: Bool
     let error: String?
+    /// Callback to retry/regenerate a specific assistant message by its ID
+    var onRetryMessage: ((UUID) -> Void)?
+    /// Callback to retry after an error (retries the last user message)
+    var onRetryError: (() -> Void)?
 
     // Track if user has manually scrolled away from bottom
     @State private var userHasScrolledUp = false
@@ -21,8 +25,12 @@ struct ChatView: View {
                     VStack(spacing: 16) {
                         // Display all completed messages
                         ForEach(conversation.messages) { message in
-                            ChatMessageView(message: message)
-                                .id(message.id)
+                            ChatMessageView(
+                                message: message,
+                                onRetry: message.role == .assistant ? { onRetryMessage?(message.id) } : nil,
+                                isGenerating: isGenerating
+                            )
+                            .id(message.id)
                         }
 
                         // Display streaming message if generating
@@ -36,7 +44,7 @@ struct ChatView: View {
 
                         // Display error if present (after streaming content)
                         if let errorMessage = error, !isGenerating {
-                            ChatErrorView(message: errorMessage)
+                            ChatErrorView(message: errorMessage, onRetry: onRetryError)
                                 .id("error")
                         }
 
@@ -96,9 +104,10 @@ struct ChatView: View {
 
 // MARK: - Chat Error View
 
-/// Error view styled for chat context
+/// Error view styled for chat context with optional retry button
 struct ChatErrorView: View {
     let message: String
+    var onRetry: (() -> Void)?
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -116,6 +125,24 @@ struct ChatErrorView: View {
             }
 
             Spacer()
+
+            // Retry button
+            if let retryAction = onRetry {
+                Button(action: retryAction) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 12))
+                        Text("Retry")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.accentColor)
+                    .cornerRadius(6)
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding()
         .background(Color.red.opacity(0.1))
@@ -171,7 +198,8 @@ struct ChatView_Previews: PreviewProvider {
                 conversation: conversation,
                 streamingContent: "Here's an improved version...",
                 isGenerating: true,
-                error: nil
+                error: nil,
+                onRetryMessage: { messageId in print("Retry message: \(messageId)") }
             )
             .frame(height: 300)
 

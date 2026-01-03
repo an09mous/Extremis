@@ -4,15 +4,27 @@
 import SwiftUI
 import AppKit
 
-/// View displaying a single chat message bubble with copy functionality
+/// View displaying a single chat message bubble with copy and retry functionality
 struct ChatMessageView: View {
     let message: ChatMessage
+    /// Callback to retry/regenerate this assistant message (nil for user messages)
+    var onRetry: (() -> Void)?
+    /// Whether generation is currently in progress (disables retry button)
+    var isGenerating: Bool = false
 
     @State private var isHovering = false
     @State private var showCopied = false
 
     private var isUser: Bool {
         message.role == .user
+    }
+
+    private var isAssistant: Bool {
+        message.role == .assistant
+    }
+
+    private var canRetry: Bool {
+        isAssistant && onRetry != nil && !isGenerating
     }
 
     private var bubbleColor: Color {
@@ -54,8 +66,9 @@ struct ChatMessageView: View {
                     .background(bubbleColor)
                     .cornerRadius(12)
 
-                // Copy button at bottom (always in layout, visibility controlled by opacity)
-                HStack(spacing: 4) {
+                // Action buttons at bottom (always in layout, visibility controlled by opacity)
+                HStack(spacing: 8) {
+                    // Copy button
                     Button(action: copyMessage) {
                         HStack(spacing: 3) {
                             Image(systemName: showCopied ? "checkmark" : "doc.on.doc")
@@ -67,6 +80,23 @@ struct ChatMessageView: View {
                     }
                     .buttonStyle(.plain)
                     .help("Copy message")
+
+                    // Retry button (only for assistant messages)
+                    if isAssistant, let retryAction = onRetry {
+                        Button(action: retryAction) {
+                            HStack(spacing: 3) {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 10))
+                                Text("Retry")
+                                    .font(.system(size: 10))
+                            }
+                            .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Retry this response")
+                        .disabled(isGenerating)
+                        .opacity(isGenerating ? 0.5 : 1)
+                    }
                 }
                 .opacity(isHovering || showCopied ? 1 : 0)
             }
@@ -186,7 +216,16 @@ struct ChatMessageView_Previews: PreviewProvider {
     static var previews: some View {
         VStack(spacing: 16) {
             ChatMessageView(message: ChatMessage(role: .user, content: "Can you help me improve this text?"))
-            ChatMessageView(message: ChatMessage(role: .assistant, content: "Of course! I'd be happy to help you improve your text. Please share what you'd like me to work on."))
+            ChatMessageView(
+                message: ChatMessage(role: .assistant, content: "Of course! I'd be happy to help you improve your text. Please share what you'd like me to work on."),
+                onRetry: { print("Retry tapped") },
+                isGenerating: false
+            )
+            ChatMessageView(
+                message: ChatMessage(role: .assistant, content: "This response is being regenerated..."),
+                onRetry: { },
+                isGenerating: true
+            )
             StreamingMessageView(content: "I'm currently generating...", isGenerating: true)
             StreamingMessageView(content: "", isGenerating: true)
         }
