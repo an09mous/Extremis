@@ -1,4 +1,5 @@
 .augment
+.claude
 aiaudit.csv
 # Xcode
 .build/
