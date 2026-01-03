@@ -1,15 +1,14 @@
+# AI tools
 .augment
 .claude
 aiaudit.csv
+
 # Xcode
 .build/
 DerivedData/
 *.xcodeproj/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcuserdata/
 *.xcworkspace/xcuserdata/
-*.swiftpm/
-*.swiftpm/xcode/
-Packages/
 
 # Build products
 build/
@@ -22,26 +21,11 @@ build/
 .swiftpm/
 Package.resolved
 
-# CocoaPods (if ever used)
-Pods/
-
-# Carthage (if ever used)
-Carthage/Build/
-
-# Fastlane
-fastlane/report.xml
-fastlane/Preview.html
-fastlane/screenshots/**/*.png
-fastlane/test_output
-
 # macOS
 .DS_Store
 .AppleDouble
 .LSOverride
 ._*
-
-# Thumbnails
-Thumbs.db
 
 # IDE
 .idea/
@@ -78,4 +62,3 @@ coverage/
 # User-specific
 *.xcuserstate
 *.moved-aside
-
