@@ -100,6 +100,11 @@ run_test_suite "KeychainHelper Tests" \
     "$PROJECT_DIR/Tests/Utilities/KeychainHelperTests.swift" \
     "Foundation" "Security"
 
+# 5. ChatConversation Tests (retry functionality and conversation management)
+run_test_suite "ChatConversation Tests" \
+    "$PROJECT_DIR/Tests/Core/ChatConversationTests.swift" \
+    "Foundation"
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------
