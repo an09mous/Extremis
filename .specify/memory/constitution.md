@@ -1,107 +1,185 @@
 <!--
 SYNC IMPACT REPORT
 ==================
-Version change: 1.0.0 → 1.1.0 (Documentation Sync principle added)
-Modified principles: N/A
-Added sections:
-  - IV. Documentation Synchronization
-Removed sections: None
-Templates requiring updates:
-  - .specify/templates/plan-template.md ✅ (compatible)
-  - .specify/templates/spec-template.md ✅ (compatible)
-  - .specify/templates/tasks-template.md ✅ (compatible)
+Version Change: 0.0.0 → 1.0.0 (MAJOR - initial constitution ratification)
+
+Added Principles:
+- I. Modularity & Separation of Concerns
+- II. Code Quality & Best Practices
+- III. Extensibility & Testability
+- IV. User Experience Excellence
+- V. Documentation Synchronization
+- VI. Testing Discipline
+- VII. Regression Prevention
+
+Added Sections:
+- Quality Standards (Section 2)
+- Development Workflow (Section 3)
+- Governance
+
+Templates Status:
+✅ .specify/templates/plan-template.md - Constitution Check section compatible
+✅ .specify/templates/spec-template.md - Requirements section compatible
+✅ .specify/templates/tasks-template.md - Phase structure compatible
+
 Follow-up TODOs: None
+==================
 -->
 
 # Extremis Constitution
 
 ## Core Principles
 
-### I. Modularity First
+### I. Modularity & Separation of Concerns
 
-Every component MUST be designed for independence and composability:
+Code MUST be highly modular to ensure addition or modification of functionality is straightforward.
 
-- **Single Responsibility**: Each module, class, or function MUST have one clear purpose
-- **Loose Coupling**: Components MUST communicate through well-defined interfaces, not implementation details
-- **High Cohesion**: Related functionality MUST be grouped together; unrelated code MUST be separated
-- **Dependency Injection**: Dependencies MUST be injected, not hardcoded, enabling easy testing and swapping
-- **Plugin Architecture**: Features SHOULD be implemented as pluggable modules where applicable
-- **No Circular Dependencies**: Module dependencies MUST form a directed acyclic graph (DAG)
+- Components MUST exhibit loose coupling: minimal dependencies between modules
+- Components MUST exhibit high cohesion: each module has a single, well-defined responsibility
+- New features MUST be addable without modifying unrelated code paths
+- Shared functionality MUST be extracted into reusable utilities or services
+- Circular dependencies between modules are PROHIBITED
 
-**Rationale**: Modular code enables parallel development, easier maintenance, independent testing, and confident refactoring without cascading failures.
+**Rationale**: Modular architecture reduces cognitive load, enables parallel development, and isolates change impact.
 
-### II. Code Quality Excellence
+### II. Code Quality & Best Practices
 
-All code MUST meet the highest quality standards:
+All code MUST follow the best practices of Swift and established design principles.
 
-- **Clean Code**: Code MUST be self-documenting with meaningful names; comments explain "why", not "what"
-- **DRY Principle**: Duplication MUST be eliminated through proper abstraction
-- **SOLID Principles**: Object-oriented code MUST follow SOLID principles
-- **Error Handling**: All error paths MUST be explicitly handled; no silent failures
-- **Type Safety**: Strong typing MUST be used where the language supports it
-- **Testing**: Critical paths MUST have unit tests; integration tests for component boundaries
-- **Code Reviews**: All changes MUST be reviewed before merge
-- **Linting & Formatting**: Automated tools MUST enforce consistent style
+- Code MUST adhere to Swift API Design Guidelines and SwiftLint rules
+- SOLID principles MUST guide class and protocol design
+- Functions MUST be short, focused, and do one thing well
+- Naming MUST be descriptive and self-documenting
+- Magic numbers and hardcoded strings MUST be replaced with named constants
+- Code duplication MUST be eliminated through appropriate abstractions
+- All public APIs MUST have clear documentation comments
 
-**Rationale**: Top-notch code quality reduces bugs, improves maintainability, and enables developers to work confidently across the codebase.
+**Rationale**: High code quality reduces bugs, improves maintainability, and accelerates onboarding.
 
-### III. User Experience Primacy
+### III. Extensibility & Testability
 
-Every user-facing decision MUST prioritize exceptional experience:
+Architecture MUST prioritize extensibility, testability, and performance optimization.
 
-- **Smooth Flows**: User journeys MUST be intuitive with minimal friction and cognitive load
-- **Visual Polish**: UI MUST be aesthetically pleasing with consistent design language
-- **Responsive Design**: Interfaces MUST work seamlessly across all target devices/platforms
-- **Performance**: Interactions MUST feel instant (<100ms feedback, <1s operations)
-- **Accessibility**: Design MUST be inclusive and meet accessibility standards
-- **Error Recovery**: Users MUST always have a clear path forward; helpful error messages required
-- **Progressive Disclosure**: Complexity MUST be revealed gradually based on user needs
+- New providers, extractors, and UI components MUST be addable via protocol conformance
+- Dependencies MUST be injectable to enable unit testing with mocks
+- Business logic MUST be separated from UI and I/O concerns
+- Performance-critical paths MUST be profiled and optimized
+- Async operations MUST use Swift Concurrency (async/await, actors) correctly
+- Memory management MUST avoid retain cycles and unnecessary allocations
 
-**Rationale**: Superior UX creates loyal users, reduces support burden, and differentiates the product in the market.
+**Rationale**: Extensible, testable code enables confident refactoring and feature iteration.
 
-### IV. Documentation Synchronization
+### IV. User Experience Excellence
 
-Documentation MUST always reflect the current state of the codebase:
+The application MUST deliver the smoothest, most intuitive user experience possible.
 
-- **README Accuracy**: The README MUST be updated whenever functionality, installation steps, or usage patterns change
-- **Doc-Code Parity**: Documentation MUST be updated in the same PR/commit as the code change it describes
-- **API Documentation**: All public APIs MUST have up-to-date documentation including parameters, return values, and examples
-- **Changelog Maintenance**: All user-facing changes MUST be recorded in the changelog with version and date
-- **Architecture Docs**: Significant architectural changes MUST update relevant design documents
-- **Deprecation Notices**: Deprecated features MUST be documented with migration paths and removal timelines
-- **No Stale Docs**: Documentation MUST NOT reference removed features or outdated behaviors
+- UI interactions MUST feel instant (<100ms perceived latency)
+- Visual feedback MUST accompany all user actions
+- Error states MUST be communicated clearly with actionable guidance
+- Keyboard shortcuts MUST be discoverable and consistent
+- Accessibility MUST be supported (VoiceOver, keyboard navigation)
+- UI MUST be visually polished with attention to alignment, spacing, and typography
+- Animation and transitions MUST be smooth (60fps) and purposeful
 
-**Rationale**: Synchronized documentation reduces onboarding friction, prevents user confusion, and ensures the codebase remains accessible to all contributors.
+**Rationale**: Exceptional UX differentiates the product and drives user adoption.
 
-## Quality Gates
+### V. Documentation Synchronization
 
-Before any code is merged, it MUST pass:
+README and documentation MUST always reflect current functionality.
 
-1. **Modularity Check**: No new circular dependencies; coupling metrics within thresholds
-2. **Code Quality Check**: Linting passes; test coverage maintained; no critical static analysis issues
-3. **UX Review**: User-facing changes reviewed for flow smoothness and visual consistency
-4. **Performance Check**: No degradation in key performance metrics
-5. **Documentation Check**: README, API docs, and relevant documentation updated for any functionality change
+- README.md MUST be updated when features are added, changed, or removed
+- Feature documentation MUST include usage examples
+- Architecture documentation MUST stay current with structural changes
+- API keys, setup steps, and requirements MUST be accurate
+- Outdated documentation is treated as a bug with HIGH priority
+
+**Rationale**: Accurate documentation reduces support burden and improves developer experience.
+
+### VI. Testing Discipline
+
+Tests MUST cover complex code paths and edge cases to raise the quality bar.
+
+- Complex business logic MUST have unit tests
+- Edge cases identified in specs MUST have corresponding test coverage
+- Integration points (LLM providers, system APIs) MUST have contract tests
+- Test names MUST clearly describe the scenario being tested
+- Tests MUST be deterministic and not rely on external state
+- Flaky tests MUST be fixed or removed immediately
+
+**Rationale**: Strategic testing catches regressions early and documents expected behavior.
+
+### VII. Regression Prevention
+
+Code changes MUST be made with extra care to prevent regressions to existing functionality.
+
+- Before modifying code, the existing behavior MUST be understood thoroughly
+- Changes MUST be minimal and focused on the stated objective
+- Unrelated "improvements" during bug fixes are PROHIBITED
+- All user-facing flows MUST be manually verified after changes
+- Breaking changes MUST be explicitly documented and communicated
+- When in doubt, add a test before making the change
+
+**Rationale**: Preventing regressions maintains user trust and product stability.
+
+## Quality Standards
+
+All contributions MUST meet these minimum quality gates:
+
+- **Build**: Code MUST compile without warnings
+- **Lint**: Code MUST pass SwiftLint with zero violations
+- **Tests**: All existing tests MUST pass
+- **Manual QA**: Core user flows (hotkey invocation, text generation, insertion) MUST work
+- **Memory**: No memory leaks in Instruments for standard usage patterns
+- **Performance**: UI MUST remain responsive during LLM streaming
+
+Complexity MUST be justified. If a simpler solution exists, it MUST be preferred unless specific requirements demand otherwise.
 
 ## Development Workflow
 
-1. **Design First**: For significant changes, design the modular structure before coding
-2. **Incremental Development**: Build features in small, testable increments
-3. **Continuous Integration**: All changes trigger automated quality checks
-4. **Documentation**: Public APIs and complex logic MUST be documented
+### Code Review Requirements
+
+- All changes MUST be reviewed before merging
+- Reviewers MUST verify principle compliance (modularity, quality, UX)
+- Reviewers MUST run the application and test affected flows
+- Feedback MUST be addressed or explicitly discussed before approval
+
+### Change Process
+
+1. Understand the existing code thoroughly before modification
+2. Make the minimal change required to achieve the goal
+3. Verify no regressions in related functionality
+4. Update documentation if behavior changes
+5. Add tests for complex or edge-case logic
+
+### Quality Gates
+
+Before any merge:
+- [ ] Build succeeds without warnings
+- [ ] All tests pass
+- [ ] Manual QA of affected user flows complete
+- [ ] Documentation updated (if applicable)
+- [ ] No regressions identified
 
 ## Governance
 
-This constitution supersedes all other development practices. Any conflicts between convenience and these principles MUST be resolved in favor of the principles.
+This constitution supersedes all other development practices for the Extremis project. All pull requests and code reviews MUST verify compliance with these principles.
 
-**Amendment Process**:
-- Amendments require documented justification
-- Breaking changes to principles require migration plan
-- All team members MUST be notified of amendments
+### Amendment Procedure
 
-**Compliance**:
-- All PRs MUST verify compliance with these principles
-- Technical debt that violates principles MUST be tracked and prioritized
-- Exceptions require explicit documentation and approval
+1. Propose change with rationale in a dedicated PR
+2. Document impact on existing code and templates
+3. Obtain explicit approval from project maintainers
+4. Update version according to semantic versioning:
+   - MAJOR: Principle removal or incompatible redefinition
+   - MINOR: New principle or materially expanded guidance
+   - PATCH: Clarifications, wording improvements
 
-**Version**: 1.1.0 | **Ratified**: 2025-12-06 | **Last Amended**: 2025-12-16
+### Compliance Review
+
+Periodic reviews SHOULD assess:
+- Codebase adherence to principles
+- Documentation accuracy
+- Test coverage of complex paths
+- Regression incident analysis
+
+**Version**: 1.0.0 | **Ratified**: 2026-01-03 | **Last Amended**: 2026-01-03

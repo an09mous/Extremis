@@ -448,14 +448,23 @@ final class PromptViewModel: ObservableObject {
                 )
 
                 for try await chunk in stream {
-                    guard !Task.isCancelled else { return }
+                    if Task.isCancelled {
+                        // Save partial content so user can view, copy, insert, or retry
+                        if !streamingContent.isEmpty {
+                            conv.addAssistantMessage(streamingContent)
+                            response = streamingContent
+                            print("💬 Generation stopped - saved partial response")
+                        }
+                        streamingContent = ""
+                        isGenerating = false
+                        return
+                    }
                     streamingContent += chunk
                 }
 
                 // Add completed response to conversation
                 if !streamingContent.isEmpty {
                     conv.addAssistantMessage(streamingContent)
-                    // Update the response to show latest for Insert/Copy
                     response = streamingContent
                 }
                 streamingContent = ""
@@ -512,14 +521,23 @@ final class PromptViewModel: ObservableObject {
                 )
 
                 for try await chunk in stream {
-                    guard !Task.isCancelled else { return }
+                    if Task.isCancelled {
+                        // Save partial content so user can view, copy, insert, or retry
+                        if !streamingContent.isEmpty {
+                            conv.addAssistantMessage(streamingContent)
+                            response = streamingContent
+                            print("🔄 Retry stopped - saved partial response")
+                        }
+                        streamingContent = ""
+                        isGenerating = false
+                        return
+                    }
                     streamingContent += chunk
                 }
 
                 // Add completed response to conversation
                 if !streamingContent.isEmpty {
                     conv.addAssistantMessage(streamingContent)
-                    // Update the response to show latest for Insert/Copy
                     response = streamingContent
                 }
                 streamingContent = ""
@@ -573,14 +591,23 @@ final class PromptViewModel: ObservableObject {
                 )
 
                 for try await chunk in stream {
-                    guard !Task.isCancelled else { return }
+                    if Task.isCancelled {
+                        // Save partial content so user can view, copy, insert, or retry
+                        if !streamingContent.isEmpty {
+                            conv.addAssistantMessage(streamingContent)
+                            response = streamingContent
+                            print("🔄 Retry stopped - saved partial response")
+                        }
+                        streamingContent = ""
+                        isGenerating = false
+                        return
+                    }
                     streamingContent += chunk
                 }
 
                 // Add completed response to conversation
                 if !streamingContent.isEmpty {
                     conv.addAssistantMessage(streamingContent)
-                    // Update the response to show latest for Insert/Copy
                     response = streamingContent
                 }
                 streamingContent = ""
