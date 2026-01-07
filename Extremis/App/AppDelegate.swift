@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let permissionManager = PermissionManager.shared
     private let contextOrchestrator = ContextOrchestrator.shared
     private let textInserter = TextInserterService.shared
+    private let conversationManager = ConversationManager.shared
 
     /// Current captured context
     private var currentContext: Context?
@@ -48,7 +49,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Check Ollama connection asynchronously and rebuild menu when done
         checkOllamaAndRefreshMenu()
 
+        // Restore last conversation on launch
+        restoreConversationOnLaunch()
+
         print("✅ Extremis launched successfully")
+    }
+
+    /// Restore the last active conversation on app launch
+    private func restoreConversationOnLaunch() {
+        Task { @MainActor in
+            await conversationManager.restoreLastConversation()
+
+            // If there's a restored conversation, make it available to the prompt window
+            if let conversation = conversationManager.currentConversation {
+                promptWindowController.setConversation(conversation, id: conversationManager.currentConversationId)
+                print("📚 Restored conversation with \(conversation.messages.count) messages")
+            }
+        }
     }
 
     /// Check Ollama connection and refresh the menu bar
@@ -98,6 +115,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Save conversation immediately on termination
+        conversationManager.saveImmediately()
+
         hotkeyManager.unregister()
         print("👋 Extremis terminating")
     }
@@ -124,6 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let openItem = NSMenuItem(title: "Open Extremis", action: #selector(showPromptWindow), keyEquivalent: "")
         openItem.target = self
         menu.addItem(openItem)
+
         menu.addItem(NSMenuItem.separator())
 
         // Show active model info (informative, not clickable)

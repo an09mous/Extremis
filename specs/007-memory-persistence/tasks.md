@@ -75,33 +75,33 @@ Per plan.md, this is a single macOS application:
 
 ### 2.1 Core Models (P1)
 
-- [ ] T013 [P] Create PersistedMessage model in Extremis/Core/Models/Persistence/PersistedMessage.swift
-- [ ] T014 [P] Create ConversationSummary model in Extremis/Core/Models/Persistence/ConversationSummary.swift
-- [ ] T015 Create PersistedConversation model in Extremis/Core/Models/Persistence/PersistedConversation.swift (depends on T013, T014)
-- [ ] T016 [P] Create ConversationIndexEntry model in Extremis/Core/Models/Persistence/ConversationIndex.swift
-- [ ] T017 Create ConversationIndex model in Extremis/Core/Models/Persistence/ConversationIndex.swift (depends on T016)
-- [ ] T018 [P] Create StorageError enum in Extremis/Core/Models/Persistence/StorageError.swift
+- [x] T013 [P] Create PersistedMessage model in Extremis/Core/Models/Persistence/PersistedMessage.swift
+- [x] T014 [P] Create ConversationSummary model in Extremis/Core/Models/Persistence/ConversationSummary.swift
+- [x] T015 Create PersistedConversation model in Extremis/Core/Models/Persistence/PersistedConversation.swift (depends on T013, T014)
+- [x] T016 [P] Create ConversationIndexEntry model in Extremis/Core/Models/Persistence/ConversationIndex.swift
+- [x] T017 Create ConversationIndex model in Extremis/Core/Models/Persistence/ConversationIndex.swift (depends on T016)
+- [x] T018 [P] Create StorageError enum in Extremis/Core/Models/Persistence/StorageError.swift
 
 ---
 
 ### 2.2 Storage Layer (P1)
 
-- [ ] T019 Implement StorageManager actor in Extremis/Core/Services/StorageManager.swift (depends on T015, T017, T018)
+- [x] T019 Implement StorageManager actor in Extremis/Core/Services/StorageManager.swift (depends on T015, T017, T018)
 
 ---
 
 ### 2.3 Conversation Management (P1)
 
-- [ ] T020 Implement ConversationManager with debounced save in Extremis/Core/Services/ConversationManager.swift (depends on T019)
+- [x] T020 Implement ConversationManager with debounced save in Extremis/Core/Services/ConversationManager.swift (depends on T019)
 
 ---
 
 ### 2.4 App Integration (P1)
 
-- [ ] T021 Add lifecycle hooks to AppDelegate for save on terminate in Extremis/App/AppDelegate.swift (depends on T020)
-- [ ] T022 Add conversation restore on launch in Extremis/App/AppDelegate.swift (depends on T020)
-- [ ] T023 Integrate ConversationManager with PromptViewModel in Extremis/UI/PromptWindow/PromptViewModel.swift (depends on T020)
-- [ ] T024 Add "New Conversation" menu item and keyboard shortcut (depends on T023)
+- [x] T021 Add lifecycle hooks to AppDelegate for save on terminate in Extremis/App/AppDelegate.swift (depends on T020)
+- [x] T022 Add conversation restore on launch in Extremis/App/AppDelegate.swift (depends on T020)
+- [x] T023 Integrate ConversationManager with PromptViewModel in Extremis/UI/PromptWindow/PromptViewModel.swift (depends on T020)
+- [x] T024 Add "New Conversation" menu item and keyboard shortcut (depends on T023)
 
 ---
 
@@ -215,11 +215,11 @@ T004: Research industry alternatives
 | Phase 1: POC | T005-T007 | ✅ Complete |
 | Phase 1: Design | T008-T010 | ✅ Complete |
 | Phase 1: Approval | T011-T012 | ✅ Complete |
-| Phase 2: Core Models | T013-T018 | 🔄 In Progress |
-| Phase 2: Storage | T019 | ⏳ Pending |
-| Phase 2: Conversation Mgmt | T020 | ⏳ Pending |
-| Phase 2: App Integration | T021-T024 | ⏳ Pending |
-| Phase 2: Validation | T025-T027 | ⏳ Pending |
+| Phase 2: Core Models | T013-T018 | ✅ Complete |
+| Phase 2: Storage | T019 | ✅ Complete |
+| Phase 2: Conversation Mgmt | T020 | ✅ Complete |
+| Phase 2: App Integration | T021-T024 | ✅ Complete |
+| Phase 2: Validation | T025-T027 | 🔄 In Progress |
 | Phase 2: US3 (Summarization) | T028-T031 | ⏸️ Deferred |
 | Phase 2: US4 (Memory) | T032-T037 | ⏸️ Deferred |
 

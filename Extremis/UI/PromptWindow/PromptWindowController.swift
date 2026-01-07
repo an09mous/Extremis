@@ -67,10 +67,10 @@ final class PromptWindowController: NSWindowController {
                 self?.hidePrompt()
             },
             onGenerate: { [weak self] in
-                guard let context = self?.currentContext else {
-                    print("❌ No context available for generation")
-                    return
-                }
+                // Use existing context or create a minimal one for new conversations
+                let context = self?.currentContext ?? Context(
+                    source: ContextSource(applicationName: "Extremis", bundleIdentifier: "com.extremis.app")
+                )
                 print("🔧 Triggering generation with context")
                 self?.viewModel.generate(with: context)
             },
@@ -180,6 +180,20 @@ final class PromptWindowController: NSWindowController {
         currentContext = nil  // Clear the context
         window?.orderOut(nil)
     }
+
+    /// Set a restored conversation (for session persistence)
+    func setConversation(_ conversation: ChatConversation, id: UUID?) {
+        viewModel.setRestoredConversation(conversation, id: id)
+    }
+
+    /// Start a new conversation (clear current and create fresh)
+    func startNewConversation() async {
+        print("📋 PromptWindow: Starting new conversation")
+        viewModel.cancelGeneration()
+        viewModel.reset()
+        currentContext = nil
+        await ConversationManager.shared.startNewConversation()
+    }
 }
 
 // MARK: - Prompt View Model
@@ -206,6 +220,9 @@ final class PromptViewModel: ObservableObject {
     @Published var chatInputText: String = ""
     @Published var streamingContent: String = ""
     @Published var isChatMode: Bool = false
+
+    // Persistence properties
+    private(set) var conversationId: UUID?
 
     private var generationTask: Task<Void, Never>?
     var currentContext: Context?  // Made internal so PromptWindowController can set it
@@ -244,9 +261,39 @@ final class PromptViewModel: ObservableObject {
         isSummarizing = false
         // Reset chat state
         conversation = nil
+        conversationId = nil
         chatInputText = ""
         streamingContent = ""
         isChatMode = false
+    }
+
+    /// Set a restored conversation from persistence
+    func setRestoredConversation(_ conv: ChatConversation, id: UUID?) {
+        conversation = conv
+        conversationId = id
+
+        // If there are messages, enable chat mode
+        if !conv.messages.isEmpty {
+            isChatMode = true
+            showResponse = true
+
+            // Set the last assistant response for Insert/Copy
+            if let lastAssistant = conv.lastAssistantMessage {
+                response = lastAssistant.content
+            }
+
+            // Set context from original context if available
+            if let originalContext = conv.originalContext {
+                currentContext = originalContext
+            }
+
+            print("📋 PromptViewModel: Restored conversation with \(conv.messages.count) messages")
+        }
+
+        // Register with ConversationManager for tracking
+        if let id = id {
+            ConversationManager.shared.setCurrentConversation(conv, id: id)
+        }
     }
 
     deinit {
@@ -411,9 +458,13 @@ final class PromptViewModel: ObservableObject {
         conv.addAssistantMessage(response)
 
         conversation = conv
+        conversationId = UUID()
         isChatMode = true
         chatInputText = ""
         streamingContent = ""
+
+        // Register with ConversationManager for persistence
+        ConversationManager.shared.setCurrentConversation(conv, id: conversationId)
 
         print("💬 Chat mode enabled with \(conv.messages.count) messages")
     }

@@ -582,7 +582,7 @@ struct UserMemoryStore: Codable, Equatable {
 1. **Extraction**: On "New Conversation", extract facts from completed conversation
 2. **Deduplication**: Check for existing similar facts before adding
 3. **Injection**: Include active memories in system prompt for new conversations
-4. **Tracking**: Update `lastUsedAt` and `usageCount` when memory influences response
+4. **Tracking**: Update `lastUsedAt` a nd `usageCount` when memory influences response
 5. **Pruning**: Flag memories unused for 90 days for user review
 
 ---
