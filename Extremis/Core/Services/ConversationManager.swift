@@ -32,6 +32,7 @@ final class ConversationManager: ObservableObject {
     // MARK: - Conversation Lifecycle
 
     /// Start a new conversation
+    /// Note: Does NOT immediately save - conversation is only persisted when first message is sent
     func startNewConversation(
         context: Context? = nil,
         initialRequest: String? = nil
@@ -47,12 +48,15 @@ final class ConversationManager: ObservableObject {
         let conversationId = UUID()
         currentConversation = conversation
         currentConversationId = conversationId
-        isDirty = true
+        // Don't set isDirty = true here - empty conversations shouldn't be saved
+        // isDirty will be set when messages are added (via observeConversation)
+        isDirty = false
+        messageContexts = [:]  // Clear message contexts for fresh conversation
 
         // Observe changes to the conversation
         observeConversation(conversation)
 
-        print("[ConversationManager] Started new conversation \(conversationId)")
+        print("[ConversationManager] Prepared new conversation \(conversationId) (not saved until first message)")
     }
 
     /// Restore the last active conversation on app launch
@@ -145,8 +149,15 @@ final class ConversationManager: ObservableObject {
     // MARK: - Save Operations
 
     /// Save if there are unsaved changes
+    /// Only saves conversations that have actual content (at least one message)
     func saveIfDirty() async {
         guard isDirty, let conversation = currentConversation, let id = currentConversationId else {
+            return
+        }
+
+        // Don't save empty conversations
+        guard !conversation.messages.isEmpty else {
+            print("[ConversationManager] Skipping save - conversation is empty")
             return
         }
 
@@ -178,8 +189,15 @@ final class ConversationManager: ObservableObject {
     }
 
     /// Force immediate save (for app termination)
+    /// Only saves conversations that have actual content
     func saveImmediately() {
         guard isDirty, let conversation = currentConversation, let id = currentConversationId else {
+            return
+        }
+
+        // Don't save empty conversations
+        guard !conversation.messages.isEmpty else {
+            print("[ConversationManager] Skipping immediate save - conversation is empty")
             return
         }
 
