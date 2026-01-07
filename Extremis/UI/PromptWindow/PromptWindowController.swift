@@ -77,6 +77,24 @@ final class PromptWindowController: NSWindowController {
             onSummarize: { [weak self] in
                 print("📝 Summarize button clicked")
                 self?.viewModel.summarizeSelection()
+            },
+            onSelectConversation: { [weak self] id in
+                print("📋 Selecting conversation: \(id)")
+                Task { @MainActor in
+                    await self?.selectConversation(id: id)
+                }
+            },
+            onNewSession: { [weak self] in
+                print("📋 Starting new session")
+                Task { @MainActor in
+                    await self?.startNewConversation()
+                }
+            },
+            onDeleteConversation: { [weak self] id in
+                print("📋 Deleting conversation: \(id)")
+                Task { @MainActor in
+                    await self?.deleteConversation(id: id)
+                }
             }
         ))
         window?.contentView = contentView
@@ -101,8 +119,12 @@ final class PromptWindowController: NSWindowController {
         // Always set new context first
         currentContext = context
 
-        // Reset the view model completely
-        viewModel.reset()
+        // Update ConversationManager with the new context so it's saved with messages
+        ConversationManager.shared.updateCurrentContext(context)
+
+        // Prepare for new input but preserve session state
+        // Don't call reset() - keep the session/conversation intact
+        viewModel.prepareForNewInput()
 
         // Set the context on the viewModel so it can access source info for summarization
         viewModel.currentContext = context
@@ -172,11 +194,13 @@ final class PromptWindowController: NSWindowController {
         }
     }
 
-    /// Hide the prompt window and clear context
+    /// Hide the prompt window (preserves session state)
     func hidePrompt() {
-        print("📋 PromptWindow: Hiding and clearing context")
+        print("📋 PromptWindow: Hiding (session preserved)")
         viewModel.cancelGeneration()
-        viewModel.reset()  // Clear everything including context info
+        // Don't reset - preserve session state for continuity
+        // Just clear the transient UI state
+        viewModel.clearTransientState()
         currentContext = nil  // Clear the context
         window?.orderOut(nil)
     }
@@ -187,12 +211,58 @@ final class PromptWindowController: NSWindowController {
     }
 
     /// Start a new conversation (clear current and create fresh)
+    /// Note: Does NOT clear currentContext - context persists until new hotkey invocation
     func startNewConversation() async {
         print("📋 PromptWindow: Starting new conversation")
         viewModel.cancelGeneration()
+
+        // Save the current context before reset (reset clears it)
+        let preservedContext = viewModel.currentContext
+
         viewModel.reset()
-        currentContext = nil
+
+        // Restore the context - it should persist until next hotkey invocation
+        viewModel.currentContext = preservedContext
+        // Keep controller's currentContext as is (don't set to nil)
+
         await ConversationManager.shared.startNewConversation()
+    }
+
+    /// Select and load a specific conversation
+    func selectConversation(id: UUID) async {
+        print("📋 PromptWindow: Selecting conversation \(id)")
+        viewModel.cancelGeneration()
+
+        do {
+            try await ConversationManager.shared.loadConversation(id: id)
+
+            // Get the loaded conversation and set it on the view model
+            if let conversation = ConversationManager.shared.currentConversation {
+                viewModel.setRestoredConversation(conversation, id: id)
+            }
+        } catch {
+            print("📋 PromptWindow: Failed to load conversation: \(error)")
+        }
+    }
+
+    /// Delete a conversation
+    func deleteConversation(id: UUID) async {
+        print("📋 PromptWindow: Deleting conversation \(id)")
+
+        do {
+            // Check if we're deleting the current conversation
+            let isDeletingCurrent = id == ConversationManager.shared.currentConversationId
+
+            try await ConversationManager.shared.deleteConversation(id: id)
+
+            // If we deleted the current conversation, reset the view model
+            if isDeletingCurrent {
+                viewModel.reset()
+                currentContext = nil
+            }
+        } catch {
+            print("📋 PromptWindow: Failed to delete conversation: \(error)")
+        }
     }
 }
 
@@ -267,6 +337,55 @@ final class PromptViewModel: ObservableObject {
         isChatMode = false
     }
 
+    /// Prepare for new input without losing session state
+    /// Called when hotkey is triggered to show prompt
+    func prepareForNewInput() {
+        // Cancel any in-progress generation
+        generationTask?.cancel()
+        generationTask = nil
+
+        // Clear input-related state but preserve session
+        instructionText = ""
+        isGenerating = false
+        error = nil
+        showResponse = false  // Show input view, not response
+        hasContext = false
+        hasSelection = false
+        selectedText = nil
+        isSummarizing = false
+        chatInputText = ""
+        streamingContent = ""
+
+        // DON'T clear: conversation, conversationId, response (for history)
+        // The session continues across invocations
+    }
+
+    /// Clear transient UI state when hiding (preserves session)
+    func clearTransientState() {
+        instructionText = ""
+        error = nil
+        hasContext = false
+        hasSelection = false
+        selectedText = nil
+        chatInputText = ""
+        streamingContent = ""
+        // Keep: conversation, conversationId, response, isChatMode, showResponse
+    }
+
+    /// Ensure a session exists, creating one if needed
+    private func ensureSession(context: Context?, instruction: String?) {
+        if conversation == nil {
+            // Create a new session
+            let conv = ChatConversation(originalContext: context, initialRequest: instruction)
+            conversation = conv
+            conversationId = UUID()
+
+            // Register with ConversationManager immediately
+            ConversationManager.shared.setCurrentConversation(conv, id: conversationId)
+            print("📋 PromptViewModel: Created new session \(conversationId!)")
+        }
+    }
+
     /// Set a restored conversation from persistence
     func setRestoredConversation(_ conv: ChatConversation, id: UUID?) {
         conversation = conv
@@ -282,18 +401,17 @@ final class PromptViewModel: ObservableObject {
                 response = lastAssistant.content
             }
 
-            // Set context from original context if available
-            if let originalContext = conv.originalContext {
-                currentContext = originalContext
-            }
+            // NOTE: Do NOT restore context from persisted messages here.
+            // currentContext should always reflect the CURRENT context from the most recent
+            // hotkey invocation (set via showPrompt(with:)), not the historical context
+            // that was saved with the conversation. When the user sends a message,
+            // the current context will be attached to that new message.
 
             print("📋 PromptViewModel: Restored conversation with \(conv.messages.count) messages")
         }
 
-        // Register with ConversationManager for tracking
-        if let id = id {
-            ConversationManager.shared.setCurrentConversation(conv, id: id)
-        }
+        // Note: ConversationManager.loadConversation already sets the conversation there,
+        // so we don't need to call setCurrentConversation again which would mark it dirty
     }
 
     deinit {
@@ -316,6 +434,21 @@ final class PromptViewModel: ObservableObject {
         let isAutocomplete = instructionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if isAutocomplete {
             print("🔧 Autocomplete mode: No instruction provided, will continue text")
+        }
+
+        // Determine the user message content
+        // For autocomplete mode, use "Continue this text" as the user request
+        let userMessageContent = isAutocomplete ? "Continue this text" : instructionText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Ensure we have a session - create one if this is the first interaction
+        ensureSession(context: context, instruction: userMessageContent)
+
+        // Add user message to session immediately
+        if let conv = conversation {
+            let message = ChatMessage.user(userMessageContent)
+            conv.addMessage(message)
+            // Register context for this message so it's saved with the message
+            ConversationManager.shared.registerContextForMessage(messageId: message.id, context: context)
         }
 
         currentContext = context
@@ -343,7 +476,14 @@ final class PromptViewModel: ObservableObject {
                     response += chunk
                 }
 
-                print("🔧 Generation complete")
+                // Add assistant response to session
+                if !response.isEmpty, let conv = conversation {
+                    conv.addAssistantMessage(response)
+                    // Enable chat mode since we now have a conversation
+                    isChatMode = true
+                }
+
+                print("🔧 Generation complete - session has \(conversation?.messages.count ?? 0) messages")
             } catch is CancellationError {
                 // User cancelled, don't show error
                 print("🔧 Generation cancelled")
@@ -367,6 +507,17 @@ final class PromptViewModel: ObservableObject {
     func summarize(text: String, source: ContextSource, surroundingContext: Context? = nil) {
         print("📝 PromptViewModel: Starting summarization...")
 
+        // Ensure we have a session
+        ensureSession(context: surroundingContext, instruction: "Summarize this text")
+
+        // Add summarization request as user message
+        if let conv = conversation {
+            let message = ChatMessage.user("Summarize this text")
+            conv.addMessage(message)
+            // Register context for this message
+            ConversationManager.shared.registerContextForMessage(messageId: message.id, context: surroundingContext)
+        }
+
         isSummarizing = true
         isGenerating = true
         error = nil
@@ -389,7 +540,13 @@ final class PromptViewModel: ObservableObject {
                     response += chunk
                 }
 
-                print("📝 PromptViewModel: Summarization complete")
+                // Add assistant response to session
+                if !response.isEmpty, let conv = conversation {
+                    conv.addAssistantMessage(response)
+                    isChatMode = true
+                }
+
+                print("📝 PromptViewModel: Summarization complete - session has \(conversation?.messages.count ?? 0) messages")
             } catch is CancellationError {
                 // User cancelled, don't show error
                 print("📝 PromptViewModel: Summarization cancelled")
@@ -480,7 +637,10 @@ final class PromptViewModel: ObservableObject {
         }
 
         // Add user message
-        conv.addUserMessage(messageText)
+        let message = ChatMessage.user(messageText)
+        conv.addMessage(message)
+        // Register context for this chat message (uses current context from last hotkey invocation)
+        ConversationManager.shared.registerContextForMessage(messageId: message.id, context: currentContext)
         chatInputText = ""
         streamingContent = ""
         isGenerating = true
@@ -692,70 +852,117 @@ struct PromptContainerView: View {
     let onCancel: () -> Void
     let onGenerate: () -> Void
     let onSummarize: () -> Void
+    let onSelectConversation: (UUID) -> Void
+    let onNewSession: () -> Void
+    let onDeleteConversation: (UUID) -> Void
 
     @State private var showContextViewer = false
+    @State private var showSidebar = false
+    @State private var sidebarRefreshKey = UUID()
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header with provider status - compact inline style
-            HStack(spacing: 6) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 12))
-                    .foregroundColor(.accentColor)
-                Text("Extremis")
-                    .font(.system(size: 13, weight: .semibold))
-
-                Circle()
-                    .fill(viewModel.providerConfigured ? Color.green : Color.orange)
-                    .frame(width: 6, height: 6)
-                Text(viewModel.providerName)
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color(NSColor.windowBackgroundColor))
-
-            if viewModel.showResponse {
-                // Response view with chat support
-                ResponseView(
-                    response: viewModel.contentForInsert,
-                    isGenerating: viewModel.isGenerating,
-                    error: viewModel.error,
-                    onInsert: { onInsert(viewModel.contentForInsert) },
-                    onCopy: {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(viewModel.contentForInsert, forType: .string)
+        HStack(spacing: 0) {
+            // Sidebar (conversation list)
+            if showSidebar {
+                ConversationListView(
+                    conversationManager: ConversationManager.shared,
+                    onSelectConversation: { id in
+                        onSelectConversation(id)
+                        sidebarRefreshKey = UUID()
                     },
-                    onCancel: onCancel,
-                    onStopGeneration: { viewModel.cancelGeneration() },
-                    isChatMode: viewModel.isChatMode,
-                    conversation: viewModel.conversation,
-                    streamingContent: viewModel.streamingContent,
-                    chatInputText: $viewModel.chatInputText,
-                    onSendChat: { viewModel.sendChatMessage() },
-                    onEnableChat: { viewModel.enableChatMode() },
-                    onRetryMessage: { messageId in viewModel.retryMessage(id: messageId) },
-                    onRetryError: { viewModel.retryError() }
+                    onNewSession: {
+                        onNewSession()
+                        sidebarRefreshKey = UUID()
+                    },
+                    onDeleteConversation: { id in
+                        onDeleteConversation(id)
+                        sidebarRefreshKey = UUID()
+                    }
                 )
-            } else {
-                // Input view
-                PromptInputView(
-                    instructionText: $viewModel.instructionText,
-                    isGenerating: $viewModel.isGenerating,
-                    contextInfo: viewModel.contextInfo,
-                    hasContext: viewModel.hasContext,
-                    hasSelection: viewModel.hasSelection,
-                    onSubmit: onGenerate,
-                    onCancel: onCancel,
-                    onSummarize: onSummarize,
-                    onViewContext: viewModel.currentContext != nil ? { showContextViewer = true } : nil
-                )
+                .id(sidebarRefreshKey)
+
+                Divider()
+            }
+
+            // Main content
+            VStack(spacing: 0) {
+                // Header - ChatGPT style minimal icons
+                HStack(spacing: 12) {
+                    // Sidebar toggle (ChatGPT style - two rectangles)
+                    Button(action: { withAnimation(.easeInOut(duration: 0.2)) { showSidebar.toggle() } }) {
+                        Image(systemName: "sidebar.left")
+                            .font(.system(size: 16))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(showSidebar ? "Hide sidebar" : "Show sidebar")
+
+                    // New chat button (pencil/compose icon)
+                    Button(action: { onNewSession() }) {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 16))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("New session")
+
+                    Spacer()
+
+                    // Provider status - compact
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(viewModel.providerConfigured ? Color.green : Color.orange)
+                            .frame(width: 6, height: 6)
+                        Text(viewModel.providerName)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color(NSColor.windowBackgroundColor))
+
+                if viewModel.showResponse {
+                    // Response view with chat support
+                    ResponseView(
+                        response: viewModel.contentForInsert,
+                        isGenerating: viewModel.isGenerating,
+                        error: viewModel.error,
+                        onInsert: { onInsert(viewModel.contentForInsert) },
+                        onCopy: {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(viewModel.contentForInsert, forType: .string)
+                        },
+                        onCancel: onCancel,
+                        onStopGeneration: { viewModel.cancelGeneration() },
+                        contextInfo: viewModel.contextInfo,
+                        onViewContext: viewModel.currentContext != nil ? { showContextViewer = true } : nil,
+                        isChatMode: viewModel.isChatMode,
+                        conversation: viewModel.conversation,
+                        streamingContent: viewModel.streamingContent,
+                        chatInputText: $viewModel.chatInputText,
+                        onSendChat: { viewModel.sendChatMessage() },
+                        onEnableChat: { viewModel.enableChatMode() },
+                        onRetryMessage: { messageId in viewModel.retryMessage(id: messageId) },
+                        onRetryError: { viewModel.retryError() }
+                    )
+                } else {
+                    // Input view
+                    PromptInputView(
+                        instructionText: $viewModel.instructionText,
+                        isGenerating: $viewModel.isGenerating,
+                        contextInfo: viewModel.contextInfo,
+                        hasContext: viewModel.hasContext,
+                        hasSelection: viewModel.hasSelection,
+                        onSubmit: onGenerate,
+                        onCancel: onCancel,
+                        onSummarize: onSummarize,
+                        onViewContext: viewModel.currentContext != nil ? { showContextViewer = true } : nil
+                    )
+                }
             }
         }
-        .frame(minWidth: 550, minHeight: 400)
+        .frame(minWidth: 500, idealWidth: 600, minHeight: 350, idealHeight: 450)
         .sheet(isPresented: $showContextViewer) {
             if let context = viewModel.currentContext {
                 ContextViewerSheet(

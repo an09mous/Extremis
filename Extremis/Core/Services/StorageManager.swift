@@ -11,6 +11,9 @@ actor StorageManager {
     // MARK: - Singleton
     static let shared = StorageManager()
 
+    // MARK: - In-Memory Cache
+    private var cachedIndex: ConversationIndex?
+
     // MARK: - Configuration
     private let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
@@ -56,29 +59,57 @@ actor StorageManager {
 
     // MARK: - Index Operations
 
+    /// Load index from cache or disk (lazy load with caching)
     func loadIndex() throws -> ConversationIndex {
+        // Return cached index if available
+        if let cached = cachedIndex {
+            return cached
+        }
+
+        // Load from disk
         guard FileManager.default.fileExists(atPath: indexURL.path) else {
-            return ConversationIndex()  // Return empty index if file doesn't exist
+            let emptyIndex = ConversationIndex()
+            cachedIndex = emptyIndex
+            return emptyIndex
         }
         do {
             let data = try Data(contentsOf: indexURL)
-            return try decoder.decode(ConversationIndex.self, from: data)
+            let index = try decoder.decode(ConversationIndex.self, from: data)
+            cachedIndex = index  // Cache it
+            return index
         } catch let error as DecodingError {
+            // Don't cache corrupted index - keep cache nil so we return empty next time
+            cachedIndex = nil
             throw StorageError.indexCorrupted(underlying: error)
         } catch {
+            // Keep cache nil on read failure
+            cachedIndex = nil
             throw StorageError.fileReadFailed(path: indexURL.path, underlying: error)
         }
     }
 
+    /// Save index to disk and update cache
+    /// Cache is only updated AFTER successful disk write to ensure consistency
     func saveIndex(_ index: ConversationIndex) throws {
         do {
             let data = try encoder.encode(index)
             try data.write(to: indexURL, options: .atomic)
+            // Only update cache after successful disk write
+            cachedIndex = index
         } catch let error as EncodingError {
+            // Invalidate cache on failure to ensure next read comes from disk
+            cachedIndex = nil
             throw StorageError.encodingFailed(type: "ConversationIndex", underlying: error)
         } catch {
+            // Invalidate cache on failure to ensure next read comes from disk
+            cachedIndex = nil
             throw StorageError.fileWriteFailed(path: indexURL.path, underlying: error)
         }
+    }
+
+    /// Invalidate the cached index (force reload from disk next time)
+    func invalidateIndexCache() {
+        cachedIndex = nil
     }
 
     // MARK: - Conversation Operations

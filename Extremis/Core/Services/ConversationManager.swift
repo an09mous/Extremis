@@ -15,9 +15,12 @@ final class ConversationManager: ObservableObject {
     @Published private(set) var currentConversation: ChatConversation?
     @Published private(set) var currentConversationId: UUID?
     @Published private(set) var isLoading = false
+    @Published private(set) var conversationListVersion: Int = 0  // Incremented when list changes
 
     // MARK: - Private State
     private var isDirty = false
+    private var currentContext: Context?  // Track current context for saving with messages
+    private var messageContexts: [UUID: Context] = [:]  // Map message IDs to their context
     private var saveDebounceTask: Task<Void, Never>?
     private let debounceInterval: TimeInterval = 2.0
     private var cancellables = Set<AnyCancellable>()
@@ -74,12 +77,13 @@ final class ConversationManager: ObservableObject {
             let conversation = persisted.toConversation()
             currentConversation = conversation
             currentConversationId = activeId
+            messageContexts = persisted.restoreMessageContexts()  // Restore message contexts
             isDirty = false
 
             // Observe changes
             observeConversation(conversation)
 
-            print("[ConversationManager] Restored conversation \(activeId) with \(conversation.messages.count) messages")
+            print("[ConversationManager] Restored conversation \(activeId) with \(conversation.messages.count) messages and \(messageContexts.count) contexts")
         } catch {
             print("[ConversationManager] Failed to restore conversation: \(error)")
         }
@@ -92,6 +96,28 @@ final class ConversationManager: ObservableObject {
         isDirty = true
         observeConversation(conversation)
         scheduleDebouncedSave()  // Schedule save for the new conversation
+    }
+
+    /// Update the current context (called when hotkey is triggered with new context)
+    /// This context will be attached to the next user message when saved
+    func updateCurrentContext(_ context: Context?) {
+        currentContext = context
+        if context != nil {
+            print("[ConversationManager] Updated current context from \(context!.source.applicationName)")
+        }
+    }
+
+    /// Register context for a specific message (called when user message is added)
+    /// This ensures each user message has its associated context preserved
+    func registerContextForMessage(messageId: UUID, context: Context?) {
+        guard let ctx = context else { return }
+        messageContexts[messageId] = ctx
+        print("[ConversationManager] Registered context for message \(messageId) from \(ctx.source.applicationName)")
+    }
+
+    /// Get contexts for all messages (for saving)
+    func getMessageContexts() -> [UUID: Context] {
+        return messageContexts
     }
 
     // MARK: - Dirty Tracking
@@ -128,8 +154,13 @@ final class ConversationManager: ObservableObject {
         saveDebounceTask?.cancel()
 
         do {
-            // Convert to persisted format
-            var persisted = PersistedConversation.from(conversation, id: id)
+            // Convert to persisted format, passing contexts for all messages
+            var persisted = PersistedConversation.from(
+                conversation,
+                id: id,
+                currentContext: currentContext,
+                messageContexts: messageContexts
+            )
             persisted.updatedAt = Date()
 
             // Save to storage
@@ -139,7 +170,8 @@ final class ConversationManager: ObservableObject {
             try await StorageManager.shared.setActiveConversation(id: id)
 
             isDirty = false
-            print("[ConversationManager] Saved conversation \(id)")
+            conversationListVersion += 1  // Notify sidebar to refresh
+            print("[ConversationManager] Saved conversation \(id) with \(messageContexts.count) message contexts")
         } catch {
             print("[ConversationManager] Failed to save: \(error)")
         }
@@ -154,12 +186,21 @@ final class ConversationManager: ObservableObject {
         // Cancel any pending debounced save
         saveDebounceTask?.cancel()
 
+        // Capture values for the closure
+        let contextToSave = currentContext
+        let contextsToSave = messageContexts
+
         // Use semaphore to block until save completes
         let semaphore = DispatchSemaphore(value: 0)
 
         Task {
             do {
-                var persisted = PersistedConversation.from(conversation, id: id)
+                var persisted = PersistedConversation.from(
+                    conversation,
+                    id: id,
+                    currentContext: contextToSave,
+                    messageContexts: contextsToSave
+                )
                 persisted.updatedAt = Date()
                 try await StorageManager.shared.saveConversation(persisted)
                 try await StorageManager.shared.setActiveConversation(id: id)
@@ -238,12 +279,15 @@ final class ConversationManager: ObservableObject {
         let conversation = persisted.toConversation()
         currentConversation = conversation
         currentConversationId = id
+        currentContext = nil  // Clear context when switching conversations
+        messageContexts = persisted.restoreMessageContexts()  // Restore message contexts
         isDirty = false
 
+        // Set active conversation but don't mark dirty (don't update timestamp)
         try await StorageManager.shared.setActiveConversation(id: id)
         observeConversation(conversation)
 
-        print("[ConversationManager] Loaded conversation \(id)")
+        print("[ConversationManager] Loaded conversation \(id) with \(messageContexts.count) message contexts")
     }
 
     /// Delete a conversation by ID
@@ -257,6 +301,7 @@ final class ConversationManager: ObservableObject {
         }
 
         try await StorageManager.shared.deleteConversation(id: id)
+        conversationListVersion += 1  // Notify sidebar to refresh
         print("[ConversationManager] Deleted conversation \(id)")
     }
 }

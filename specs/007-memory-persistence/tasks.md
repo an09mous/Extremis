@@ -101,15 +101,15 @@ Per plan.md, this is a single macOS application:
 - [x] T021 Add lifecycle hooks to AppDelegate for save on terminate in Extremis/App/AppDelegate.swift (depends on T020)
 - [x] T022 Add conversation restore on launch in Extremis/App/AppDelegate.swift (depends on T020)
 - [x] T023 Integrate ConversationManager with PromptViewModel in Extremis/UI/PromptWindow/PromptViewModel.swift (depends on T020)
-- [x] T024 Add "New Conversation" menu item and keyboard shortcut (depends on T023)
+- [x] T024 ~~Add "New Conversation" menu item and keyboard shortcut~~ **DEFERRED to Phase 3** - will be part of conversation list UI (depends on T023)
 
 ---
 
 ### 2.5 Validation (P1)
 
-- [ ] T025 Test save/load cycle with real app usage
-- [ ] T026 Test force-quit recovery (debounced saves work)
-- [ ] T027 Test New Conversation action clears and persists correctly
+- [x] T025 Test save/load cycle with real app usage
+- [x] T026 Test force-quit recovery (debounced saves work)
+- [x] T027 ~~Test New Conversation action clears and persists correctly~~ **DEFERRED** - T024 deferred
 
 ---
 
@@ -218,11 +218,34 @@ T004: Research industry alternatives
 | Phase 2: Core Models | T013-T018 | ✅ Complete |
 | Phase 2: Storage | T019 | ✅ Complete |
 | Phase 2: Conversation Mgmt | T020 | ✅ Complete |
-| Phase 2: App Integration | T021-T024 | ✅ Complete |
-| Phase 2: Validation | T025-T027 | 🔄 In Progress |
+| Phase 2: App Integration | T021-T024 | ✅ Complete (T024 deferred) |
+| Phase 2: Validation | T025-T027 | ✅ Complete (T027 deferred) |
 | Phase 2: US3 (Summarization) | T028-T031 | ⏸️ Deferred |
 | Phase 2: US4 (Memory) | T032-T037 | ⏸️ Deferred |
 
 **Total Phase 1 Tasks**: 12 (Complete)
-**Total Phase 2 US1+US2 Tasks**: 15 (T013-T027)
+**Total Phase 2 US1+US2 Tasks**: 15 (T013-T027) - **✅ Complete**
 **Parallel Opportunities**: T013, T014, T016, T018 can run in parallel
+
+---
+
+## Phase 2 Completion Notes
+
+**Completed**: 2026-01-07
+
+### What was implemented:
+- Core persistence models (PersistedMessage, PersistedConversation, ConversationIndex, StorageError)
+- StorageManager actor with atomic writes and schema versioning
+- ConversationManager with debounced save (2s delay) and immediate save on terminate
+- Auto-restore last conversation on app launch
+- Index.json with conversation metadata and title generation
+
+### What was deferred to Phase 3:
+- T024: "New Conversation" menu item - will be part of conversation list UI
+- T027: New Conversation validation - blocked by T024
+
+### Key implementation details:
+- Per-message context storage (supports cross-app invocations mid-conversation)
+- Backward compatibility for schema migrations (lastModifiedAt → updatedAt)
+- Title generated from first message content (truncated to 50 chars)
+- Storage location: `~/Library/Application Support/Extremis/conversations/`

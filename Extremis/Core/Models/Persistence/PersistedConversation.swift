@@ -108,27 +108,33 @@ extension PersistedConversation {
     /// - Parameters:
     ///   - conversation: The live conversation
     ///   - id: Existing ID (for updates) or nil (for new)
-    ///   - currentContext: Current context to attach to latest user message
+    ///   - currentContext: Current context to attach to latest user message (fallback)
+    ///   - messageContexts: Dictionary mapping message IDs to their contexts
     @MainActor
     static func from(
         _ conversation: ChatConversation,
         id: UUID? = nil,
-        currentContext: Context? = nil
+        currentContext: Context? = nil,
+        messageContexts: [UUID: Context] = [:]
     ) -> PersistedConversation {
         // Convert messages with context attachment
         let persistedMessages = conversation.messages.enumerated().map { index, message -> PersistedMessage in
             var contextData: Data? = nil
 
             // Attach context to user messages
-            // First user message gets originalContext, latest user message gets currentContext
             if message.role == .user {
-                if index == conversation.messages.firstIndex(where: { $0.role == .user }) {
-                    // First user message - use original context
+                // Priority 1: Use context from messageContexts dictionary (per-message tracking)
+                if let ctx = messageContexts[message.id] {
+                    contextData = PersistedMessage.encodeContext(ctx)
+                }
+                // Priority 2: First user message - use original context
+                else if index == conversation.messages.firstIndex(where: { $0.role == .user }) {
                     if let ctx = conversation.originalContext {
                         contextData = PersistedMessage.encodeContext(ctx)
                     }
-                } else if index == conversation.messages.lastIndex(where: { $0.role == .user }) {
-                    // Latest user message - use current context if provided
+                }
+                // Priority 3: Latest user message - use current context if provided
+                else if index == conversation.messages.lastIndex(where: { $0.role == .user }) {
                     if let ctx = currentContext {
                         contextData = PersistedMessage.encodeContext(ctx)
                     }
@@ -165,5 +171,17 @@ extension PersistedConversation {
         }
 
         return conversation
+    }
+
+    /// Restore message contexts dictionary from persisted messages
+    /// Used when loading a conversation to restore context viewing capability
+    func restoreMessageContexts() -> [UUID: Context] {
+        var contexts: [UUID: Context] = [:]
+        for message in messages {
+            if message.role == .user, let context = message.decodeContext() {
+                contexts[message.id] = context
+            }
+        }
+        return contexts
     }
 }

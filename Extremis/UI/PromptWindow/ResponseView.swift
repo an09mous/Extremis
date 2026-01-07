@@ -13,6 +13,10 @@ struct ResponseView: View {
     let onCancel: () -> Void
     var onStopGeneration: (() -> Void)?
 
+    // Context display (shown in chat mode)
+    var contextInfo: String?
+    var onViewContext: (() -> Void)?
+
     // Chat mode properties (optional)
     var isChatMode: Bool = false
     var conversation: ChatConversation?
@@ -42,6 +46,8 @@ struct ResponseView: View {
         self.onCopy = onCopy
         self.onCancel = onCancel
         self.onStopGeneration = onStopGeneration
+        self.contextInfo = nil
+        self.onViewContext = nil
         self.isChatMode = false
         self.conversation = nil
         self.streamingContent = ""
@@ -61,6 +67,8 @@ struct ResponseView: View {
         onCopy: @escaping () -> Void,
         onCancel: @escaping () -> Void,
         onStopGeneration: (() -> Void)? = nil,
+        contextInfo: String? = nil,
+        onViewContext: (() -> Void)? = nil,
         isChatMode: Bool,
         conversation: ChatConversation?,
         streamingContent: String,
@@ -77,6 +85,8 @@ struct ResponseView: View {
         self.onCopy = onCopy
         self.onCancel = onCancel
         self.onStopGeneration = onStopGeneration
+        self.contextInfo = contextInfo
+        self.onViewContext = onViewContext
         self.isChatMode = isChatMode
         self.conversation = conversation
         self.streamingContent = streamingContent
@@ -89,6 +99,11 @@ struct ResponseView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Context banner (shown when context info is available)
+            if let info = contextInfo, !info.isEmpty {
+                ContextBanner(text: info, onViewContext: onViewContext)
+            }
+
             // Content area - either chat view or simple response
             if isChatMode, let conv = conversation {
                 ChatView(
