@@ -67,31 +67,73 @@ Per plan.md, this is a single macOS application:
 
 ---
 
-## Phase 2: Implementation (BLOCKED)
+## Phase 2: Implementation (APPROVED)
 
-> **⚠️ BLOCKED**: Do not start until Phase 1 is approved by user.
+> **✅ APPROVED**: Phase 1 approved by user on 2026-01-06. Proceeding with implementation.
 
-Phase 2 tasks will be generated after Phase 1 approval. High-level scope from plan.md:
+---
 
-### US1 & US2: Session Continuity + Fresh Session (P1)
-- Implement `PersistenceService` in Extremis/Core/Services/PersistenceService.swift
-- Extend `ChatConversation` for serialization in Extremis/Core/Models/ChatMessage.swift
-- Implement `StorageManager` in Extremis/Utilities/StorageManager.swift
-- Add app lifecycle hooks for auto-save in Extremis/App/AppDelegate.swift
-- Add "New Conversation" UI action in Extremis/UI/PromptWindow/PromptWindowController.swift
-- Add conversation restore on launch
+### 2.1 Core Models (P1)
 
-### US3: Automatic Context Summarization (P2)
-- Implement `SummarizationManager` in Extremis/Core/Services/SummarizationManager.swift
-- Integrate with ChatConversation.trimIfNeeded()
-- Add summarization trigger logic
-- Store and restore summaries
+- [ ] T013 [P] Create PersistedMessage model in Extremis/Core/Models/Persistence/PersistedMessage.swift
+- [ ] T014 [P] Create ConversationSummary model in Extremis/Core/Models/Persistence/ConversationSummary.swift
+- [ ] T015 Create PersistedConversation model in Extremis/Core/Models/Persistence/PersistedConversation.swift (depends on T013, T014)
+- [ ] T016 [P] Create ConversationIndexEntry model in Extremis/Core/Models/Persistence/ConversationIndex.swift
+- [ ] T017 Create ConversationIndex model in Extremis/Core/Models/Persistence/ConversationIndex.swift (depends on T016)
+- [ ] T018 [P] Create StorageError enum in Extremis/Core/Models/Persistence/StorageError.swift
 
-### US4: Cross-Session Memory (P3)
-- Implement `MemoryService` in Extremis/Core/Services/MemoryService.swift
-- Create `UserMemory` model in Extremis/Core/Models/UserMemory.swift
-- Add memory extraction logic
-- Add memory viewing/clearing UI in Extremis/UI/Preferences/
+---
+
+### 2.2 Storage Layer (P1)
+
+- [ ] T019 Implement StorageManager actor in Extremis/Core/Services/StorageManager.swift (depends on T015, T017, T018)
+
+---
+
+### 2.3 Conversation Management (P1)
+
+- [ ] T020 Implement ConversationManager with debounced save in Extremis/Core/Services/ConversationManager.swift (depends on T019)
+
+---
+
+### 2.4 App Integration (P1)
+
+- [ ] T021 Add lifecycle hooks to AppDelegate for save on terminate in Extremis/App/AppDelegate.swift (depends on T020)
+- [ ] T022 Add conversation restore on launch in Extremis/App/AppDelegate.swift (depends on T020)
+- [ ] T023 Integrate ConversationManager with PromptViewModel in Extremis/UI/PromptWindow/PromptViewModel.swift (depends on T020)
+- [ ] T024 Add "New Conversation" menu item and keyboard shortcut (depends on T023)
+
+---
+
+### 2.5 Validation (P1)
+
+- [ ] T025 Test save/load cycle with real app usage
+- [ ] T026 Test force-quit recovery (debounced saves work)
+- [ ] T027 Test New Conversation action clears and persists correctly
+
+---
+
+### 2.6 US3: Summarization (P2) - FUTURE
+
+> **⚠️ DEFERRED**: Complete US1+US2 first, then implement summarization.
+
+- [ ] T028 Implement SummarizationManager in Extremis/Core/Services/SummarizationManager.swift
+- [ ] T029 Add summarization trigger logic (20 messages OR 8K tokens)
+- [ ] T030 Integrate with PersistedConversation.summary field
+- [ ] T031 Test summarization preserves key context
+
+---
+
+### 2.7 US4: Cross-Session Memory (P3) - FUTURE
+
+> **⚠️ DEFERRED**: Complete US1+US2+US3 first, then implement cross-session memory.
+
+- [ ] T032 Create UserMemory model in Extremis/Core/Models/Persistence/UserMemory.swift
+- [ ] T033 Create UserMemoryStore model in Extremis/Core/Models/Persistence/UserMemory.swift
+- [ ] T034 Implement MemoryService in Extremis/Core/Services/MemoryService.swift
+- [ ] T035 Add memory extraction on New Conversation action
+- [ ] T036 Add memory injection in system prompt
+- [ ] T037 Add memory viewing/clearing UI in Extremis/UI/Preferences/
 
 ---
 
@@ -169,13 +211,18 @@ T004: Research industry alternatives
 
 | Phase | Tasks | Status |
 |-------|-------|--------|
-| Phase 1: Research | T001-T004 | Ready |
-| Phase 1: POC | T005-T007 | Ready |
-| Phase 1: Design | T008-T010 | Ready |
-| Phase 1: Approval | T011-T012 | Ready |
-| Phase 2: US1+US2 | TBD | BLOCKED |
-| Phase 2: US3 | TBD | BLOCKED |
-| Phase 2: US4 | TBD | BLOCKED |
+| Phase 1: Research | T001-T004 | ✅ Complete |
+| Phase 1: POC | T005-T007 | ✅ Complete |
+| Phase 1: Design | T008-T010 | ✅ Complete |
+| Phase 1: Approval | T011-T012 | ✅ Complete |
+| Phase 2: Core Models | T013-T018 | 🔄 In Progress |
+| Phase 2: Storage | T019 | ⏳ Pending |
+| Phase 2: Conversation Mgmt | T020 | ⏳ Pending |
+| Phase 2: App Integration | T021-T024 | ⏳ Pending |
+| Phase 2: Validation | T025-T027 | ⏳ Pending |
+| Phase 2: US3 (Summarization) | T028-T031 | ⏸️ Deferred |
+| Phase 2: US4 (Memory) | T032-T037 | ⏸️ Deferred |
 
-**Total Phase 1 Tasks**: 12
-**Parallel Opportunities**: 4 (T001-T004)
+**Total Phase 1 Tasks**: 12 (Complete)
+**Total Phase 2 US1+US2 Tasks**: 15 (T013-T027)
+**Parallel Opportunities**: T013, T014, T016, T018 can run in parallel

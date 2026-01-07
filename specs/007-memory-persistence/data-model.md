@@ -2,11 +2,20 @@
 
 **Feature Branch**: `007-memory-persistence`
 **Created**: 2026-01-04
-**Status**: Phase 1 Design
+**Updated**: 2026-01-06
+**Status**: Phase 1 Design - Validated
 
 ---
 
 ## T008: Data Model Schemas
+
+### Design Principles
+
+1. **Separation of Concerns**: Persistence models are separate from live UI models
+2. **Extensibility**: Optional fields with defaults for backward compatibility
+3. **Version Control**: Schema versioning for safe migrations
+4. **Per-Message Context**: Context stored per-message to support multi-app invocations
+5. **Atomic Operations**: All writes use atomic file operations
 
 ### PersistedConversation
 
@@ -14,80 +23,210 @@ Primary model for storing conversation state. Each session is stored as a separa
 
 ```swift
 /// Codable representation of a conversation for persistence
-struct PersistedConversation: Codable {
+/// Separate from ChatConversation to avoid polluting the live UI model
+struct PersistedConversation: Codable, Identifiable, Equatable {
     // MARK: - Identity
-    let id: UUID                        // Conversation identifier
+    let id: UUID                        // Conversation identifier (generated on first save)
     let version: Int                    // Schema version for migrations
 
     // MARK: - Core Data
-    let messages: [ChatMessage]         // ALL messages (for UI/history viewing)
-                                        // Note: Context is stored per-message in ChatMessage.contextData
-    let initialRequest: String?         // Original user instruction
-    let maxMessages: Int                // Max messages setting
+    var messages: [PersistedMessage]    // ALL messages with per-message context
+    let initialRequest: String?         // Original user instruction (first invocation)
+    let maxMessages: Int                // Max messages setting (for LLM context, not storage)
 
     // MARK: - Metadata
-    let createdAt: Date                 // When conversation started
+    let createdAt: Date                 // When conversation started (immutable)
     var updatedAt: Date                 // Last modification time
-    var title: String?                  // Auto-generated or user-set title
+    var title: String?                  // Auto-generated or user-edited title
+    var isArchived: Bool                // Soft-delete flag (future: archive old conversations)
 
     // MARK: - Summary State (P2)
-    var summary: String?                // LLM-generated summary of older messages
-    var summaryCoversMessageCount: Int? // Number of messages covered by summary
-    var summaryCreatedAt: Date?         // When summary was generated
+    var summary: ConversationSummary?   // Embedded summary for LLM context efficiency
 
     // MARK: - Schema Version
     static let currentVersion = 1
 
+    // MARK: - Initialization
+
+    init(
+        id: UUID = UUID(),
+        version: Int = Self.currentVersion,
+        messages: [PersistedMessage] = [],
+        initialRequest: String? = nil,
+        maxMessages: Int = 20,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date(),
+        title: String? = nil,
+        isArchived: Bool = false,
+        summary: ConversationSummary? = nil
+    ) {
+        self.id = id
+        self.version = version
+        self.messages = messages
+        self.initialRequest = initialRequest
+        self.maxMessages = maxMessages
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.title = title
+        self.isArchived = isArchived
+        self.summary = summary
+    }
+
+    // MARK: - Computed Properties
+
+    /// Whether conversation has any user content
+    var hasContent: Bool {
+        messages.contains { $0.role == .user || $0.role == .assistant }
+    }
+
+    /// First user message (for title generation, preview)
+    var firstUserMessage: PersistedMessage? {
+        messages.first { $0.role == .user }
+    }
+
+    /// Last message timestamp (for sorting)
+    var lastMessageAt: Date? {
+        messages.last?.timestamp
+    }
+
     // MARK: - LLM Context Building
 
     /// Build messages array for LLM API call (uses summary if available)
-    func buildLLMContext() -> [ChatMessage] {
-        if let summary = summary, let coveredCount = summaryCoversMessageCount, coveredCount > 0 {
-            // Use summary + messages after the summarized portion
-            let summaryMessage = ChatMessage(
-                id: UUID(),
-                role: .system,
-                content: "Previous conversation context: \(summary)",
-                timestamp: summaryCreatedAt ?? createdAt
-            )
-            let recentMessages = Array(messages.suffix(from: min(coveredCount, messages.count)))
-            return [summaryMessage] + recentMessages
-        } else {
-            // No summary, use all messages
+    /// Returns: Array of messages optimized for LLM context window
+    func buildLLMContext() -> [PersistedMessage] {
+        guard let summary = summary, summary.isValid else {
+            // No valid summary - return all messages
             return messages
         }
+
+        // Use summary + messages after the summarized portion
+        let summaryMessage = PersistedMessage(
+            id: UUID(),
+            role: .system,
+            content: "Previous conversation context: \(summary.content)",
+            timestamp: summary.createdAt,
+            contextData: nil
+        )
+
+        let recentMessages = Array(messages.suffix(from: min(summary.coversMessageCount, messages.count)))
+        return [summaryMessage] + recentMessages
+    }
+
+    /// Estimate token count for LLM context (rough: 1 token ≈ 4 chars)
+    func estimateTokenCount() -> Int {
+        let contextMessages = buildLLMContext()
+        let totalChars = contextMessages.reduce(0) { $0 + $1.content.count }
+        return totalChars / 4
     }
 }
 ```
 
 **Encoding Strategy**:
 - Use `JSONEncoder` with `.iso8601` date strategy
-- Pretty print for debugging (can disable in production)
+- Pretty print in debug, compact in production
 - Atomic writes for crash safety
 
-### ChatMessage (Extended)
+---
 
-Extend existing `ChatMessage` to optionally include context data. Context can change mid-conversation as users invoke Extremis from different apps.
+### PersistedMessage
 
-**Use Case**: User spawns Extremis from Slack, then later from Gmail in same session:
+Message model for persistence with per-message context support. **Separate from ChatMessage** to avoid polluting the live UI model.
+
+**Design Rationale**: Users can invoke Extremis from different apps mid-conversation:
 - t0: Message from Slack context (clipboard, selected text from Slack)
-- t1: Message from Gmail context (different clipboard, selected email text)
+- t1: Message from Gmail context (different clipboard, email text)
+- t2: Follow-up question (no new context needed)
 
 ```swift
-struct ChatMessage: Identifiable, Codable, Equatable {
+/// A single message in a persisted conversation
+/// Separate from ChatMessage to include context without polluting live model
+struct PersistedMessage: Codable, Identifiable, Equatable {
     let id: UUID
-    let role: ChatRole          // .system | .user | .assistant
+    let role: ChatRole              // .system | .user | .assistant
     let content: String
     let timestamp: Date
-    let contextData: Data?      // Encoded Context (optional, for user messages)
+    let contextData: Data?          // Encoded Context (optional, for user messages)
+
+    // MARK: - Initialization
+
+    init(
+        id: UUID = UUID(),
+        role: ChatRole,
+        content: String,
+        timestamp: Date = Date(),
+        contextData: Data? = nil
+    ) {
+        self.id = id
+        self.role = role
+        self.content = content
+        self.timestamp = timestamp
+        self.contextData = contextData
+    }
+
+    // MARK: - Convenience Initializers
+
+    /// Create from existing ChatMessage (without context)
+    init(from message: ChatMessage, contextData: Data? = nil) {
+        self.id = message.id
+        self.role = message.role
+        self.content = message.content
+        self.timestamp = message.timestamp
+        self.contextData = contextData
+    }
+
+    /// Convert to ChatMessage (for UI - loses context data)
+    func toChatMessage() -> ChatMessage {
+        ChatMessage(id: id, role: role, content: content, timestamp: timestamp)
+    }
+
+    // MARK: - Context Helpers
+
+    /// Decode context if present
+    func decodeContext() -> Context? {
+        guard let data = contextData else { return nil }
+        return try? JSONDecoder().decode(Context.self, from: data)
+    }
+
+    /// Check if message has context attached
+    var hasContext: Bool {
+        contextData != nil
+    }
 }
 ```
 
-**Notes**:
+**Key Points**:
 - `contextData` is optional - only present on user messages that had context
-- Assistant messages will have `contextData = nil`
-- Existing messages without context remain compatible (optional field)
-- Context is encoded as `Data` to support any `Codable` context type
+- Assistant messages always have `contextData = nil`
+- System messages may have `contextData = nil`
+- Backward compatible: old messages without contextData work fine
+- Context encoded as `Data` to support any `Codable` context type
+
+---
+
+### ConversationSummary
+
+Embedded summary for efficient LLM context building. Stored within `PersistedConversation`.
+
+```swift
+/// Summary of older messages for LLM context efficiency
+struct ConversationSummary: Codable, Equatable {
+    let content: String             // The summary text
+    let coversMessageCount: Int     // Number of messages summarized
+    let createdAt: Date             // When summary was generated
+    let modelUsed: String?          // Which LLM generated the summary (for debugging)
+
+    /// Check if summary is still valid (covers at least some messages)
+    var isValid: Bool {
+        coversMessageCount > 0 && !content.isEmpty
+    }
+
+    /// Check if summary needs regeneration (too many new messages since)
+    func needsRegeneration(totalMessages: Int, threshold: Int = 10) -> Bool {
+        let newMessagesSinceSummary = totalMessages - coversMessageCount
+        return newMessagesSinceSummary >= threshold
+    }
+}
+```
 
 ### ConversationIndex
 
@@ -95,62 +234,356 @@ Lightweight index for fast session listing without loading full conversation fil
 
 ```swift
 /// Index entry for a single conversation (for fast listing)
-struct ConversationIndexEntry: Codable, Identifiable {
+struct ConversationIndexEntry: Codable, Identifiable, Equatable {
     let id: UUID                        // Matches conversation file name
-    var title: String                   // Display title
+    var title: String                   // Display title (auto-generated or user-edited)
     let createdAt: Date                 // When conversation started
-    var updatedAt: Date                 // Last activity
-    var messageCount: Int               // Total messages
-    var preview: String?                // First user message (truncated)
+    var updatedAt: Date                 // Last activity (for sorting)
+    var messageCount: Int               // Total messages (for display)
+    var preview: String?                // First user message, truncated to ~100 chars
+    var isArchived: Bool                // Soft-delete flag (mirrors conversation)
+
+    // MARK: - Initialization
+
+    init(
+        id: UUID,
+        title: String,
+        createdAt: Date,
+        updatedAt: Date,
+        messageCount: Int,
+        preview: String? = nil,
+        isArchived: Bool = false
+    ) {
+        self.id = id
+        self.title = title
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.messageCount = messageCount
+        self.preview = preview
+        self.isArchived = isArchived
+    }
+
+    /// Create entry from a PersistedConversation
+    init(from conversation: PersistedConversation) {
+        self.id = conversation.id
+        self.title = conversation.title ?? Self.generateTitle(from: conversation)
+        self.createdAt = conversation.createdAt
+        self.updatedAt = conversation.updatedAt
+        self.messageCount = conversation.messages.count
+        self.preview = Self.generatePreview(from: conversation)
+        self.isArchived = conversation.isArchived
+    }
+
+    // MARK: - Helpers
+
+    /// Generate title from first user message
+    private static func generateTitle(from conversation: PersistedConversation) -> String {
+        guard let firstUserMessage = conversation.firstUserMessage else {
+            return "New Conversation"
+        }
+        let content = firstUserMessage.content
+        if content.count <= 50 {
+            return content
+        }
+        let truncated = String(content.prefix(50))
+        if let lastSpace = truncated.lastIndex(of: " ") {
+            return String(truncated[..<lastSpace]) + "…"
+        }
+        return truncated + "…"
+    }
+
+    /// Generate preview from first user message
+    private static func generatePreview(from conversation: PersistedConversation) -> String? {
+        guard let firstUserMessage = conversation.firstUserMessage else {
+            return nil
+        }
+        let content = firstUserMessage.content
+        if content.count <= 100 {
+            return content
+        }
+        return String(content.prefix(100)) + "…"
+    }
 }
 
 /// Index file containing all conversation metadata
-struct ConversationIndex: Codable {
+struct ConversationIndex: Codable, Equatable {
     let version: Int
     var conversations: [ConversationIndexEntry]
     var activeConversationId: UUID?     // Currently open conversation
     var lastUpdated: Date
 
     static let currentVersion = 1
+
+    // MARK: - Initialization
+
+    init(
+        version: Int = Self.currentVersion,
+        conversations: [ConversationIndexEntry] = [],
+        activeConversationId: UUID? = nil,
+        lastUpdated: Date = Date()
+    ) {
+        self.version = version
+        self.conversations = conversations
+        self.activeConversationId = activeConversationId
+        self.lastUpdated = lastUpdated
+    }
+
+    // MARK: - Query Helpers
+
+    /// Get non-archived conversations sorted by most recent
+    var activeConversations: [ConversationIndexEntry] {
+        conversations
+            .filter { !$0.isArchived }
+            .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    /// Get archived conversations
+    var archivedConversations: [ConversationIndexEntry] {
+        conversations
+            .filter { $0.isArchived }
+            .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    /// Find entry by ID
+    func entry(for id: UUID) -> ConversationIndexEntry? {
+        conversations.first { $0.id == id }
+    }
+
+    /// Check if conversation exists
+    func contains(id: UUID) -> Bool {
+        conversations.contains { $0.id == id }
+    }
+
+    // MARK: - Mutation Helpers
+
+    /// Update or insert an entry
+    mutating func upsert(_ entry: ConversationIndexEntry) {
+        if let index = conversations.firstIndex(where: { $0.id == entry.id }) {
+            conversations[index] = entry
+        } else {
+            conversations.append(entry)
+        }
+        lastUpdated = Date()
+    }
+
+    /// Remove entry by ID
+    mutating func remove(id: UUID) {
+        conversations.removeAll { $0.id == id }
+        if activeConversationId == id {
+            activeConversationId = nil
+        }
+        lastUpdated = Date()
+    }
 }
 ```
 
 **Benefits**:
 - List all sessions without loading each file
-- Fast sorting by date
-- Search by title without full load
-- Track active conversation
+- Fast sorting by date (O(n log n) on small list)
+- Search by title without full file load
+- Track active conversation across app restarts
+- Support for soft-delete (archive) without data loss
 
 ### UserMemory (P3)
 
-For cross-session memory storage.
+For cross-session memory storage. Enables Extremis to remember facts about the user across conversations.
 
 ```swift
 /// A single fact remembered about the user
-struct UserMemory: Codable, Identifiable {
+struct UserMemory: Codable, Identifiable, Equatable {
     let id: UUID
-    let fact: String                    // The extracted fact
+    let fact: String                    // The extracted fact (single statement)
+    let category: MemoryCategory        // Categorization for organization
     let source: MemorySource            // How it was created
     let extractedAt: Date               // When extracted
-    let confidence: Float               // LLM confidence (0.0-1.0)
+    var confidence: Float               // LLM confidence (0.0-1.0)
     var isActive: Bool                  // User can disable without deleting
     var lastUsedAt: Date?               // Track usage for pruning
+    var usageCount: Int                 // How many times injected into context
 
-    enum MemorySource: Codable {
-        case llmExtracted(conversationId: UUID)
-        case userExplicit               // "Remember this" action
+    // MARK: - Memory Category
+
+    enum MemoryCategory: String, Codable, CaseIterable {
+        case preference                 // "User prefers concise responses"
+        case technical                  // "User works with Swift and SwiftUI"
+        case personal                   // "User's name is John"
+        case work                       // "User works at Anthropic"
+        case project                    // "User is building Extremis app"
+        case other                      // Uncategorized
+    }
+
+    // MARK: - Memory Source
+
+    enum MemorySource: Codable, Equatable {
+        case llmExtracted(conversationId: UUID)  // Auto-extracted from conversation
+        case userExplicit                        // User clicked "Remember this"
+        case imported                            // Imported from file (future)
+    }
+
+    // MARK: - Initialization
+
+    init(
+        id: UUID = UUID(),
+        fact: String,
+        category: MemoryCategory = .other,
+        source: MemorySource,
+        extractedAt: Date = Date(),
+        confidence: Float = 1.0,
+        isActive: Bool = true,
+        lastUsedAt: Date? = nil,
+        usageCount: Int = 0
+    ) {
+        self.id = id
+        self.fact = fact
+        self.category = category
+        self.source = source
+        self.extractedAt = extractedAt
+        self.confidence = confidence
+        self.isActive = isActive
+        self.lastUsedAt = lastUsedAt
+        self.usageCount = usageCount
+    }
+
+    // MARK: - Computed Properties
+
+    /// Check if memory is stale (unused for 90 days)
+    var isStale: Bool {
+        guard let lastUsed = lastUsedAt else {
+            // Never used - check extraction date
+            return extractedAt.timeIntervalSinceNow < -90 * 24 * 60 * 60
+        }
+        return lastUsed.timeIntervalSinceNow < -90 * 24 * 60 * 60
+    }
+
+    /// Source conversation ID if LLM-extracted
+    var sourceConversationId: UUID? {
+        if case .llmExtracted(let id) = source {
+            return id
+        }
+        return nil
     }
 }
 
 /// Container for all user memories
-struct UserMemoryStore: Codable {
+struct UserMemoryStore: Codable, Equatable {
     let version: Int
     var memories: [UserMemory]
     var lastUpdated: Date
+    var isEnabled: Bool                 // User can disable entire feature
 
     static let currentVersion = 1
+    static let softLimit = 50           // Warn user at this count
+    static let hardLimit = 100          // Require cleanup at this count
+
+    // MARK: - Initialization
+
+    init(
+        version: Int = Self.currentVersion,
+        memories: [UserMemory] = [],
+        lastUpdated: Date = Date(),
+        isEnabled: Bool = true
+    ) {
+        self.version = version
+        self.memories = memories
+        self.lastUpdated = lastUpdated
+        self.isEnabled = isEnabled
+    }
+
+    // MARK: - Query Helpers
+
+    /// Get active memories for LLM injection
+    var activeMemories: [UserMemory] {
+        memories.filter { $0.isActive }
+    }
+
+    /// Get memories by category
+    func memories(for category: UserMemory.MemoryCategory) -> [UserMemory] {
+        memories.filter { $0.category == category && $0.isActive }
+    }
+
+    /// Get stale memories for review
+    var staleMemories: [UserMemory] {
+        memories.filter { $0.isStale }
+    }
+
+    /// Check if at soft limit
+    var isAtSoftLimit: Bool {
+        memories.count >= Self.softLimit
+    }
+
+    /// Check if at hard limit
+    var isAtHardLimit: Bool {
+        memories.count >= Self.hardLimit
+    }
+
+    // MARK: - Mutation Helpers
+
+    /// Add memory with deduplication check
+    /// Returns: true if added, false if duplicate detected
+    mutating func addIfUnique(_ memory: UserMemory) -> Bool {
+        // Simple check: exact fact match (future: semantic similarity)
+        if memories.contains(where: { $0.fact.lowercased() == memory.fact.lowercased() }) {
+            return false
+        }
+        memories.append(memory)
+        lastUpdated = Date()
+        return true
+    }
+
+    /// Mark memory as used (updates lastUsedAt and usageCount)
+    mutating func markUsed(id: UUID) {
+        if let index = memories.firstIndex(where: { $0.id == id }) {
+            memories[index].lastUsedAt = Date()
+            memories[index].usageCount += 1
+        }
+    }
+
+    /// Deactivate memory (soft delete)
+    mutating func deactivate(id: UUID) {
+        if let index = memories.firstIndex(where: { $0.id == id }) {
+            memories[index].isActive = false
+            lastUpdated = Date()
+        }
+    }
+
+    /// Permanently remove memory
+    mutating func remove(id: UUID) {
+        memories.removeAll { $0.id == id }
+        lastUpdated = Date()
+    }
+
+    /// Clear all memories
+    mutating func clearAll() {
+        memories.removeAll()
+        lastUpdated = Date()
+    }
+
+    // MARK: - LLM Context Building
+
+    /// Build memories string for system prompt injection
+    func buildMemoriesContext() -> String? {
+        guard isEnabled else { return nil }
+
+        let active = activeMemories
+        guard !active.isEmpty else { return nil }
+
+        let facts = active.map { "- \($0.fact)" }.joined(separator: "\n")
+        return """
+        Things you know about this user:
+        \(facts)
+
+        Keep these in mind but don't mention them unless relevant.
+        """
+    }
 }
 ```
+
+**Memory Lifecycle**:
+1. **Extraction**: On "New Conversation", extract facts from completed conversation
+2. **Deduplication**: Check for existing similar facts before adding
+3. **Injection**: Include active memories in system prompt for new conversations
+4. **Tracking**: Update `lastUsedAt` and `usageCount` when memory influences response
+5. **Pruning**: Flag memories unused for 90 days for user review
 
 ---
 
@@ -252,14 +685,98 @@ struct UserMemoryStore: Codable {
 - Summary covers older messages
 - On reload: LLM sees summary + recent messages
 
+### Model Conversion
+
+Conversion between live UI models (`ChatConversation`, `ChatMessage`) and persistence models.
+
+```swift
+// MARK: - PersistedConversation Conversion
+
+extension PersistedConversation {
+    /// Create from live ChatConversation
+    /// - Parameters:
+    ///   - conversation: The live conversation
+    ///   - id: Existing ID (for updates) or nil (for new)
+    ///   - currentContext: Current context to attach to pending user message
+    @MainActor
+    static func from(
+        _ conversation: ChatConversation,
+        id: UUID? = nil,
+        currentContext: Context? = nil
+    ) -> PersistedConversation {
+        // Convert messages with context attachment
+        let persistedMessages = conversation.messages.enumerated().map { index, message -> PersistedMessage in
+            var contextData: Data? = nil
+
+            // Attach context to user messages if provided
+            // First user message gets originalContext, subsequent get currentContext
+            if message.role == .user {
+                if index == 0, let ctx = conversation.originalContext {
+                    contextData = try? JSONEncoder().encode(ctx)
+                } else if let ctx = currentContext {
+                    contextData = try? JSONEncoder().encode(ctx)
+                }
+            }
+
+            return PersistedMessage(from: message, contextData: contextData)
+        }
+
+        return PersistedConversation(
+            id: id ?? UUID(),
+            messages: persistedMessages,
+            initialRequest: conversation.initialRequest,
+            maxMessages: conversation.maxMessages,
+            title: nil  // Will be auto-generated from first user message
+        )
+    }
+
+    /// Convert to live ChatConversation
+    @MainActor
+    func toConversation() -> ChatConversation {
+        // Extract original context from first user message
+        let originalContext = firstUserMessage?.decodeContext()
+
+        let conversation = ChatConversation(
+            originalContext: originalContext,
+            initialRequest: initialRequest,
+            maxMessages: maxMessages
+        )
+
+        // Restore messages (avoid triggering trimIfNeeded for each)
+        for message in messages {
+            conversation.messages.append(message.toChatMessage())
+        }
+
+        return conversation
+    }
+}
+```
+
 ### Storage Manager API
 
 ```swift
 /// Manages file-based persistence for Extremis
+/// Actor ensures thread-safe file access
 actor StorageManager {
 
     // MARK: - Singleton
     static let shared = StorageManager()
+
+    // MARK: - Configuration
+    private let encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        #if DEBUG
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        #endif
+        return encoder
+    }()
+
+    private let decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }()
 
     // MARK: - Paths
     private var baseURL: URL {
@@ -270,45 +787,159 @@ actor StorageManager {
     private var conversationsURL: URL { baseURL.appendingPathComponent("conversations") }
     private var memoriesURL: URL { baseURL.appendingPathComponent("memories") }
     private var indexURL: URL { conversationsURL.appendingPathComponent("index.json") }
+    private var memoriesFileURL: URL { memoriesURL.appendingPathComponent("user-memories.json") }
+
+    func conversationFileURL(id: UUID) -> URL {
+        conversationsURL.appendingPathComponent("\(id.uuidString).json")
+    }
+
+    // MARK: - Initialization
+
+    func ensureDirectoriesExist() throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: conversationsURL, withIntermediateDirectories: true)
+        try fm.createDirectory(at: memoriesURL, withIntermediateDirectories: true)
+    }
 
     // MARK: - Index Operations
 
-    func loadIndex() throws -> ConversationIndex
-    func saveIndex(_ index: ConversationIndex) throws
-    func updateIndexEntry(for conversation: PersistedConversation) throws
+    func loadIndex() throws -> ConversationIndex {
+        guard FileManager.default.fileExists(atPath: indexURL.path) else {
+            return ConversationIndex()  // Return empty index if file doesn't exist
+        }
+        let data = try Data(contentsOf: indexURL)
+        return try decoder.decode(ConversationIndex.self, from: data)
+    }
+
+    func saveIndex(_ index: ConversationIndex) throws {
+        let data = try encoder.encode(index)
+        try data.write(to: indexURL, options: .atomic)
+    }
 
     // MARK: - Conversation Operations
 
-    func saveConversation(_ conversation: PersistedConversation) throws
-    func loadConversation(id: UUID) throws -> PersistedConversation?
-    func deleteConversation(id: UUID) throws
-    func conversationExists(id: UUID) -> Bool
+    func saveConversation(_ conversation: PersistedConversation) throws {
+        // 1. Save conversation file
+        let fileURL = conversationFileURL(id: conversation.id)
+        let data = try encoder.encode(conversation)
+        try data.write(to: fileURL, options: .atomic)
 
-    /// Create new conversation and update index
-    func createConversation() throws -> PersistedConversation
+        // 2. Update index
+        var index = try loadIndex()
+        let entry = ConversationIndexEntry(from: conversation)
+        index.upsert(entry)
+        try saveIndex(index)
+    }
 
-    /// List all conversations (from index, no file loading)
-    func listConversations() throws -> [ConversationIndexEntry]
+    func loadConversation(id: UUID) throws -> PersistedConversation? {
+        let fileURL = conversationFileURL(id: id)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return nil
+        }
+        let data = try Data(contentsOf: fileURL)
+        return try migrate(data)  // Apply migrations if needed
+    }
 
-    /// Get active conversation ID from index
-    func getActiveConversationId() throws -> UUID?
+    func deleteConversation(id: UUID) throws {
+        // 1. Delete file
+        let fileURL = conversationFileURL(id: id)
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            try FileManager.default.removeItem(at: fileURL)
+        }
 
-    /// Set active conversation ID in index
-    func setActiveConversation(id: UUID) throws
+        // 2. Update index
+        var index = try loadIndex()
+        index.remove(id: id)
+        try saveIndex(index)
+    }
+
+    func conversationExists(id: UUID) -> Bool {
+        FileManager.default.fileExists(atPath: conversationFileURL(id: id).path)
+    }
+
+    /// List all conversations (from index only - fast)
+    func listConversations() throws -> [ConversationIndexEntry] {
+        try loadIndex().activeConversations
+    }
+
+    /// Get/Set active conversation ID
+    func getActiveConversationId() throws -> UUID? {
+        try loadIndex().activeConversationId
+    }
+
+    func setActiveConversation(id: UUID?) throws {
+        var index = try loadIndex()
+        index.activeConversationId = id
+        index.lastUpdated = Date()
+        try saveIndex(index)
+    }
 
     // MARK: - Memory Operations (P3)
 
-    func saveMemories(_ store: UserMemoryStore) throws
-    func loadMemories() throws -> UserMemoryStore?
-    func addMemory(_ memory: UserMemory) throws
-    func deleteMemory(id: UUID) throws
-    func clearAllMemories() throws
+    func loadMemories() throws -> UserMemoryStore {
+        guard FileManager.default.fileExists(atPath: memoriesFileURL.path) else {
+            return UserMemoryStore()
+        }
+        let data = try Data(contentsOf: memoriesFileURL)
+        return try decoder.decode(UserMemoryStore.self, from: data)
+    }
+
+    func saveMemories(_ store: UserMemoryStore) throws {
+        let data = try encoder.encode(store)
+        try data.write(to: memoriesFileURL, options: .atomic)
+    }
+
+    // MARK: - Migration
+
+    private func migrate(_ data: Data) throws -> PersistedConversation {
+        // Try current version first
+        if let current = try? decoder.decode(PersistedConversation.self, from: data) {
+            return current
+        }
+
+        // Add migration handlers here as schema evolves:
+        // if let v0 = try? decoder.decode(PersistedConversationV0.self, from: data) {
+        //     return migrate(from: v0)
+        // }
+
+        throw StorageError.migrationFailed(
+            fromVersion: -1,
+            toVersion: PersistedConversation.currentVersion
+        )
+    }
 
     // MARK: - Maintenance
 
-    func ensureDirectoriesExist() throws
-    func calculateStorageSize() -> Int64
-    func pruneOldConversations(keepLast: Int) throws
+    /// Calculate total storage size in bytes
+    func calculateStorageSize() throws -> Int64 {
+        let fm = FileManager.default
+        var totalSize: Int64 = 0
+
+        let enumerator = fm.enumerator(at: baseURL, includingPropertiesForKeys: [.fileSizeKey])
+        while let url = enumerator?.nextObject() as? URL {
+            let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            totalSize += Int64(size)
+        }
+
+        return totalSize
+    }
+
+    /// Archive old conversations (soft delete)
+    func archiveConversation(id: UUID) throws {
+        guard var conversation = try loadConversation(id: id) else { return }
+        conversation.isArchived = true
+        try saveConversation(conversation)
+    }
+
+    /// Permanently delete archived conversations older than given date
+    func purgeArchivedBefore(_ date: Date) throws {
+        let index = try loadIndex()
+        for entry in index.archivedConversations {
+            if entry.updatedAt < date {
+                try deleteConversation(id: entry.id)
+            }
+        }
+    }
 }
 ```
 
@@ -743,19 +1374,64 @@ func migrate(_ data: Data) throws -> PersistedConversation {
 
 ## Summary
 
-| Model | Priority | Storage | Schema Version |
-|-------|----------|---------|----------------|
-| ConversationIndex | P1 | index.json | 1 |
-| PersistedConversation | P1 | {uuid}.json (one per session) | 1 |
-| Summary | P2 | (embedded in conversation) | - |
-| UserMemory | P3 | user-memories.json | 1 |
+### Model Overview
 
-**Key Decisions**:
-1. JSON files in Application Support
-2. One file per conversation session
-3. Lightweight index.json for fast session listing
-4. Summary embedded in conversation file (persisted, not re-computed)
-5. All messages preserved for UI (summary used only for LLM context)
-6. Atomic writes for safety
-7. Debounced auto-save (2s)
-8. Version field for migrations
+| Model | Priority | Storage | Schema Version | Purpose |
+|-------|----------|---------|----------------|---------|
+| `PersistedMessage` | P1 | (embedded) | - | Message with per-message context |
+| `PersistedConversation` | P1 | `{uuid}.json` | 1 | Full conversation with embedded summary |
+| `ConversationIndex` | P1 | `index.json` | 1 | Fast session listing |
+| `ConversationIndexEntry` | P1 | (embedded) | - | Lightweight metadata per conversation |
+| `ConversationSummary` | P2 | (embedded) | - | LLM context optimization |
+| `UserMemory` | P3 | (embedded) | - | Single user fact |
+| `UserMemoryStore` | P3 | `user-memories.json` | 1 | All cross-session memories |
+
+### Key Design Decisions
+
+1. **Separate Persistence Models**: `PersistedMessage` and `PersistedConversation` are separate from live UI models
+2. **Per-Message Context**: Context stored per-message (not per-conversation) for multi-app support
+3. **One File Per Session**: Each conversation is self-contained in `{uuid}.json`
+4. **Lightweight Index**: `index.json` enables fast listing without loading full files
+5. **Embedded Summary**: Summary stored in conversation file (persisted, not re-computed)
+6. **All Messages Preserved**: Full history for UI, summary only for LLM context window
+7. **Atomic Writes**: `.atomic` option prevents corruption on crash
+8. **Debounced Auto-Save**: 2s delay after changes, immediate on critical events
+9. **Schema Versioning**: `version` field in all persisted types for safe migrations
+10. **Soft Delete**: `isArchived` flag for recoverable deletion
+11. **Actor-Based Storage**: `StorageManager` is an actor for thread-safe file access
+
+### Extensibility Points
+
+| Extension | How | Impact |
+|-----------|-----|--------|
+| New message fields | Add optional field to `PersistedMessage` | Backward compatible |
+| New conversation metadata | Add optional field to `PersistedConversation` | Backward compatible |
+| New memory categories | Add case to `MemoryCategory` enum | Requires migration |
+| Schema changes | Increment `version`, add migration handler | Managed via `migrate()` |
+| New storage locations | Add URL computed property to `StorageManager` | No impact on existing |
+| Caching | Add LRU cache in `StorageManager` | Internal optimization |
+
+### Performance Characteristics
+
+| Operation | Expected Time | Notes |
+|-----------|---------------|-------|
+| Load index | <10ms | Single small JSON file |
+| List conversations | <10ms | Index only, no file loading |
+| Load conversation | <50ms | Single file, ~100-200KB typical |
+| Save conversation | <50ms | Atomic write, index update |
+| Encode 1000 messages | <5ms | Validated in POC |
+| Decode 1000 messages | <5ms | Validated in POC |
+
+### File Structure
+
+```
+~/Library/Application Support/Extremis/
+├── conversations/
+│   ├── index.json                 # Session metadata
+│   ├── {uuid-1}.json              # Conversation 1
+│   ├── {uuid-2}.json              # Conversation 2
+│   └── ...
+├── memories/
+│   └── user-memories.json         # Cross-session facts (P3)
+└── config.json                    # App settings (future)
+```

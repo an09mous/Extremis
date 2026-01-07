@@ -1,0 +1,123 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Build & Run Commands
+
+```bash
+# Build
+cd Extremis && swift build
+
+# Run the app
+swift run Extremis
+# OR after building:
+.build/debug/Extremis
+
+# Build release
+swift build -c release
+
+# Clean build
+rm -rf .build && swift build
+```
+
+## Testing
+
+```bash
+# Run all tests
+cd Extremis && ./scripts/run-tests.sh
+
+# Run specific test file
+swift test --filter ChatConversationTests
+
+# Run specific test method
+swift test --filter ChatConversationTests.testAddMessage
+
+# Run with verbose output
+swift test -v
+```
+
+## Project Overview
+
+Extremis is a macOS menu bar app that provides context-aware LLM text generation via global hotkeys (`Cmd+Shift+Space` and `Option+Tab`). It captures surrounding text from any application and sends it to various LLM providers.
+
+**Tech Stack**: Swift 5.9+, SwiftUI + AppKit hybrid, macOS 13.0+ (Ventura)
+**Build System**: Swift Package Manager (no external dependencies)
+**Linked Frameworks**: Carbon (global hotkeys), ApplicationServices (Accessibility APIs)
+
+## Architecture
+
+### Directory Structure (under Extremis/)
+- `App/` - Entry point (`ExtremisApp.swift`, `AppDelegate.swift`)
+- `Core/Models/` - Data structures (ChatMessage, Context, Generation, Preferences)
+- `Core/Services/` - Business logic (ContextOrchestrator, HotkeyManager, PermissionManager)
+- `Core/Protocols/` - Interfaces (LLMProvider, ContextExtractor, TextInserter)
+- `Extractors/` - App-specific context extractors (Browser, Slack, Generic)
+- `LLMProviders/` - Provider implementations (OpenAI, Anthropic, Gemini, Ollama)
+- `UI/PromptWindow/` - Main floating panel UI
+- `UI/Preferences/` - Settings UI
+- `Utilities/` - Helpers (KeychainHelper, ClipboardManager, AccessibilityHelpers)
+- `Resources/` - Prompt templates, models.json, assets
+
+### Key Patterns
+
+**Singleton Services**: Access shared instances via `.shared`:
+- `HotkeyManager.shared` - Global hotkey registration
+- `ContextOrchestrator.shared` - Context extraction coordination
+- `LLMProviderRegistry.shared` - Provider lifecycle management
+- `TextInserterService.shared` - Text insertion into apps
+
+**Extractor Pattern**: `ContextExtractorRegistry` maps bundle IDs to extractors:
+- `GenericExtractor` - Fallback for all apps
+- `BrowserExtractor` - Safari, Chrome, Firefox
+- `SlackExtractor` - Slack desktop & web
+
+**LLM Provider Pattern**: Factory pattern in `LLMProviderRegistry`:
+- All providers implement `LLMProvider` protocol
+- Streaming responses via `AsyncThrowingStream`
+- API keys stored in Keychain
+
+### AppKit + SwiftUI Hybrid
+
+- **NSApplication**: Menu bar app (LSUIElement = true, no dock icon)
+- **NSPanel**: Non-activating floating window for prompts
+- **NSHostingView**: SwiftUI views embedded in AppKit windows
+- **Carbon/HIToolbox**: Global hotkey registration
+
+### Context Capture Pipeline
+
+```
+Hotkey triggered → SelectionDetector → ContextOrchestrator.captureContext()
+→ ContextExtractorRegistry.extractor(for: source) → Appropriate Extractor
+→ PromptWindowController.showPrompt(with: context)
+```
+
+### Conversation Model
+
+- `ChatMessage` - Single message with role (user/assistant/system), content, timestamp
+- `ChatConversation` - Observable collection with trimming logic
+- `PersistedConversation` - Codable struct for disk storage (see `specs/007-memory-persistence/data-model.md`)
+
+## Feature Specifications
+
+Feature specs are in `specs/` directory, each containing:
+- `spec.md` - User stories and acceptance criteria
+- `plan.md` - Technical implementation plan
+- `tasks.md` - Task breakdown
+- `data-model.md` - Data model schemas (when applicable)
+
+Current active feature: `specs/007-memory-persistence/` (Memory & Persistence)
+
+## Key Files
+
+- `Extremis/App/AppDelegate.swift` - Core app lifecycle, menu bar, hotkey handling
+- `Extremis/Core/Services/ContextOrchestrator.swift` - Context extraction coordination
+- `Extremis/UI/PromptWindow/PromptWindowController.swift` - Main UI controller
+- `Extremis/LLMProviders/LLMProviderRegistry.swift` - Provider management
+- `Extremis/Core/Models/ChatMessage.swift` - Chat data models
+
+## Configuration & Storage
+
+- **UserDefaults**: App preferences (active provider, hotkey config, appearance)
+- **Keychain**: API keys stored as single JSON entry via `KeychainHelper`
+- **Application Support**: `~/Library/Application Support/Extremis/` for persistence (Phase 2)
+- **models.json**: LLM model configurations in Resources/
