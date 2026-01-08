@@ -89,9 +89,10 @@ final class ChatSession: ObservableObject {
     // MARK: - Message Management
 
     /// Add a message to the session
+    /// Note: Messages are NOT trimmed here - all messages are preserved for persistence.
+    /// Use messagesForLLM() when building LLM context to get trimmed messages.
     func addMessage(_ message: ChatMessage) {
         messages.append(message)
-        trimIfNeeded()
     }
     
     /// Add a user message
@@ -184,22 +185,24 @@ final class ChatSession: ObservableObject {
         messages.count
     }
     
-    // MARK: - Private
-    
-    /// Trim old messages if exceeding max, keeping system messages
-    private func trimIfNeeded() {
-        guard messages.count > maxMessages else { return }
-        
+    // MARK: - LLM Context
+
+    /// Get messages for LLM context (trimmed to maxMessages)
+    /// This returns a trimmed copy - the original messages array is preserved for persistence.
+    func messagesForLLM() -> [ChatMessage] {
+        guard messages.count > maxMessages else { return messages }
+
         // Keep system messages at the start
         let systemMessages = messages.prefix(while: { $0.role == .system })
         let nonSystemMessages = messages.dropFirst(systemMessages.count)
-        
+
         // Keep only recent non-system messages
         let keepCount = maxMessages - systemMessages.count
         let recentMessages = nonSystemMessages.suffix(keepCount)
-        
-        messages = Array(systemMessages) + Array(recentMessages)
-        print("[ChatSession] Trimmed to \(messages.count) messages")
+
+        let trimmed = Array(systemMessages) + Array(recentMessages)
+        print("[ChatSession] messagesForLLM: returning \(trimmed.count) of \(messages.count) messages")
+        return trimmed
     }
 }
 

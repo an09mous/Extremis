@@ -355,6 +355,7 @@ final class PromptViewModel: ObservableObject {
         isSummarizing = false
         chatInputText = ""
         streamingContent = ""
+        isChatMode = false  // Reset to simple mode - chat mode enables on follow-up
 
         // DON'T clear: session, sessionId, response (for history)
         // The session continues across invocations
@@ -479,8 +480,8 @@ final class PromptViewModel: ObservableObject {
                 // Add assistant response to session
                 if !response.isEmpty, let sess = session {
                     sess.addAssistantMessage(response)
-                    // Enable chat mode since we now have a session
-                    isChatMode = true
+                    // Note: Don't auto-enable chat mode here
+                    // User will transition to chat mode when they submit a follow-up
                 }
 
                 print("🔧 Generation complete - session has \(session?.messages.count ?? 0) messages")
@@ -543,7 +544,8 @@ final class PromptViewModel: ObservableObject {
                 // Add assistant response to session
                 if !response.isEmpty, let sess = session {
                     sess.addAssistantMessage(response)
-                    isChatMode = true
+                    // Note: Don't auto-enable chat mode here
+                    // User will transition to chat mode when they submit a follow-up
                 }
 
                 print("📝 PromptViewModel: Summarization complete - session has \(session?.messages.count ?? 0) messages")
@@ -599,10 +601,20 @@ final class PromptViewModel: ObservableObject {
     // MARK: - Chat Mode
 
     /// Enable chat mode after initial response is complete
+    /// Note: This is now called when user submits a follow-up message
+    /// The session may already exist from initial generation, so we only need to enable chat mode
     func enableChatMode() {
         guard !response.isEmpty else { return }
 
-        // Create session with initial exchange
+        // If session already exists (from initial generation), just enable chat mode
+        if session != nil {
+            isChatMode = true
+            streamingContent = ""
+            print("💬 Chat mode enabled (session already exists with \(session?.messages.count ?? 0) messages)")
+            return
+        }
+
+        // Legacy path: Create session with initial exchange (for edge cases)
         let sess = ChatSession(originalContext: currentContext, initialRequest: instructionText)
 
         // Add the initial user message (instruction or summarize request)
@@ -617,7 +629,7 @@ final class PromptViewModel: ObservableObject {
         session = sess
         sessionId = UUID()
         isChatMode = true
-        chatInputText = ""
+        // Note: Don't clear chatInputText here - it contains the follow-up message
         streamingContent = ""
 
         // Register with SessionManager for persistence
@@ -652,9 +664,9 @@ final class PromptViewModel: ObservableObject {
                     throw LLMProviderError.notConfigured(provider: .openai)
                 }
 
-                // Use chat streaming
+                // Use chat streaming (use messagesForLLM for trimmed context)
                 let stream = provider.generateChatStream(
-                    messages: sess.messages,
+                    messages: sess.messagesForLLM(),
                     context: currentContext
                 )
 
@@ -725,9 +737,9 @@ final class PromptViewModel: ObservableObject {
                     throw LLMProviderError.notConfigured(provider: .openai)
                 }
 
-                // Use chat streaming with the current messages
+                // Use chat streaming with the current messages (trimmed for LLM context)
                 let stream = provider.generateChatStream(
-                    messages: sess.messages,
+                    messages: sess.messagesForLLM(),
                     context: currentContext
                 )
 
@@ -795,9 +807,9 @@ final class PromptViewModel: ObservableObject {
                     throw LLMProviderError.notConfigured(provider: .openai)
                 }
 
-                // Use chat streaming with the current messages
+                // Use chat streaming with the current messages (trimmed for LLM context)
                 let stream = provider.generateChatStream(
-                    messages: sess.messages,
+                    messages: sess.messagesForLLM(),
                     context: currentContext
                 )
 
