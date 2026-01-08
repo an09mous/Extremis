@@ -25,9 +25,20 @@ final class SessionManager: ObservableObject {
     private let debounceInterval: TimeInterval = 2.0
     private var cancellables = Set<AnyCancellable>()
 
+    // MARK: - Storage (Strategy Pattern)
+    private let storage: any SessionStorage
+
     // MARK: - Initialization
 
-    private init() {}
+    private init() {
+        // Default to JSON file storage
+        self.storage = JSONSessionStorage.shared
+    }
+
+    /// Initialize with custom storage (for testing or alternative backends)
+    init(storage: any SessionStorage) {
+        self.storage = storage
+    }
 
     // MARK: - Session Lifecycle
 
@@ -66,13 +77,13 @@ final class SessionManager: ObservableObject {
 
         do {
             // Get active session ID from index
-            guard let activeId = try await StorageManager.shared.getActiveSessionId() else {
+            guard let activeId = try await storage.getActiveSessionId() else {
                 print("[SessionManager] No active session to restore")
                 return
             }
 
             // Load the session
-            guard let persisted = try await StorageManager.shared.loadSession(id: activeId) else {
+            guard let persisted = try await storage.loadSession(id: activeId) else {
                 print("[SessionManager] Active session \(activeId) not found in storage")
                 return
             }
@@ -175,10 +186,10 @@ final class SessionManager: ObservableObject {
             persisted.updatedAt = Date()
 
             // Save to storage
-            try await StorageManager.shared.saveSession(persisted)
+            try await storage.saveSession(persisted)
 
             // Update active session ID
-            try await StorageManager.shared.setActiveSession(id: id)
+            try await storage.setActiveSessionId(id)
 
             isDirty = false
             sessionListVersion += 1  // Notify sidebar to refresh
@@ -220,8 +231,8 @@ final class SessionManager: ObservableObject {
                     messageContexts: contextsToSave
                 )
                 persisted.updatedAt = Date()
-                try await StorageManager.shared.saveSession(persisted)
-                try await StorageManager.shared.setActiveSession(id: id)
+                try await storage.saveSession(persisted)
+                try await storage.setActiveSessionId(id)
                 isDirty = false
                 print("[SessionManager] Immediate save completed for \(id)")
             } catch {
@@ -267,7 +278,7 @@ final class SessionManager: ObservableObject {
 
         // Clear active session in index
         do {
-            try await StorageManager.shared.setActiveSession(id: nil)
+            try await storage.setActiveSessionId(nil)
         } catch {
             print("[SessionManager] Failed to clear active session: \(error)")
         }
@@ -279,7 +290,7 @@ final class SessionManager: ObservableObject {
 
     /// Get list of all sessions
     func listSessions() async throws -> [SessionIndexEntry] {
-        try await StorageManager.shared.listSessions()
+        try await storage.listSessions()
     }
 
     /// Load a specific session by ID
@@ -290,7 +301,7 @@ final class SessionManager: ObservableObject {
         // Save current first
         await saveIfDirty()
 
-        guard let persisted = try await StorageManager.shared.loadSession(id: id) else {
+        guard let persisted = try await storage.loadSession(id: id) else {
             throw StorageError.sessionNotFound(id: id)
         }
 
@@ -302,7 +313,7 @@ final class SessionManager: ObservableObject {
         isDirty = false
 
         // Set active session but don't mark dirty (don't update timestamp)
-        try await StorageManager.shared.setActiveSession(id: id)
+        try await storage.setActiveSessionId(id)
         observeSession(session)
 
         print("[SessionManager] Loaded session \(id) with \(messageContexts.count) message contexts")
@@ -318,7 +329,7 @@ final class SessionManager: ObservableObject {
             cancellables.removeAll()
         }
 
-        try await StorageManager.shared.deleteSession(id: id)
+        try await storage.deleteSession(id: id)
         sessionListVersion += 1  // Notify sidebar to refresh
         print("[SessionManager] Deleted session \(id)")
     }
