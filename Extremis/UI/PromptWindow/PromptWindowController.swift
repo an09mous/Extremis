@@ -871,29 +871,33 @@ struct PromptContainerView: View {
     @State private var showContextViewer = false
     @State private var showSidebar = false
     @State private var sidebarRefreshKey = UUID()
+    @State private var contextForViewer: Context?  // Pre-captured for instant display
 
     var body: some View {
         HStack(spacing: 0) {
-            // Sidebar (session list)
+            // Sidebar (session list) with smooth slide animation
             if showSidebar {
-                SessionListView(
-                    sessionManager: SessionManager.shared,
-                    onSelectSession: { id in
-                        onSelectSession(id)
-                        sidebarRefreshKey = UUID()
-                    },
-                    onNewSession: {
-                        onNewSession()
-                        sidebarRefreshKey = UUID()
-                    },
-                    onDeleteSession: { id in
-                        onDeleteSession(id)
-                        sidebarRefreshKey = UUID()
-                    }
-                )
-                .id(sidebarRefreshKey)
+                HStack(spacing: 0) {
+                    SessionListView(
+                        sessionManager: SessionManager.shared,
+                        onSelectSession: { id in
+                            onSelectSession(id)
+                            sidebarRefreshKey = UUID()
+                        },
+                        onNewSession: {
+                            onNewSession()
+                            sidebarRefreshKey = UUID()
+                        },
+                        onDeleteSession: { id in
+                            onDeleteSession(id)
+                            sidebarRefreshKey = UUID()
+                        }
+                    )
+                    .id(sidebarRefreshKey)
 
-                Divider()
+                    Divider()
+                }
+                .transition(.move(edge: .leading).combined(with: .opacity))
             }
 
             // Main content
@@ -901,7 +905,7 @@ struct PromptContainerView: View {
                 // Header - ChatGPT style minimal icons
                 HStack(spacing: 12) {
                     // Sidebar toggle (ChatGPT style - two rectangles)
-                    Button(action: { withAnimation(.easeInOut(duration: 0.2)) { showSidebar.toggle() } }) {
+                    Button(action: { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { showSidebar.toggle() } }) {
                         Image(systemName: "sidebar.left")
                             .font(.system(size: 16))
                             .foregroundColor(.secondary)
@@ -948,7 +952,11 @@ struct PromptContainerView: View {
                         onCancel: onCancel,
                         onStopGeneration: { viewModel.cancelGeneration() },
                         contextInfo: viewModel.contextInfo,
-                        onViewContext: viewModel.currentContext != nil ? { showContextViewer = true } : nil,
+                        onViewContext: viewModel.currentContext != nil ? {
+                            // Pre-capture context before showing to avoid lookup during animation
+                            contextForViewer = viewModel.currentContext
+                            showContextViewer = true
+                        } : nil,
                         isChatMode: viewModel.isChatMode,
                         session: viewModel.session,
                         streamingContent: viewModel.streamingContent,
@@ -969,20 +977,44 @@ struct PromptContainerView: View {
                         onSubmit: onGenerate,
                         onCancel: onCancel,
                         onSummarize: onSummarize,
-                        onViewContext: viewModel.currentContext != nil ? { showContextViewer = true } : nil
+                        onViewContext: viewModel.currentContext != nil ? {
+                            contextForViewer = viewModel.currentContext
+                            showContextViewer = true
+                        } : nil
                     )
                 }
             }
         }
         .frame(minWidth: 500, idealWidth: 600, minHeight: 350, idealHeight: 450)
-        .sheet(isPresented: $showContextViewer) {
-            if let context = viewModel.currentContext {
-                ContextViewerSheet(
-                    context: context,
-                    onDismiss: { showContextViewer = false }
-                )
+        .overlay {
+            // Context viewer overlay (faster than sheet)
+            if showContextViewer, let context = contextForViewer {
+                ZStack {
+                    // Dimmed background
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            showContextViewer = false
+                            contextForViewer = nil
+                        }
+
+                    // Context viewer
+                    ContextViewerSheet(
+                        context: context,
+                        onDismiss: {
+                            showContextViewer = false
+                            contextForViewer = nil
+                        }
+                    )
+                    .background(Color(NSColor.windowBackgroundColor))
+                    .cornerRadius(12)
+                    .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
+                    .padding(20)
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
         }
+        .animation(.spring(response: 0.2, dampingFraction: 0.85), value: showContextViewer)
     }
 }
 
