@@ -12,7 +12,7 @@ actor StorageManager {
     static let shared = StorageManager()
 
     // MARK: - In-Memory Cache
-    private var cachedIndex: ConversationIndex?
+    private var cachedIndex: SessionIndex?
 
     // MARK: - Configuration
     private let encoder: JSONEncoder = {
@@ -36,13 +36,13 @@ actor StorageManager {
             .appendingPathComponent("Extremis", isDirectory: true)
     }
 
-    private var conversationsURL: URL { baseURL.appendingPathComponent("conversations") }
+    private var sessionsURL: URL { baseURL.appendingPathComponent("sessions") }
     private var memoriesURL: URL { baseURL.appendingPathComponent("memories") }
-    private var indexURL: URL { conversationsURL.appendingPathComponent("index.json") }
+    private var indexURL: URL { sessionsURL.appendingPathComponent("index.json") }
     private var memoriesFileURL: URL { memoriesURL.appendingPathComponent("user-memories.json") }
 
-    func conversationFileURL(id: UUID) -> URL {
-        conversationsURL.appendingPathComponent("\(id.uuidString).json")
+    func sessionFileURL(id: UUID) -> URL {
+        sessionsURL.appendingPathComponent("\(id.uuidString).json")
     }
 
     // MARK: - Initialization
@@ -50,7 +50,7 @@ actor StorageManager {
     func ensureDirectoriesExist() throws {
         let fm = FileManager.default
         do {
-            try fm.createDirectory(at: conversationsURL, withIntermediateDirectories: true)
+            try fm.createDirectory(at: sessionsURL, withIntermediateDirectories: true)
             try fm.createDirectory(at: memoriesURL, withIntermediateDirectories: true)
         } catch {
             throw StorageError.directoryCreationFailed(path: baseURL.path, underlying: error)
@@ -60,7 +60,7 @@ actor StorageManager {
     // MARK: - Index Operations
 
     /// Load index from cache or disk (lazy load with caching)
-    func loadIndex() throws -> ConversationIndex {
+    func loadIndex() throws -> SessionIndex {
         // Return cached index if available
         if let cached = cachedIndex {
             return cached
@@ -68,13 +68,13 @@ actor StorageManager {
 
         // Load from disk
         guard FileManager.default.fileExists(atPath: indexURL.path) else {
-            let emptyIndex = ConversationIndex()
+            let emptyIndex = SessionIndex()
             cachedIndex = emptyIndex
             return emptyIndex
         }
         do {
             let data = try Data(contentsOf: indexURL)
-            let index = try decoder.decode(ConversationIndex.self, from: data)
+            let index = try decoder.decode(SessionIndex.self, from: data)
             cachedIndex = index  // Cache it
             return index
         } catch let error as DecodingError {
@@ -90,7 +90,7 @@ actor StorageManager {
 
     /// Save index to disk and update cache
     /// Cache is only updated AFTER successful disk write to ensure consistency
-    func saveIndex(_ index: ConversationIndex) throws {
+    func saveIndex(_ index: SessionIndex) throws {
         do {
             let data = try encoder.encode(index)
             try data.write(to: indexURL, options: .atomic)
@@ -99,7 +99,7 @@ actor StorageManager {
         } catch let error as EncodingError {
             // Invalidate cache on failure to ensure next read comes from disk
             cachedIndex = nil
-            throw StorageError.encodingFailed(type: "ConversationIndex", underlying: error)
+            throw StorageError.encodingFailed(type: "SessionIndex", underlying: error)
         } catch {
             // Invalidate cache on failure to ensure next read comes from disk
             cachedIndex = nil
@@ -112,34 +112,34 @@ actor StorageManager {
         cachedIndex = nil
     }
 
-    // MARK: - Conversation Operations
+    // MARK: - Session Operations
 
-    func saveConversation(_ conversation: PersistedConversation) throws {
+    func saveSession(_ session: PersistedSession) throws {
         // Ensure directories exist
         try ensureDirectoriesExist()
 
-        // 1. Save conversation file
-        let fileURL = conversationFileURL(id: conversation.id)
+        // 1. Save session file
+        let fileURL = sessionFileURL(id: session.id)
         do {
-            let data = try encoder.encode(conversation)
+            let data = try encoder.encode(session)
             try data.write(to: fileURL, options: .atomic)
         } catch let error as EncodingError {
-            throw StorageError.encodingFailed(type: "PersistedConversation", underlying: error)
+            throw StorageError.encodingFailed(type: "PersistedSession", underlying: error)
         } catch {
             throw StorageError.fileWriteFailed(path: fileURL.path, underlying: error)
         }
 
         // 2. Update index
         var index = try loadIndex()
-        let entry = ConversationIndexEntry(from: conversation)
+        let entry = SessionIndexEntry(from: session)
         index.upsert(entry)
         try saveIndex(index)
 
-        print("[StorageManager] Saved conversation \(conversation.id) with \(conversation.messages.count) messages")
+        print("[StorageManager] Saved session \(session.id) with \(session.messages.count) messages")
     }
 
-    func loadConversation(id: UUID) throws -> PersistedConversation? {
-        let fileURL = conversationFileURL(id: id)
+    func loadSession(id: UUID) throws -> PersistedSession? {
+        let fileURL = sessionFileURL(id: id)
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             return nil
         }
@@ -151,9 +151,9 @@ actor StorageManager {
         }
     }
 
-    func deleteConversation(id: UUID) throws {
+    func deleteSession(id: UUID) throws {
         // 1. Delete file
-        let fileURL = conversationFileURL(id: id)
+        let fileURL = sessionFileURL(id: id)
         if FileManager.default.fileExists(atPath: fileURL.path) {
             do {
                 try FileManager.default.removeItem(at: fileURL)
@@ -167,46 +167,46 @@ actor StorageManager {
         index.remove(id: id)
         try saveIndex(index)
 
-        print("[StorageManager] Deleted conversation \(id)")
+        print("[StorageManager] Deleted session \(id)")
     }
 
-    func conversationExists(id: UUID) -> Bool {
-        FileManager.default.fileExists(atPath: conversationFileURL(id: id).path)
+    func sessionExists(id: UUID) -> Bool {
+        FileManager.default.fileExists(atPath: sessionFileURL(id: id).path)
     }
 
-    /// List all conversations (from index only - fast)
-    func listConversations() throws -> [ConversationIndexEntry] {
-        try loadIndex().activeConversations
+    /// List all sessions (from index only - fast)
+    func listSessions() throws -> [SessionIndexEntry] {
+        try loadIndex().activeSessions
     }
 
-    /// Get/Set active conversation ID
-    func getActiveConversationId() throws -> UUID? {
-        try loadIndex().activeConversationId
+    /// Get/Set active session ID
+    func getActiveSessionId() throws -> UUID? {
+        try loadIndex().activeSessionId
     }
 
-    func setActiveConversation(id: UUID?) throws {
+    func setActiveSession(id: UUID?) throws {
         var index = try loadIndex()
-        index.activeConversationId = id
+        index.activeSessionId = id
         index.lastUpdated = Date()
         try saveIndex(index)
     }
 
     // MARK: - Migration
 
-    private func migrate(_ data: Data) throws -> PersistedConversation {
+    private func migrate(_ data: Data) throws -> PersistedSession {
         // Try current version first
-        if let current = try? decoder.decode(PersistedConversation.self, from: data) {
+        if let current = try? decoder.decode(PersistedSession.self, from: data) {
             return current
         }
 
         // Add migration handlers here as schema evolves:
-        // if let v0 = try? decoder.decode(PersistedConversationV0.self, from: data) {
+        // if let v0 = try? decoder.decode(PersistedSessionV0.self, from: data) {
         //     return migrate(from: v0)
         // }
 
         throw StorageError.migrationFailed(
             fromVersion: -1,
-            toVersion: PersistedConversation.currentVersion
+            toVersion: PersistedSession.currentVersion
         )
     }
 
@@ -234,21 +234,21 @@ actor StorageManager {
         return totalSize
     }
 
-    /// Archive old conversations (soft delete)
-    func archiveConversation(id: UUID) throws {
-        guard var conversation = try loadConversation(id: id) else {
-            throw StorageError.conversationNotFound(id: id)
+    /// Archive old sessions (soft delete)
+    func archiveSession(id: UUID) throws {
+        guard var session = try loadSession(id: id) else {
+            throw StorageError.sessionNotFound(id: id)
         }
-        conversation.isArchived = true
-        try saveConversation(conversation)
+        session.isArchived = true
+        try saveSession(session)
     }
 
-    /// Permanently delete archived conversations older than given date
+    /// Permanently delete archived sessions older than given date
     func purgeArchivedBefore(_ date: Date) throws {
         let index = try loadIndex()
-        for entry in index.archivedConversations {
+        for entry in index.archivedSessions {
             if entry.updatedAt < date {
-                try deleteConversation(id: entry.id)
+                try deleteSession(id: entry.id)
             }
         }
     }

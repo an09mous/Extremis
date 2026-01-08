@@ -12,7 +12,7 @@ enum StorageError: LocalizedError {
     case encodingFailed(type: String, underlying: Error)
     case decodingFailed(type: String, underlying: Error)
     case migrationFailed(fromVersion: Int, toVersion: Int)
-    case conversationNotFound(id: UUID)
+    case sessionNotFound(id: UUID)
     case indexCorrupted(underlying: Error)
     case storageUnavailable
 
@@ -32,10 +32,10 @@ enum StorageError: LocalizedError {
             return "Failed to decode \(type): \(underlying.localizedDescription)"
         case .migrationFailed(let fromVersion, let toVersion):
             return "Failed to migrate from version \(fromVersion) to \(toVersion)"
-        case .conversationNotFound(let id):
-            return "Conversation not found: \(id)"
+        case .sessionNotFound(let id):
+            return "Session not found: \(id)"
         case .indexCorrupted(let underlying):
-            return "Conversation index is corrupted: \(underlying.localizedDescription)"
+            return "Session index is corrupted: \(underlying.localizedDescription)"
         case .storageUnavailable:
             return "Storage is unavailable"
         }

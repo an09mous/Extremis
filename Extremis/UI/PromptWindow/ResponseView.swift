@@ -19,7 +19,7 @@ struct ResponseView: View {
 
     // Chat mode properties (optional)
     var isChatMode: Bool = false
-    var conversation: ChatConversation?
+    var session: ChatSession?
     var streamingContent: String = ""
     @Binding var chatInputText: String
     var onSendChat: (() -> Void)?
@@ -49,7 +49,7 @@ struct ResponseView: View {
         self.contextInfo = nil
         self.onViewContext = nil
         self.isChatMode = false
-        self.conversation = nil
+        self.session = nil
         self.streamingContent = ""
         self._chatInputText = .constant("")
         self.onSendChat = nil
@@ -70,7 +70,7 @@ struct ResponseView: View {
         contextInfo: String? = nil,
         onViewContext: (() -> Void)? = nil,
         isChatMode: Bool,
-        conversation: ChatConversation?,
+        session: ChatSession?,
         streamingContent: String,
         chatInputText: Binding<String>,
         onSendChat: @escaping () -> Void,
@@ -88,7 +88,7 @@ struct ResponseView: View {
         self.contextInfo = contextInfo
         self.onViewContext = onViewContext
         self.isChatMode = isChatMode
-        self.conversation = conversation
+        self.session = session
         self.streamingContent = streamingContent
         self._chatInputText = chatInputText
         self.onSendChat = onSendChat
@@ -105,9 +105,9 @@ struct ResponseView: View {
             }
 
             // Content area - either chat view or simple response
-            if isChatMode, let conv = conversation {
+            if isChatMode, let sess = session {
                 ChatView(
-                    conversation: conv,
+                    session: sess,
                     streamingContent: streamingContent,
                     isGenerating: isGenerating,
                     error: error,

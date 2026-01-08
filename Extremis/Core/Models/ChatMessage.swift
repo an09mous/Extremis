@@ -1,11 +1,11 @@
 // MARK: - Chat Message Models
-// Models for multi-turn chat conversations
+// Models for multi-turn chat sessions
 
 import Foundation
 
 // MARK: - Chat Role
 
-/// Role of a participant in a chat conversation
+/// Role of a participant in a chat session
 enum ChatRole: String, Codable, Equatable {
     case system
     case user
@@ -14,7 +14,7 @@ enum ChatRole: String, Codable, Equatable {
 
 // MARK: - Chat Message
 
-/// A single message in a chat conversation
+/// A single message in a chat session
 struct ChatMessage: Identifiable, Codable, Equatable {
     let id: UUID
     let role: ChatRole
@@ -44,20 +44,20 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     }
 }
 
-// MARK: - Chat Conversation
+// MARK: - Chat Session
 
-/// Manages a multi-turn chat conversation
+/// Manages a multi-turn chat session
 @MainActor
-final class ChatConversation: ObservableObject {
-    /// All messages in the conversation
+final class ChatSession: ObservableObject {
+    /// All messages in the session
     @Published var messages: [ChatMessage] = []
-    
-    /// Original context when conversation started (for system prompt)
+
+    /// Original context when session started (for system prompt)
     let originalContext: Context?
-    
-    /// Original request that started the conversation (instruction or "summarize")
+
+    /// Original request that started the session (instruction or "summarize")
     let initialRequest: String?
-    
+
     /// Maximum messages to keep (for context window management)
     let maxMessages: Int
     
@@ -87,8 +87,8 @@ final class ChatConversation: ObservableObject {
     }
     
     // MARK: - Message Management
-    
-    /// Add a message to the conversation
+
+    /// Add a message to the session
     func addMessage(_ message: ChatMessage) {
         messages.append(message)
         trimIfNeeded()
@@ -157,7 +157,7 @@ final class ChatConversation: ObservableObject {
 
         // Remove the message and all following messages
         messages.removeSubrange(index...)
-        print("[ChatConversation] Removed message at index \(index) and following, now have \(messages.count) messages")
+        print("[ChatSession] Removed message at index \(index) and following, now have \(messages.count) messages")
 
         return precedingUserMessage
     }
@@ -174,7 +174,7 @@ final class ChatConversation: ObservableObject {
         lastAssistantMessage?.content ?? ""
     }
 
-    /// Whether the conversation has any messages
+    /// Whether the session has any messages
     var isEmpty: Bool {
         messages.isEmpty
     }
@@ -199,7 +199,7 @@ final class ChatConversation: ObservableObject {
         let recentMessages = nonSystemMessages.suffix(keepCount)
         
         messages = Array(systemMessages) + Array(recentMessages)
-        print("[ChatConversation] Trimmed to \(messages.count) messages")
+        print("[ChatSession] Trimmed to \(messages.count) messages")
     }
 }
 

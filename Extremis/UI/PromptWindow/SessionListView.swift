@@ -1,16 +1,16 @@
-// MARK: - Conversation List View
-// Sidebar view for displaying and managing conversation sessions
+// MARK: - Session List View
+// Sidebar view for displaying and managing sessions
 
 import SwiftUI
 
-/// Sidebar view showing list of conversation sessions
-struct ConversationListView: View {
-    @ObservedObject var conversationManager: ConversationManager
-    let onSelectConversation: (UUID) -> Void
+/// Sidebar view showing list of sessions
+struct SessionListView: View {
+    @ObservedObject var sessionManager: SessionManager
+    let onSelectSession: (UUID) -> Void
     let onNewSession: () -> Void
-    let onDeleteConversation: (UUID) -> Void
+    let onDeleteSession: (UUID) -> Void
 
-    @State private var conversations: [ConversationIndexEntry] = []
+    @State private var sessions: [SessionIndexEntry] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
 
@@ -30,13 +30,13 @@ struct ConversationListView: View {
 
             Divider()
 
-            // Conversation list
+            // Session list
             if isLoading {
                 Spacer()
                 ProgressView()
                     .scaleEffect(0.8)
                 Spacer()
-            } else if conversations.isEmpty {
+            } else if sessions.isEmpty {
                 Spacer()
                 VStack(spacing: 8) {
                     Image(systemName: "bubble.left.and.bubble.right")
@@ -50,12 +50,12 @@ struct ConversationListView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 2) {
-                        ForEach(conversations) { entry in
-                            ConversationRowView(
+                        ForEach(sessions) { entry in
+                            SessionRowView(
                                 entry: entry,
-                                isActive: entry.id == conversationManager.currentConversationId,
-                                onSelect: { onSelectConversation(entry.id) },
-                                onDelete: { onDeleteConversation(entry.id) }
+                                isActive: entry.id == sessionManager.currentSessionId,
+                                onSelect: { onSelectSession(entry.id) },
+                                onDelete: { onDeleteSession(entry.id) }
                             )
                         }
                     }
@@ -74,27 +74,27 @@ struct ConversationListView: View {
         .frame(width: 180)
         .background(Color(NSColor.windowBackgroundColor))
         .onAppear {
-            loadConversations()
+            loadSessions()
         }
-        .onChange(of: conversationManager.conversationListVersion) { _ in
-            loadConversations()
+        .onChange(of: sessionManager.sessionListVersion) { _ in
+            loadSessions()
         }
-        .onChange(of: conversationManager.currentConversationId) { _ in
-            // Force re-render when active conversation changes
+        .onChange(of: sessionManager.currentSessionId) { _ in
+            // Force re-render when active session changes
             // The ForEach already checks isActive, but this ensures update propagates
         }
     }
 
-    private func loadConversations() {
+    private func loadSessions() {
         isLoading = true
         errorMessage = nil
 
         Task {
             do {
-                let list = try await conversationManager.listConversations()
+                let list = try await sessionManager.listSessions()
                 await MainActor.run {
                     // Sort by updatedAt descending (most recent first)
-                    conversations = list.sorted { $0.updatedAt > $1.updatedAt }
+                    sessions = list.sorted { $0.updatedAt > $1.updatedAt }
                     isLoading = false
                 }
             } catch {
@@ -106,16 +106,16 @@ struct ConversationListView: View {
         }
     }
 
-    /// Refresh the conversation list (call after changes)
+    /// Refresh the session list (call after changes)
     func refresh() {
-        loadConversations()
+        loadSessions()
     }
 }
 
-// MARK: - Conversation Row View
+// MARK: - Session Row View
 
-struct ConversationRowView: View {
-    let entry: ConversationIndexEntry
+struct SessionRowView: View {
+    let entry: SessionIndexEntry
     let isActive: Bool
     let onSelect: () -> Void
     let onDelete: () -> Void
@@ -205,13 +205,13 @@ struct ConversationRowView: View {
 
 // MARK: - Preview
 
-struct ConversationListView_Previews: PreviewProvider {
+struct SessionListView_Previews: PreviewProvider {
     static var previews: some View {
-        ConversationListView(
-            conversationManager: ConversationManager.shared,
-            onSelectConversation: { _ in },
+        SessionListView(
+            sessionManager: SessionManager.shared,
+            onSelectSession: { _ in },
             onNewSession: {},
-            onDeleteConversation: { _ in }
+            onDeleteSession: { _ in }
         )
         .frame(height: 400)
     }

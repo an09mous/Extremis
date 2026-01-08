@@ -1,10 +1,10 @@
-// MARK: - Conversation Summary Model
+// MARK: - Session Summary Model
 // Summary of older messages for LLM context efficiency
 
 import Foundation
 
 /// Summary of older messages for LLM context efficiency
-struct ConversationSummary: Codable, Equatable {
+struct SessionSummary: Codable, Equatable {
     let content: String             // The summary text
     let coversMessageCount: Int     // Number of messages summarized
     let createdAt: Date             // When summary was generated

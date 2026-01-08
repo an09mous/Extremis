@@ -28,7 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let permissionManager = PermissionManager.shared
     private let contextOrchestrator = ContextOrchestrator.shared
     private let textInserter = TextInserterService.shared
-    private let conversationManager = ConversationManager.shared
+    private let sessionManager = SessionManager.shared
 
     /// Current captured context
     private var currentContext: Context?
@@ -49,21 +49,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Check Ollama connection asynchronously and rebuild menu when done
         checkOllamaAndRefreshMenu()
 
-        // Restore last conversation on launch
-        restoreConversationOnLaunch()
+        // Restore last session on launch
+        restoreSessionOnLaunch()
 
         print("✅ Extremis launched successfully")
     }
 
-    /// Restore the last active conversation on app launch
-    private func restoreConversationOnLaunch() {
+    /// Restore the last active session on app launch
+    private func restoreSessionOnLaunch() {
         Task { @MainActor in
-            await conversationManager.restoreLastConversation()
+            await sessionManager.restoreLastSession()
 
-            // If there's a restored conversation, make it available to the prompt window
-            if let conversation = conversationManager.currentConversation {
-                promptWindowController.setConversation(conversation, id: conversationManager.currentConversationId)
-                print("📚 Restored conversation with \(conversation.messages.count) messages")
+            // If there's a restored session, make it available to the prompt window
+            if let session = sessionManager.currentSession {
+                promptWindowController.setSession(session, id: sessionManager.currentSessionId)
+                print("📚 Restored session with \(session.messages.count) messages")
             }
         }
     }
@@ -115,8 +115,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Save conversation immediately on termination
-        conversationManager.saveImmediately()
+        // Save session immediately on termination
+        sessionManager.saveImmediately()
 
         hotkeyManager.unregister()
         print("👋 Extremis terminating")

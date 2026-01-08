@@ -1,11 +1,11 @@
 // MARK: - Chat View
-// Scrollable message list for chat conversations
+// Scrollable message list for chat sessions
 
 import SwiftUI
 
 /// View displaying a scrollable list of chat messages with auto-scroll
 struct ChatView: View {
-    @ObservedObject var conversation: ChatConversation
+    @ObservedObject var session: ChatSession
     let streamingContent: String
     let isGenerating: Bool
     let error: String?
@@ -24,7 +24,7 @@ struct ChatView: View {
                 ScrollView {
                     VStack(spacing: 16) {
                         // Display all completed messages
-                        ForEach(conversation.messages) { message in
+                        ForEach(session.messages) { message in
                             ChatMessageView(
                                 message: message,
                                 onRetry: message.role == .assistant ? { onRetryMessage?(message.id) } : nil,
@@ -61,7 +61,7 @@ struct ChatView: View {
                 .onAppear {
                     scrollToBottom(proxy: proxy)
                 }
-                .onChange(of: conversation.messages.count) { _ in
+                .onChange(of: session.messages.count) { _ in
                     // Always scroll when new message is added
                     userHasScrolledUp = false
                     scrollToBottom(proxy: proxy)
@@ -150,22 +150,22 @@ struct ChatErrorView: View {
     }
 }
 
-/// Compact chat view for displaying conversation history in response mode
+/// Compact chat view for displaying session history in response mode
 struct CompactChatHistoryView: View {
-    @ObservedObject var conversation: ChatConversation
-    
+    @ObservedObject var session: ChatSession
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Show only the last few messages as context
-            let recentMessages = Array(conversation.messages.suffix(4))
-            
+            let recentMessages = Array(session.messages.suffix(4))
+
             ForEach(recentMessages) { message in
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: message.role == .user ? "person.fill" : "sparkles")
                         .font(.caption)
                         .foregroundColor(message.role == .user ? .secondary : .accentColor)
                         .frame(width: 16)
-                    
+
                     Text(message.content)
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -173,9 +173,9 @@ struct CompactChatHistoryView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            
-            if conversation.messages.count > 4 {
-                Text("... and \(conversation.messages.count - 4) earlier messages")
+
+            if session.messages.count > 4 {
+                Text("... and \(session.messages.count - 4) earlier messages")
                     .font(.caption2)
                     .foregroundColor(.secondary)
                     .italic()
@@ -191,11 +191,11 @@ struct CompactChatHistoryView: View {
 
 struct ChatView_Previews: PreviewProvider {
     static var previews: some View {
-        let conversation = ChatConversation(originalContext: nil, initialRequest: "Help me write")
+        let session = ChatSession(originalContext: nil, initialRequest: "Help me write")
 
         VStack {
             ChatView(
-                conversation: conversation,
+                session: session,
                 streamingContent: "Here's an improved version...",
                 isGenerating: true,
                 error: nil,
@@ -205,7 +205,7 @@ struct ChatView_Previews: PreviewProvider {
 
             Divider()
 
-            CompactChatHistoryView(conversation: conversation)
+            CompactChatHistoryView(session: session)
                 .padding()
         }
         .frame(width: 400, height: 500)
