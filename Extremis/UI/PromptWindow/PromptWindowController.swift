@@ -471,10 +471,13 @@ final class PromptViewModel: ObservableObject {
                     context: context
                 )
 
+                // Use array buffer to avoid O(n²) string concatenation
+                var chunks: [String] = []
                 for try await chunk in stream {
                     // Check cancellation before appending each chunk
                     guard !Task.isCancelled else { return }
-                    response += chunk
+                    chunks.append(chunk)
+                    response = chunks.joined()  // Update UI incrementally
                 }
 
                 // Add assistant response to session
@@ -536,9 +539,12 @@ final class PromptViewModel: ObservableObject {
                 // Use streaming for better UX
                 let stream = summarizationService.summarizeStream(request: request)
 
+                // Use array buffer to avoid O(n²) string concatenation
+                var chunks: [String] = []
                 for try await chunk in stream {
                     guard !Task.isCancelled else { return }
-                    response += chunk
+                    chunks.append(chunk)
+                    response = chunks.joined()  // Update UI incrementally
                 }
 
                 // Add assistant response to session
@@ -670,25 +676,30 @@ final class PromptViewModel: ObservableObject {
                     context: currentContext
                 )
 
+                // Use array buffer to avoid O(n²) string concatenation
+                var chunks: [String] = []
                 for try await chunk in stream {
                     if Task.isCancelled {
                         // Save partial content so user can view, copy, insert, or retry
-                        if !streamingContent.isEmpty {
-                            sess.addAssistantMessage(streamingContent)
-                            response = streamingContent
+                        let partialContent = chunks.joined()
+                        if !partialContent.isEmpty {
+                            sess.addAssistantMessage(partialContent)
+                            response = partialContent
                             print("💬 Generation stopped - saved partial response")
                         }
                         streamingContent = ""
                         isGenerating = false
                         return
                     }
-                    streamingContent += chunk
+                    chunks.append(chunk)
+                    streamingContent = chunks.joined()  // Update UI incrementally
                 }
 
                 // Add completed response to session
-                if !streamingContent.isEmpty {
-                    sess.addAssistantMessage(streamingContent)
-                    response = streamingContent
+                let finalContent = chunks.joined()
+                if !finalContent.isEmpty {
+                    sess.addAssistantMessage(finalContent)
+                    response = finalContent
                 }
                 streamingContent = ""
 
@@ -743,25 +754,30 @@ final class PromptViewModel: ObservableObject {
                     context: currentContext
                 )
 
+                // Use array buffer to avoid O(n²) string concatenation
+                var chunks: [String] = []
                 for try await chunk in stream {
                     if Task.isCancelled {
                         // Save partial content so user can view, copy, insert, or retry
-                        if !streamingContent.isEmpty {
-                            sess.addAssistantMessage(streamingContent)
-                            response = streamingContent
+                        let partialContent = chunks.joined()
+                        if !partialContent.isEmpty {
+                            sess.addAssistantMessage(partialContent)
+                            response = partialContent
                             print("🔄 Retry stopped - saved partial response")
                         }
                         streamingContent = ""
                         isGenerating = false
                         return
                     }
-                    streamingContent += chunk
+                    chunks.append(chunk)
+                    streamingContent = chunks.joined()  // Update UI incrementally
                 }
 
                 // Add completed response to session
-                if !streamingContent.isEmpty {
-                    sess.addAssistantMessage(streamingContent)
-                    response = streamingContent
+                let finalContent = chunks.joined()
+                if !finalContent.isEmpty {
+                    sess.addAssistantMessage(finalContent)
+                    response = finalContent
                 }
                 streamingContent = ""
 
@@ -813,25 +829,30 @@ final class PromptViewModel: ObservableObject {
                     context: currentContext
                 )
 
+                // Use array buffer to avoid O(n²) string concatenation
+                var chunks: [String] = []
                 for try await chunk in stream {
                     if Task.isCancelled {
                         // Save partial content so user can view, copy, insert, or retry
-                        if !streamingContent.isEmpty {
-                            sess.addAssistantMessage(streamingContent)
-                            response = streamingContent
+                        let partialContent = chunks.joined()
+                        if !partialContent.isEmpty {
+                            sess.addAssistantMessage(partialContent)
+                            response = partialContent
                             print("🔄 Retry stopped - saved partial response")
                         }
                         streamingContent = ""
                         isGenerating = false
                         return
                     }
-                    streamingContent += chunk
+                    chunks.append(chunk)
+                    streamingContent = chunks.joined()  // Update UI incrementally
                 }
 
                 // Add completed response to session
-                if !streamingContent.isEmpty {
-                    sess.addAssistantMessage(streamingContent)
-                    response = streamingContent
+                let finalContent = chunks.joined()
+                if !finalContent.isEmpty {
+                    sess.addAssistantMessage(finalContent)
+                    response = finalContent
                 }
                 streamingContent = ""
 
