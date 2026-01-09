@@ -26,6 +26,8 @@ struct ResponseView: View {
     var onEnableChat: (() -> Void)?
     var onRetryMessage: ((UUID) -> Void)?
     var onRetryError: (() -> Void)?
+    /// Map of message IDs to their associated context (for displaying context indicators)
+    var messageContexts: [UUID: Context] = [:]
 
     @State private var showCopiedToast = false
 
@@ -59,6 +61,7 @@ struct ResponseView: View {
         self.onEnableChat = nil
         self.onRetryMessage = nil
         self.onRetryError = nil
+        self.messageContexts = [:]
     }
 
     // Full initializer with chat support
@@ -79,7 +82,8 @@ struct ResponseView: View {
         onSendChat: @escaping () -> Void,
         onEnableChat: @escaping () -> Void,
         onRetryMessage: ((UUID) -> Void)? = nil,
-        onRetryError: (() -> Void)? = nil
+        onRetryError: (() -> Void)? = nil,
+        messageContexts: [UUID: Context] = [:]
     ) {
         self.response = response
         self.isGenerating = isGenerating
@@ -98,6 +102,7 @@ struct ResponseView: View {
         self.onEnableChat = onEnableChat
         self.onRetryMessage = onRetryMessage
         self.onRetryError = onRetryError
+        self.messageContexts = messageContexts
     }
 
     var body: some View {
@@ -115,7 +120,8 @@ struct ResponseView: View {
                     isGenerating: isGenerating,
                     error: error,
                     onRetryMessage: onRetryMessage,
-                    onRetryError: onRetryError
+                    onRetryError: onRetryError,
+                    messageContexts: messageContexts
                 )
                 .frame(maxHeight: .infinity)
             } else {

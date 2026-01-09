@@ -13,6 +13,8 @@ struct ChatView: View {
     var onRetryMessage: ((UUID) -> Void)?
     /// Callback to retry after an error (retries the last user message)
     var onRetryError: (() -> Void)?
+    /// Map of message IDs to their associated context (for displaying context indicators)
+    var messageContexts: [UUID: Context] = [:]
 
     // Track if user has manually scrolled away from bottom
     @State private var userHasScrolledUp = false
@@ -28,7 +30,8 @@ struct ChatView: View {
                             ChatMessageView(
                                 message: message,
                                 onRetry: message.role == .assistant ? { onRetryMessage?(message.id) } : nil,
-                                isGenerating: isGenerating
+                                isGenerating: isGenerating,
+                                context: messageContexts[message.id]
                             )
                             .id(message.id)
                         }
