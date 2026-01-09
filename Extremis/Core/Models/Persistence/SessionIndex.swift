@@ -230,9 +230,13 @@ struct SessionIndex: Codable, Equatable {
     // MARK: - Mutation Helpers
 
     /// Update or insert an entry
+    /// Note: Preserves existing title when updating (title is immutable once set)
     mutating func upsert(_ entry: SessionIndexEntry) {
         if let index = sessions.firstIndex(where: { $0.id == entry.id }) {
-            sessions[index] = entry
+            // Preserve existing title - it should never change once set
+            var updatedEntry = entry
+            updatedEntry.title = sessions[index].title
+            sessions[index] = updatedEntry
         } else {
             sessions.append(entry)
         }

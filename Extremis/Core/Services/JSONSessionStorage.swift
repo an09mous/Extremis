@@ -60,10 +60,18 @@ actor JSONSessionStorage: SessionStorage {
         // Ensure directories exist
         try ensureStorageReady()
 
+        // Preserve existing title if this is an update (title is immutable once set)
+        var sessionToSave = session
+        if let existingSession = try? loadSession(id: session.id) {
+            if let existingTitle = existingSession.title {
+                sessionToSave.title = existingTitle
+            }
+        }
+
         // 1. Save session file
-        let fileURL = sessionFileURL(id: session.id)
+        let fileURL = sessionFileURL(id: sessionToSave.id)
         do {
-            let data = try encoder.encode(session)
+            let data = try encoder.encode(sessionToSave)
             try data.write(to: fileURL, options: .atomic)
         } catch let error as EncodingError {
             throw StorageError.encodingFailed(type: "PersistedSession", underlying: error)
@@ -73,11 +81,11 @@ actor JSONSessionStorage: SessionStorage {
 
         // 2. Update index
         var index = try loadIndex()
-        let entry = SessionIndexEntry(from: session)
+        let entry = SessionIndexEntry(from: sessionToSave)
         index.upsert(entry)
         try saveIndex(index)
 
-        print("[JSONSessionStorage] Saved session \(session.id) with \(session.messages.count) messages")
+        print("[JSONSessionStorage] Saved session \(sessionToSave.id) with \(sessionToSave.messages.count) messages")
     }
 
     func loadSession(id: UUID) throws -> PersistedSession? {
