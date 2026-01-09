@@ -1,10 +1,12 @@
-// MARK: - PromptBuilder Truncation Tests
-// Standalone tests for context truncation logic
+// MARK: - Context Truncation Tests
+// Standalone tests for context text truncation logic
+// Note: Truncation is now handled at capture time in Context.swift (kContextMax*Length constants)
+// These tests verify the truncation logic is correct.
 // Run with: swiftc -o test PromptBuilderTruncationTests.swift && ./test
 
 import Foundation
 
-// MARK: - Truncation Constants (must match PromptBuilder.swift)
+// MARK: - Truncation Constants (must match Context.swift)
 // Note: Wrapped in enum to avoid redeclaration conflicts when Xcode indexes both files
 
 private enum TruncationLimits {
@@ -13,7 +15,7 @@ private enum TruncationLimits {
     static let chatSelected = 50000
 }
 
-// MARK: - Truncation Functions (mirrors PromptBuilder implementation)
+// MARK: - Truncation Functions (mirrors Context.swift implementation)
 
 /// Truncates preceding text from the beginning, keeping the suffix (closest to cursor)
 func truncatePrecedingText(_ text: String) -> String {

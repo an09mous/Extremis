@@ -3,6 +3,19 @@
 
 import Foundation
 
+// MARK: - Context Text Limits
+// Maximum characters stored for each text field.
+// This prevents memory issues with extremely large selections/documents.
+
+/// Maximum characters for selected text
+private let kContextMaxSelectedTextLength = 50000
+
+/// Maximum characters for preceding text (text before cursor)
+private let kContextMaxPrecedingTextLength = 50000
+
+/// Maximum characters for succeeding text (text after cursor)
+private let kContextMaxSucceedingTextLength = 50000
+
 // MARK: - Core Context
 
 /// The main context captured when Extremis is activated
@@ -27,10 +40,34 @@ struct Context: Codable, Equatable, Identifiable {
         self.id = id
         self.capturedAt = capturedAt
         self.source = source
-        self.selectedText = selectedText
-        self.precedingText = precedingText
-        self.succeedingText = succeedingText
+        // Truncate text fields to prevent storing excessively large content
+        self.selectedText = Context.truncateSelectedText(selectedText)
+        self.precedingText = Context.truncatePrecedingText(precedingText)
+        self.succeedingText = Context.truncateSucceedingText(succeedingText)
         self.metadata = metadata
+    }
+
+    // MARK: - Text Truncation
+
+    /// Truncates selected text from the end, keeping the prefix
+    private static func truncateSelectedText(_ text: String?) -> String? {
+        guard let text = text else { return nil }
+        guard text.count > kContextMaxSelectedTextLength else { return text }
+        return String(text.prefix(kContextMaxSelectedTextLength))
+    }
+
+    /// Truncates preceding text from the beginning, keeping the suffix (closest to cursor)
+    private static func truncatePrecedingText(_ text: String?) -> String? {
+        guard let text = text else { return nil }
+        guard text.count > kContextMaxPrecedingTextLength else { return text }
+        return String(text.suffix(kContextMaxPrecedingTextLength))
+    }
+
+    /// Truncates succeeding text from the end, keeping the prefix (closest to cursor)
+    private static func truncateSucceedingText(_ text: String?) -> String? {
+        guard let text = text else { return nil }
+        guard text.count > kContextMaxSucceedingTextLength else { return text }
+        return String(text.prefix(kContextMaxSucceedingTextLength))
     }
 }
 
