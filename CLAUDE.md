@@ -22,18 +22,23 @@ rm -rf .build && swift build
 
 ## Testing
 
+All tests are standalone Swift files that can be compiled and run independently. The canonical way to run all tests is via the test script:
+
 ```bash
-# Run all tests
+# Run all tests (preferred method)
 cd Extremis && ./scripts/run-tests.sh
+```
 
-# Run specific test file
-swift test --filter ChatConversationTests
+**Important**: All new tests MUST be added to `Extremis/scripts/run-tests.sh` so they run as part of the test suite.
 
-# Run specific test method
-swift test --filter ChatConversationTests.testAddMessage
+Test files are located in `Extremis/Tests/` and organized by module:
+- `Tests/Core/` - Core model and service tests (ChatConversation, SessionManager, etc.)
+- `Tests/LLMProviders/` - Provider and prompt builder tests
+- `Tests/Utilities/` - Utility class tests (Keychain, Clipboard, etc.)
 
-# Run with verbose output
-swift test -v
+To run a single test file manually:
+```bash
+swiftc -parse-as-library Extremis/Tests/Core/SessionManagerTests.swift -o /tmp/test && /tmp/test
 ```
 
 ## Project Overview

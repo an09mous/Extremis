@@ -54,6 +54,7 @@ struct SessionListView: View {
                             SessionRowView(
                                 entry: entry,
                                 isActive: entry.id == sessionManager.currentSessionId,
+                                isDisabled: sessionManager.isAnySessionGenerating && entry.id != sessionManager.generatingSessionId,
                                 onSelect: { onSelectSession(entry.id) },
                                 onDelete: { onDeleteSession(entry.id) }
                             )
@@ -117,13 +118,19 @@ struct SessionListView: View {
 struct SessionRowView: View {
     let entry: SessionIndexEntry
     let isActive: Bool
+    let isDisabled: Bool
     let onSelect: () -> Void
     let onDelete: () -> Void
 
     @State private var isHovering = false
 
     var body: some View {
-        Button(action: onSelect) {
+        Button(action: {
+            // Only allow selection if not disabled
+            if !isDisabled {
+                onSelect()
+            }
+        }) {
             HStack(spacing: 0) {
                 // Active indicator bar
                 RoundedRectangle(cornerRadius: 1.5)
@@ -135,28 +142,32 @@ struct SessionRowView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(entry.title)
                             .font(.system(size: 12, weight: isActive ? .semibold : .regular))
-                            .foregroundColor(isActive ? .primary : .secondary)
+                            .foregroundColor(isDisabled ? .secondary.opacity(0.5) : (isActive ? .primary : .secondary))
                             .lineLimit(1)
 
                         HStack(spacing: 4) {
                             Text(formatDate(entry.updatedAt))
                                 .font(.system(size: 10))
-                                .foregroundColor(.secondary)
+                                .foregroundColor(isDisabled ? .secondary.opacity(0.5) : .secondary)
 
                             Text("•")
                                 .font(.system(size: 8))
-                                .foregroundColor(.secondary)
+                                .foregroundColor(isDisabled ? .secondary.opacity(0.5) : .secondary)
 
                             Text("\(entry.messageCount) msgs")
                                 .font(.system(size: 10))
-                                .foregroundColor(.secondary)
+                                .foregroundColor(isDisabled ? .secondary.opacity(0.5) : .secondary)
                         }
                     }
 
                     Spacer()
 
-                    // Delete button (shown on hover)
-                    if isHovering && !isActive {
+                    // Show lock icon when disabled, delete button on hover otherwise
+                    if isDisabled {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary.opacity(0.5))
+                    } else if isHovering && !isActive {
                         Button(action: onDelete) {
                             Image(systemName: "trash")
                                 .font(.system(size: 10))
@@ -171,7 +182,7 @@ struct SessionRowView: View {
             }
             .background(
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(isActive ? Color.accentColor.opacity(0.12) : (isHovering ? Color.secondary.opacity(0.08) : Color.clear))
+                    .fill(isActive ? Color.accentColor.opacity(0.12) : (isHovering && !isDisabled ? Color.secondary.opacity(0.08) : Color.clear))
             )
         }
         .buttonStyle(.plain)
@@ -179,6 +190,7 @@ struct SessionRowView: View {
         .onHover { hovering in
             isHovering = hovering
         }
+        .help(isDisabled ? "Generation in progress - wait or cancel to switch" : "")
     }
 
     private func formatDate(_ date: Date) -> String {

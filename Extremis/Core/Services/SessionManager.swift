@@ -17,6 +17,11 @@ final class SessionManager: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var sessionListVersion: Int = 0  // Incremented when list changes
 
+    /// Whether any session is currently generating (blocks session switching)
+    @Published private(set) var isAnySessionGenerating: Bool = false
+    /// The ID of the session currently generating (if any)
+    @Published private(set) var generatingSessionId: UUID? = nil
+
     // MARK: - Private State
     private var isDirty = false
     private var currentContext: Context?  // Track current context for saving with messages
@@ -133,6 +138,25 @@ final class SessionManager: ObservableObject {
     /// Get contexts for all messages (for saving)
     func getMessageContexts() -> [UUID: Context] {
         return messageContexts
+    }
+
+    // MARK: - Generation State Tracking
+
+    /// Register that a session is actively generating (blocks session switching)
+    func registerActiveGeneration(sessionId: UUID) {
+        isAnySessionGenerating = true
+        generatingSessionId = sessionId
+        print("[SessionManager] Registered active generation for session \(sessionId)")
+    }
+
+    /// Unregister when generation completes (re-enables session switching)
+    func unregisterActiveGeneration(sessionId: UUID) {
+        // Only clear if this is the session that was generating
+        if generatingSessionId == sessionId {
+            isAnySessionGenerating = false
+            generatingSessionId = nil
+            print("[SessionManager] Unregistered active generation for session \(sessionId)")
+        }
     }
 
     // MARK: - Dirty Tracking

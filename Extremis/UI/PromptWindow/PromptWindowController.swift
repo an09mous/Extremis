@@ -212,7 +212,14 @@ final class PromptWindowController: NSWindowController {
 
     /// Start a new session (clear current and create fresh)
     /// Note: Does NOT clear currentContext - context persists until new hotkey invocation
+    /// Blocked if generation is in progress
     func startNewSession() async {
+        // Block if generation is in progress
+        if SessionManager.shared.isAnySessionGenerating {
+            print("📋 PromptWindow: Cannot start new session - generation in progress")
+            return
+        }
+
         print("📋 PromptWindow: Starting new session")
         viewModel.cancelGeneration()
 
@@ -229,7 +236,14 @@ final class PromptWindowController: NSWindowController {
     }
 
     /// Select and load a specific session
+    /// Blocked if generation is in progress
     func selectSession(id: UUID) async {
+        // Block switching if generation is in progress
+        if SessionManager.shared.isAnySessionGenerating {
+            print("📋 PromptWindow: Cannot switch session - generation in progress")
+            return
+        }
+
         print("📋 PromptWindow: Selecting session \(id)")
         viewModel.cancelGeneration()
 
@@ -458,7 +472,23 @@ final class PromptViewModel: ObservableObject {
         showResponse = true
         response = ""
 
+        // Capture session ID for generation tracking
+        let capturedSessionId = sessionId
+
         generationTask = Task {
+            // Register active generation to block session switching
+            if let sid = capturedSessionId {
+                SessionManager.shared.registerActiveGeneration(sessionId: sid)
+            }
+
+            defer {
+                // Always unregister when generation ends (success, error, or cancellation)
+                if let sid = capturedSessionId {
+                    SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
+                }
+                isGenerating = false
+            }
+
             do {
                 guard let provider = LLMProviderRegistry.shared.activeProvider else {
                     throw LLMProviderError.notConfigured(provider: .openai)
@@ -474,8 +504,16 @@ final class PromptViewModel: ObservableObject {
                 // Use array buffer to avoid O(n²) string concatenation
                 var chunks: [String] = []
                 for try await chunk in stream {
-                    // Check cancellation before appending each chunk
-                    guard !Task.isCancelled else { return }
+                    if Task.isCancelled {
+                        // Save partial content so user can view, copy, insert, or retry
+                        let partialContent = chunks.joined()
+                        if !partialContent.isEmpty, let sess = session {
+                            sess.addAssistantMessage(partialContent)
+                            response = partialContent
+                            print("🔧 Generation stopped - saved partial response")
+                        }
+                        return
+                    }
                     chunks.append(chunk)
                     response = chunks.joined()  // Update UI incrementally
                 }
@@ -495,7 +533,6 @@ final class PromptViewModel: ObservableObject {
                 print("🔧 Generation error: \(error)")
                 self.error = error.localizedDescription
             }
-            isGenerating = false
         }
     }
 
@@ -528,7 +565,24 @@ final class PromptViewModel: ObservableObject {
         showResponse = true
         response = ""
 
+        // Capture session ID for generation tracking
+        let capturedSessionId = sessionId
+
         generationTask = Task {
+            // Register active generation to block session switching
+            if let sid = capturedSessionId {
+                SessionManager.shared.registerActiveGeneration(sessionId: sid)
+            }
+
+            defer {
+                // Always unregister when generation ends (success, error, or cancellation)
+                if let sid = capturedSessionId {
+                    SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
+                }
+                isGenerating = false
+                isSummarizing = false
+            }
+
             do {
                 let request = SummaryRequest(
                     text: text,
@@ -542,7 +596,16 @@ final class PromptViewModel: ObservableObject {
                 // Use array buffer to avoid O(n²) string concatenation
                 var chunks: [String] = []
                 for try await chunk in stream {
-                    guard !Task.isCancelled else { return }
+                    if Task.isCancelled {
+                        // Save partial content so user can view, copy, insert, or retry
+                        let partialContent = chunks.joined()
+                        if !partialContent.isEmpty, let sess = session {
+                            sess.addAssistantMessage(partialContent)
+                            response = partialContent
+                            print("📝 Summarization stopped - saved partial response")
+                        }
+                        return
+                    }
                     chunks.append(chunk)
                     response = chunks.joined()  // Update UI incrementally
                 }
@@ -562,8 +625,6 @@ final class PromptViewModel: ObservableObject {
                 print("📝 PromptViewModel: Summarization error: \(error)")
                 self.error = error.localizedDescription
             }
-            isGenerating = false
-            isSummarizing = false
         }
     }
 
@@ -664,7 +725,23 @@ final class PromptViewModel: ObservableObject {
         isGenerating = true
         error = nil
 
+        // Capture session ID for generation tracking
+        let capturedSessionId = sessionId
+
         generationTask = Task {
+            // Register active generation to block session switching
+            if let sid = capturedSessionId {
+                SessionManager.shared.registerActiveGeneration(sessionId: sid)
+            }
+
+            defer {
+                // Always unregister when generation ends (success, error, or cancellation)
+                if let sid = capturedSessionId {
+                    SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
+                }
+                isGenerating = false
+            }
+
             do {
                 guard let provider = LLMProviderRegistry.shared.activeProvider else {
                     throw LLMProviderError.notConfigured(provider: .openai)
@@ -688,7 +765,6 @@ final class PromptViewModel: ObservableObject {
                             print("💬 Generation stopped - saved partial response")
                         }
                         streamingContent = ""
-                        isGenerating = false
                         return
                     }
                     chunks.append(chunk)
@@ -710,7 +786,6 @@ final class PromptViewModel: ObservableObject {
                 print("💬 Chat error: \(error)")
                 self.error = error.localizedDescription
             }
-            isGenerating = false
         }
     }
 
@@ -742,7 +817,23 @@ final class PromptViewModel: ObservableObject {
         isGenerating = true
         error = nil
 
+        // Capture session ID for generation tracking
+        let capturedSessionId = sessionId
+
         generationTask = Task {
+            // Register active generation to block session switching
+            if let sid = capturedSessionId {
+                SessionManager.shared.registerActiveGeneration(sessionId: sid)
+            }
+
+            defer {
+                // Always unregister when generation ends (success, error, or cancellation)
+                if let sid = capturedSessionId {
+                    SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
+                }
+                isGenerating = false
+            }
+
             do {
                 guard let provider = LLMProviderRegistry.shared.activeProvider else {
                     throw LLMProviderError.notConfigured(provider: .openai)
@@ -766,7 +857,6 @@ final class PromptViewModel: ObservableObject {
                             print("🔄 Retry stopped - saved partial response")
                         }
                         streamingContent = ""
-                        isGenerating = false
                         return
                     }
                     chunks.append(chunk)
@@ -788,7 +878,6 @@ final class PromptViewModel: ObservableObject {
                 print("🔄 Retry error: \(error)")
                 self.error = error.localizedDescription
             }
-            isGenerating = false
         }
     }
 
@@ -817,7 +906,23 @@ final class PromptViewModel: ObservableObject {
         streamingContent = ""
         isGenerating = true
 
+        // Capture session ID for generation tracking
+        let capturedSessionId = sessionId
+
         generationTask = Task {
+            // Register active generation to block session switching
+            if let sid = capturedSessionId {
+                SessionManager.shared.registerActiveGeneration(sessionId: sid)
+            }
+
+            defer {
+                // Always unregister when generation ends (success, error, or cancellation)
+                if let sid = capturedSessionId {
+                    SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
+                }
+                isGenerating = false
+            }
+
             do {
                 guard let provider = LLMProviderRegistry.shared.activeProvider else {
                     throw LLMProviderError.notConfigured(provider: .openai)
@@ -841,7 +946,6 @@ final class PromptViewModel: ObservableObject {
                             print("🔄 Retry stopped - saved partial response")
                         }
                         streamingContent = ""
-                        isGenerating = false
                         return
                     }
                     chunks.append(chunk)
@@ -863,7 +967,6 @@ final class PromptViewModel: ObservableObject {
                 print("🔄 Retry error: \(error)")
                 self.error = error.localizedDescription
             }
-            isGenerating = false
         }
     }
 
@@ -881,6 +984,7 @@ final class PromptViewModel: ObservableObject {
 
 struct PromptContainerView: View {
     @ObservedObject var viewModel: PromptViewModel
+    @ObservedObject var sessionManager = SessionManager.shared
     let onInsert: (String) -> Void
     let onCancel: () -> Void
     let onGenerate: () -> Void
@@ -935,13 +1039,17 @@ struct PromptContainerView: View {
                     .help(showSidebar ? "Hide sidebar" : "Show sidebar")
 
                     // New chat button (pencil/compose icon)
-                    Button(action: { onNewSession() }) {
-                        Image(systemName: "square.and.pencil")
+                    Button(action: {
+                        if !sessionManager.isAnySessionGenerating {
+                            onNewSession()
+                        }
+                    }) {
+                        Image(systemName: sessionManager.isAnySessionGenerating ? "square.and.pencil.circle" : "square.and.pencil")
                             .font(.system(size: 16))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(sessionManager.isAnySessionGenerating ? .secondary.opacity(0.4) : .secondary)
                     }
                     .buttonStyle(.plain)
-                    .help("New session")
+                    .help(sessionManager.isAnySessionGenerating ? "Generation in progress - wait or cancel to start new session" : "New session")
 
                     Spacer()
 
