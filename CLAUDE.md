@@ -124,5 +124,25 @@ Current active feature: `specs/007-memory-persistence/` (Memory & Persistence)
 
 - **UserDefaults**: App preferences (active provider, hotkey config, appearance)
 - **Keychain**: API keys stored as single JSON entry via `KeychainHelper`
-- **Application Support**: `~/Library/Application Support/Extremis/` for persistence (Phase 2)
+- **Application Support**: `~/Library/Application Support/Extremis/` for session persistence
 - **models.json**: LLM model configurations in Resources/
+
+## Prompt Templates
+
+**Important**: All LLM prompts MUST be stored as `.hbs` template files in `Extremis/Resources/PromptTemplates/`. Do NOT hardcode prompts in Swift code - always create a template file and load it via `PromptTemplateLoader`.
+
+| Template | Purpose | Placeholders |
+|----------|---------|--------------|
+| `system.hbs` | Base system prompt for all interactions | None |
+| `instruction.hbs` | Quick mode instruction prompt | `{{SYSTEM_PROMPT}}`, `{{CONTEXT}}`, `{{INSTRUCTION}}` |
+| `chat_system.hbs` | Chat mode system prompt | `{{SYSTEM_PROMPT}}`, `{{CONTEXT}}` |
+| `autocomplete.hbs` | Text autocomplete prompt | `{{SYSTEM_PROMPT}}`, `{{CONTEXT}}` |
+| `selection_transform.hbs` | Selection transformation prompt | `{{SYSTEM_PROMPT}}`, `{{CONTEXT}}`, `{{SELECTED_TEXT}}`, `{{INSTRUCTION}}` |
+| `summarization.hbs` | Text summarization prompt | `{{SYSTEM_PROMPT}}`, `{{CONTEXT}}`, `{{SELECTED_TEXT}}`, `{{FORMAT_INSTRUCTION}}`, `{{LENGTH_INSTRUCTION}}` |
+| `session_summarization.hbs` | Session/conversation summarization for context preservation | `{{CONVERSATION_TRANSCRIPT}}` |
+
+**Adding a new prompt template**:
+1. Create `my_template.hbs` in `Extremis/Resources/PromptTemplates/`
+2. Add case to `PromptTemplate` enum in `LLMProviders/PromptTemplateLoader.swift`
+3. Load via `PromptTemplateLoader.shared.load(.myTemplate)`
+4. Use `String.replacingOccurrences(of:with:)` to substitute placeholders

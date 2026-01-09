@@ -286,9 +286,8 @@ final class PromptBuilder {
         for (index, message) in messages.enumerated() {
             let role = message["role"] ?? "unknown"
             let content = message["content"] ?? ""
-            let preview = content.count > 300 ? String(content.prefix(300)) + "..." : content
             print("[\(index)] \(role.uppercased()):")
-            print(preview)
+            print(content)
             print("")
         }
         print(String(repeating: "-", count: 80) + "\n")

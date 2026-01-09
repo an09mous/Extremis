@@ -10,8 +10,9 @@ enum PromptTemplate: String, CaseIterable {
     case instruction = "instruction"
     case selectionTransform = "selection_transform"
     case summarization = "summarization"
+    case sessionSummarization = "session_summarization"
     case chatSystem = "chat_system"
-    
+
     /// The filename for this template (without extension)
     var filename: String { rawValue }
 }

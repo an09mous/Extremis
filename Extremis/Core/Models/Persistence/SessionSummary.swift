@@ -30,8 +30,16 @@ struct SessionSummary: Codable, Equatable {
     }
 
     /// Check if summary needs regeneration (too many new messages since)
+    /// Regeneration is needed when there are `threshold` NEW messages beyond what the summary + recent messages covered.
+    /// Example: summary covers 10 messages, threshold is 10 (recent to keep)
+    /// - At 20 messages: 10 summarized + 10 recent = covered, no regen needed
+    /// - At 30 messages: 10 summarized + 10 recent = 20 covered, 10 new → regenerate
     func needsRegeneration(totalMessages: Int, threshold: Int = 10) -> Bool {
-        let newMessagesSinceSummary = totalMessages - coversMessageCount
+        // Total messages covered when summary was created = summarized + recent kept
+        let coveredWhenCreated = coversMessageCount + threshold
+        // New messages since summary was created
+        let newMessagesSinceSummary = totalMessages - coveredWhenCreated
+        // Only regenerate if we have `threshold` or more NEW messages
         return newMessagesSinceSummary >= threshold
     }
 }

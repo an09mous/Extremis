@@ -218,6 +218,19 @@ final class SessionManager: ObservableObject {
             isDirty = false
             sessionListVersion += 1  // Notify sidebar to refresh
             print("[SessionManager] Saved session \(id) with \(messageContexts.count) message contexts")
+
+            // Check if summarization is needed (runs async, doesn't block)
+            let storageRef = self.storage
+            Task { [weak self] in
+                let updated = await SummarizationManager.shared.summarizeIfNeeded(persisted, storage: storageRef)
+                if let newSummary = updated.summary, newSummary != persisted.summary {
+                    // Sync summary back to live session for immediate use
+                    await MainActor.run {
+                        self?.currentSession?.updateSummary(newSummary, coversCount: newSummary.coversMessageCount)
+                    }
+                    print("[SessionManager] Session summarized and synced to live session")
+                }
+            }
         } catch {
             print("[SessionManager] Failed to save: \(error)")
         }

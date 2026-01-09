@@ -132,7 +132,8 @@ extension PersistedSession {
             messages: persistedMessages,
             initialRequest: session.initialRequest,
             maxMessages: session.maxMessages,
-            title: nil  // Will be auto-generated from first user message
+            title: nil,  // Will be auto-generated from first user message
+            summary: session.summary
         )
     }
 
@@ -145,7 +146,9 @@ extension PersistedSession {
         let session = ChatSession(
             originalContext: originalContext,
             initialRequest: initialRequest,
-            maxMessages: maxMessages
+            maxMessages: maxMessages,
+            summary: summary,
+            summaryCoversCount: summary?.coversMessageCount ?? 0
         )
 
         // Restore messages (avoid triggering trimIfNeeded for each)
