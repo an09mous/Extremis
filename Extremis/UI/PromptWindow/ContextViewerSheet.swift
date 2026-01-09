@@ -14,9 +14,8 @@
 //    - For new fields in existing metadata: Update the corresponding view
 //      (slackMetadataView, gmailMetadataView, githubMetadataView, genericMetadataView)
 //
-// 2. COPY FUNCTIONALITY:
-//    - Update `formatContextForClipboard()` (~line 333) to include the new field
-//    - For metadata fields: Update `formatMetadata()` (~line 376)
+// 2. COPY FUNCTIONALITY (per-section copy buttons):
+//    - For metadata fields: Update `formatMetadata()` (~line 390)
 //
 // 3. PREVIEWS:
 //    - Update `ContextViewerSheet_Previews` to include sample data for new fields
@@ -81,7 +80,7 @@ struct ContextViewerSheet: View {
     }
     
     // MARK: - Header
-    
+
     private var header: some View {
         HStack {
             Image(systemName: "doc.text.magnifyingglass")
@@ -96,6 +95,7 @@ struct ContextViewerSheet: View {
                     .foregroundColor(.secondary)
             }
             .buttonStyle(.plain)
+            .keyboardShortcut(.escape, modifiers: [])
             .help("Close (Escape)")
         }
         .padding()
@@ -321,16 +321,6 @@ struct ContextViewerSheet: View {
             }
 
             Spacer()
-
-            Button(action: copyAll) {
-                Label("Copy All", systemImage: "doc.on.doc")
-            }
-            .help("Copy entire context to clipboard")
-
-            Button("Close") {
-                onDismiss()
-            }
-            .keyboardShortcut(.escape, modifiers: [])
         }
         .padding()
         .animation(.easeInOut(duration: 0.2), value: copiedSection)
@@ -388,82 +378,6 @@ struct ContextViewerSheet: View {
                 }
             }
         }
-    }
-
-    private func copyAll() {
-        let formatted = formatContextForClipboard()
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(formatted, forType: .string)
-
-        withAnimation {
-            copiedSection = "all"
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            withAnimation {
-                if copiedSection == "all" {
-                    copiedSection = nil
-                }
-            }
-        }
-    }
-
-    // EXTENSIBILITY: Update this function when adding new Context fields
-    // to ensure they are included in the "Copy All" output
-    private func formatContextForClipboard() -> String {
-        var parts: [String] = []
-
-        // Source
-        // EXTENSIBILITY: Add new ContextSource fields here
-        parts.append("=== Source Application ===")
-        parts.append("Application: \(context.source.applicationName)")
-        parts.append("Bundle ID: \(context.source.bundleIdentifier)")
-        if let window = context.source.windowTitle {
-            parts.append("Window: \(window)")
-        }
-        if let url = context.source.url {
-            parts.append("URL: \(url.absoluteString)")
-        }
-        // Example for new field:
-        // if let ip = context.source.ip {
-        //     parts.append("IP: \(ip)")
-        // }
-
-        // EXTENSIBILITY: Add new top-level Context fields here
-        // Example:
-        // if let newField = context.newField, !newField.isEmpty {
-        //     parts.append("")
-        //     parts.append("=== New Field ===")
-        //     parts.append(newField)
-        // }
-
-        // Selected text
-        if let selected = context.selectedText, !selected.isEmpty {
-            parts.append("")
-            parts.append("=== Selected Text ===")
-            parts.append(selected)
-        }
-
-        // Preceding text
-        if let preceding = context.precedingText, !preceding.isEmpty {
-            parts.append("")
-            parts.append("=== Preceding Text ===")
-            parts.append(preceding)
-        }
-
-        // Succeeding text
-        if let succeeding = context.succeedingText, !succeeding.isEmpty {
-            parts.append("")
-            parts.append("=== Succeeding Text ===")
-            parts.append(succeeding)
-        }
-
-        // Metadata
-        parts.append("")
-        parts.append("=== Metadata ===")
-        parts.append(formatMetadata())
-
-        return parts.joined(separator: "\n")
     }
 
     // EXTENSIBILITY: Update this function when adding new metadata types
