@@ -113,14 +113,14 @@ Per plan.md, this is a single macOS application:
 
 ---
 
-### 2.6 US3: Summarization (P2) - FUTURE
+### 2.6 US3: Summarization (P2) - COMPLETE
 
-> **⚠️ DEFERRED**: Complete US1+US2 first, then implement summarization.
+> **✅ COMPLETE**: Implemented 2026-01-09
 
-- [ ] T028 Implement SummarizationManager in Extremis/Core/Services/SummarizationManager.swift
-- [ ] T029 Add summarization trigger logic (20 messages OR 8K tokens)
-- [ ] T030 Integrate with PersistedConversation.summary field
-- [ ] T031 Test summarization preserves key context
+- [x] T028 Implement SummarizationManager in Extremis/Core/Services/SummarizationManager.swift
+- [x] T029 Add summarization trigger logic (20 messages OR 8K tokens)
+- [x] T030 Integrate with PersistedSession.summary field
+- [x] T031 Test summarization preserves key context (77 unit tests)
 
 ---
 
@@ -220,7 +220,7 @@ T004: Research industry alternatives
 | Phase 2: Conversation Mgmt | T020 | ✅ Complete |
 | Phase 2: App Integration | T021-T024 | ✅ Complete (T024 deferred) |
 | Phase 2: Validation | T025-T027 | ✅ Complete (T027 deferred) |
-| Phase 2: US3 (Summarization) | T028-T031 | ⏸️ Deferred |
+| Phase 2: US3 (Summarization) | T028-T031 | ✅ Complete |
 | Phase 2: US4 (Memory) | T032-T037 | ⏸️ Deferred |
 
 **Total Phase 1 Tasks**: 12 (Complete)
@@ -249,3 +249,33 @@ T004: Research industry alternatives
 - Backward compatibility for schema migrations (lastModifiedAt → updatedAt)
 - Title generated from first message content (truncated to 50 chars)
 - Storage location: `~/Library/Application Support/Extremis/conversations/`
+
+---
+
+## US3 Completion Notes
+
+**Completed**: 2026-01-09
+
+### What was implemented:
+- SummarizationManager service (`Extremis/Core/Services/SummarizationManager.swift`)
+- Hierarchical summarization (previous summary + new messages)
+- Trigger logic: 20 messages OR 8K tokens threshold
+- Configurable thresholds via `Config` struct
+- SessionSummary model with `isValid`, `needsRegeneration()` methods
+- ChatSession integration with `messagesForLLM()` and `updateSummary()`
+- Async summarization after save (non-blocking)
+
+### Unit Tests (77 total):
+- Token estimation tests
+- SessionSummary validity and regeneration edge cases
+- Hierarchical summarization scenarios (first/second/third summary)
+- buildLLMContext edge cases (empty, single, summary covers all)
+- Conversation lifecycle growth patterns
+- Context window size verification (bounded at 11 messages)
+- Codable/Equatable conformance
+- PersistedSession summary preservation
+
+### Documentation:
+- `Extremis/docs/memory-architecture.md` - comprehensive architecture doc
+- `Extremis/docs/cross-session-memory-architecture.md` - US4 architecture (for future)
+- `Extremis/docs/persistence-architecture.md` - updated with summary references
