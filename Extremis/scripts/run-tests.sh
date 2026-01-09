@@ -9,6 +9,7 @@ OUTPUT_DIR="$PROJECT_DIR/.build/tests"
 # Track overall results
 TOTAL_PASSED=0
 TOTAL_FAILED=0
+TOTAL_SUITES=0
 FAILED_SUITES=()
 
 # Create output directory
@@ -27,6 +28,8 @@ run_test_suite() {
     local test_file="$2"
     shift 2
     local frameworks=("$@")
+
+    ((TOTAL_SUITES++))
 
     echo "📦 $name"
     echo "--------------------------------------------------"
@@ -51,12 +54,35 @@ run_test_suite() {
         echo "✅ Compiled $name"
         echo ""
 
-        # Run and capture output
-        if "$OUTPUT_DIR/$output_name"; then
-            echo ""
-        else
+        # Run and capture output, extract pass/fail counts
+        local output
+        output=$("$OUTPUT_DIR/$output_name" 2>&1)
+        local exit_code=$?
+        echo "$output"
+
+        # Extract passed/failed counts from output (handles both formats)
+        # Format 1: "Passed: N" / "Failed: N"
+        # Format 2: "N passed, N failed"
+        local passed=0
+        local failed=0
+
+        if echo "$output" | grep -q "Passed:"; then
+            passed=$(echo "$output" | grep "^Passed:" | tail -1 | awk '{print $2}')
+            failed=$(echo "$output" | grep "^Failed:" | tail -1 | awk '{print $2}')
+        elif echo "$output" | grep -q "passed,"; then
+            passed=$(echo "$output" | grep -o "[0-9]* passed" | tail -1 | awk '{print $1}')
+            failed=$(echo "$output" | grep -o "[0-9]* failed" | tail -1 | awk '{print $1}')
+        fi
+
+        # Add to totals
+        TOTAL_PASSED=$((TOTAL_PASSED + ${passed:-0}))
+        TOTAL_FAILED=$((TOTAL_FAILED + ${failed:-0}))
+
+        if [ $exit_code -ne 0 ]; then
             FAILED_SUITES+=("$name")
         fi
+
+        echo ""
 
         # Clean up
         rm -f "$OUTPUT_DIR/$output_name"
@@ -105,11 +131,56 @@ run_test_suite "ChatConversation Tests" \
     "$PROJECT_DIR/Tests/Core/ChatConversationTests.swift" \
     "Foundation"
 
+# 6. SessionManager Tests (generation state tracking and session switching)
+run_test_suite "SessionManager Tests" \
+    "$PROJECT_DIR/Tests/Core/SessionManagerTests.swift" \
+    "Foundation"
+
+# 7. SummarizationManager Tests (session summarization and context preservation)
+# Note: This test requires multiple source files for models
+echo "📦 SummarizationManager Tests"
+echo "--------------------------------------------------"
+((TOTAL_SUITES++))
+if swiftc -parse-as-library -o "$OUTPUT_DIR/SummarizationManagerTests" \
+    "$PROJECT_DIR/Tests/Core/SummarizationManagerTests.swift" \
+    "$PROJECT_DIR/Core/Models/ChatMessage.swift" \
+    "$PROJECT_DIR/Core/Models/Persistence/PersistedMessage.swift" \
+    "$PROJECT_DIR/Core/Models/Persistence/PersistedSession.swift" \
+    "$PROJECT_DIR/Core/Models/Persistence/SessionSummary.swift" \
+    "$PROJECT_DIR/Core/Models/Context.swift" \
+    2>&1; then
+    echo "✅ Compiled SummarizationManager Tests"
+    echo ""
+    output=$("$OUTPUT_DIR/SummarizationManagerTests" 2>&1)
+    exit_code=$?
+    echo "$output"
+    passed=$(echo "$output" | grep "^Passed:" | tail -1 | awk '{print $2}')
+    failed=$(echo "$output" | grep "^Failed:" | tail -1 | awk '{print $2}')
+    TOTAL_PASSED=$((TOTAL_PASSED + ${passed:-0}))
+    TOTAL_FAILED=$((TOTAL_FAILED + ${failed:-0}))
+    if [ $exit_code -ne 0 ]; then
+        FAILED_SUITES+=("SummarizationManager Tests")
+    fi
+    rm -f "$OUTPUT_DIR/SummarizationManagerTests"
+else
+    echo "❌ Compilation failed for SummarizationManager Tests"
+    FAILED_SUITES+=("SummarizationManager Tests (compilation failed)")
+fi
+echo ""
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------
 echo "=================================================="
-echo "OVERALL TEST RESULTS"
+echo "COMBINED TEST RESULTS"
+echo "=================================================="
+echo ""
+echo "Test Suites: $TOTAL_SUITES"
+echo "Total Tests: $((TOTAL_PASSED + TOTAL_FAILED))"
+echo ""
+echo "  ✓ Passed: $TOTAL_PASSED"
+echo "  ✗ Failed: $TOTAL_FAILED"
+echo ""
 echo "=================================================="
 
 if [ ${#FAILED_SUITES[@]} -eq 0 ]; then

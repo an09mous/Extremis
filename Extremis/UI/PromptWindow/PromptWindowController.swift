@@ -67,16 +67,34 @@ final class PromptWindowController: NSWindowController {
                 self?.hidePrompt()
             },
             onGenerate: { [weak self] in
-                guard let context = self?.currentContext else {
-                    print("❌ No context available for generation")
-                    return
-                }
+                // Use existing context or create a minimal one for new sessions
+                let context = self?.currentContext ?? Context(
+                    source: ContextSource(applicationName: "Extremis", bundleIdentifier: "com.extremis.app")
+                )
                 print("🔧 Triggering generation with context")
                 self?.viewModel.generate(with: context)
             },
             onSummarize: { [weak self] in
                 print("📝 Summarize button clicked")
                 self?.viewModel.summarizeSelection()
+            },
+            onSelectSession: { [weak self] id in
+                print("📋 Selecting session: \(id)")
+                Task { @MainActor in
+                    await self?.selectSession(id: id)
+                }
+            },
+            onNewSession: { [weak self] in
+                print("📋 Starting new session")
+                Task { @MainActor in
+                    await self?.startNewSession()
+                }
+            },
+            onDeleteSession: { [weak self] id in
+                print("📋 Deleting session: \(id)")
+                Task { @MainActor in
+                    await self?.deleteSession(id: id)
+                }
             }
         ))
         window?.contentView = contentView
@@ -101,8 +119,12 @@ final class PromptWindowController: NSWindowController {
         // Always set new context first
         currentContext = context
 
-        // Reset the view model completely
-        viewModel.reset()
+        // Update SessionManager with the new context so it's saved with messages
+        SessionManager.shared.updateCurrentContext(context)
+
+        // Prepare for new input but preserve session state
+        // Don't call reset() - keep the session/conversation intact
+        viewModel.prepareForNewInput()
 
         // Set the context on the viewModel so it can access source info for summarization
         viewModel.currentContext = context
@@ -172,13 +194,89 @@ final class PromptWindowController: NSWindowController {
         }
     }
 
-    /// Hide the prompt window and clear context
+    /// Hide the prompt window (preserves session state)
     func hidePrompt() {
-        print("📋 PromptWindow: Hiding and clearing context")
+        print("📋 PromptWindow: Hiding (session preserved)")
         viewModel.cancelGeneration()
-        viewModel.reset()  // Clear everything including context info
+        // Don't reset - preserve session state for continuity
+        // Just clear the transient UI state
+        viewModel.clearTransientState()
         currentContext = nil  // Clear the context
         window?.orderOut(nil)
+    }
+
+    /// Set a restored session (for session persistence)
+    func setSession(_ session: ChatSession, id: UUID?) {
+        viewModel.setRestoredSession(session, id: id)
+    }
+
+    /// Start a new session (clear current and create fresh)
+    /// Note: Does NOT clear currentContext - context persists until new hotkey invocation
+    /// Blocked if generation is in progress
+    func startNewSession() async {
+        // Block if generation is in progress
+        if SessionManager.shared.isAnySessionGenerating {
+            print("📋 PromptWindow: Cannot start new session - generation in progress")
+            return
+        }
+
+        print("📋 PromptWindow: Starting new session")
+        viewModel.cancelGeneration()
+
+        // Save the current context before reset (reset clears it)
+        let preservedContext = viewModel.currentContext
+
+        viewModel.reset()
+
+        // Restore the context - it should persist until next hotkey invocation
+        viewModel.currentContext = preservedContext
+        // Keep controller's currentContext as is (don't set to nil)
+
+        await SessionManager.shared.startNewSession()
+    }
+
+    /// Select and load a specific session
+    /// Blocked if generation is in progress
+    func selectSession(id: UUID) async {
+        // Block switching if generation is in progress
+        if SessionManager.shared.isAnySessionGenerating {
+            print("📋 PromptWindow: Cannot switch session - generation in progress")
+            return
+        }
+
+        print("📋 PromptWindow: Selecting session \(id)")
+        viewModel.cancelGeneration()
+
+        do {
+            try await SessionManager.shared.loadSession(id: id)
+
+            // Get the loaded session and set it on the view model
+            if let session = SessionManager.shared.currentSession {
+                viewModel.setRestoredSession(session, id: id)
+            }
+        } catch {
+            print("📋 PromptWindow: Failed to load session: \(error)")
+        }
+    }
+
+    /// Delete a session
+    func deleteSession(id: UUID) async {
+        print("📋 PromptWindow: Deleting session \(id)")
+
+        do {
+            // Check if we're deleting the current session
+            let isDeletingCurrent = id == SessionManager.shared.currentSessionId
+
+            try await SessionManager.shared.deleteSession(id: id)
+
+            // If we deleted the current session, reset the view model
+            if isDeletingCurrent {
+                viewModel.reset()
+                currentContext = nil
+            }
+        } catch {
+            print("📋 PromptWindow: Failed to delete session: \(error)")
+        }
     }
 }
 
@@ -202,10 +300,13 @@ final class PromptViewModel: ObservableObject {
     @Published var isSummarizing: Bool = false
 
     // Chat mode properties
-    @Published var conversation: ChatConversation?
+    @Published var session: ChatSession?
     @Published var chatInputText: String = ""
     @Published var streamingContent: String = ""
     @Published var isChatMode: Bool = false
+
+    // Persistence properties
+    private(set) var sessionId: UUID?
 
     private var generationTask: Task<Void, Never>?
     var currentContext: Context?  // Made internal so PromptWindowController can set it
@@ -243,10 +344,89 @@ final class PromptViewModel: ObservableObject {
         selectedText = nil
         isSummarizing = false
         // Reset chat state
-        conversation = nil
+        session = nil
+        sessionId = nil
         chatInputText = ""
         streamingContent = ""
         isChatMode = false
+    }
+
+    /// Prepare for new input without losing session state
+    /// Called when hotkey is triggered to show prompt
+    func prepareForNewInput() {
+        // Cancel any in-progress generation
+        generationTask?.cancel()
+        generationTask = nil
+
+        // Clear input-related state but preserve session
+        instructionText = ""
+        isGenerating = false
+        error = nil
+        showResponse = false  // Show input view, not response
+        hasContext = false
+        hasSelection = false
+        selectedText = nil
+        isSummarizing = false
+        chatInputText = ""
+        streamingContent = ""
+        isChatMode = false  // Reset to simple mode - chat mode enables on follow-up
+
+        // DON'T clear: session, sessionId, response (for history)
+        // The session continues across invocations
+    }
+
+    /// Clear transient UI state when hiding (preserves session)
+    func clearTransientState() {
+        instructionText = ""
+        error = nil
+        hasContext = false
+        hasSelection = false
+        selectedText = nil
+        chatInputText = ""
+        streamingContent = ""
+        // Keep: session, sessionId, response, isChatMode, showResponse
+    }
+
+    /// Ensure a session exists, creating one if needed
+    private func ensureSession(context: Context?, instruction: String?) {
+        if session == nil {
+            // Create a new session
+            let sess = ChatSession(originalContext: context, initialRequest: instruction)
+            session = sess
+            sessionId = UUID()
+
+            // Register with SessionManager immediately
+            SessionManager.shared.setCurrentSession(sess, id: sessionId)
+            print("📋 PromptViewModel: Created new session \(sessionId!)")
+        }
+    }
+
+    /// Set a restored session from persistence
+    func setRestoredSession(_ sess: ChatSession, id: UUID?) {
+        session = sess
+        sessionId = id
+
+        // If there are messages, enable chat mode
+        if !sess.messages.isEmpty {
+            isChatMode = true
+            showResponse = true
+
+            // Set the last assistant response for Insert/Copy
+            if let lastAssistant = sess.lastAssistantMessage {
+                response = lastAssistant.content
+            }
+
+            // NOTE: Do NOT restore context from persisted messages here.
+            // currentContext should always reflect the CURRENT context from the most recent
+            // hotkey invocation (set via showPrompt(with:)), not the historical context
+            // that was saved with the session. When the user sends a message,
+            // the current context will be attached to that new message.
+
+            print("📋 PromptViewModel: Restored session with \(sess.messages.count) messages")
+        }
+
+        // Note: SessionManager.loadSession already sets the session there,
+        // so we don't need to call setCurrentSession again which would mark it dirty
     }
 
     deinit {
@@ -271,13 +451,44 @@ final class PromptViewModel: ObservableObject {
             print("🔧 Autocomplete mode: No instruction provided, will continue text")
         }
 
+        // Determine the user message content
+        // For autocomplete mode, use "Continue this text" as the user request
+        let userMessageContent = isAutocomplete ? "Continue this text" : instructionText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Ensure we have a session - create one if this is the first interaction
+        ensureSession(context: context, instruction: userMessageContent)
+
+        // Add user message to session immediately
+        if let sess = session {
+            let message = ChatMessage.user(userMessageContent)
+            sess.addMessage(message)
+            // Register context for this message so it's saved with the message
+            SessionManager.shared.registerContextForMessage(messageId: message.id, context: context)
+        }
+
         currentContext = context
         isGenerating = true
         error = nil
         showResponse = true
         response = ""
 
+        // Capture session ID for generation tracking
+        let capturedSessionId = sessionId
+
         generationTask = Task {
+            // Register active generation to block session switching
+            if let sid = capturedSessionId {
+                SessionManager.shared.registerActiveGeneration(sessionId: sid)
+            }
+
+            defer {
+                // Always unregister when generation ends (success, error, or cancellation)
+                if let sid = capturedSessionId {
+                    SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
+                }
+                isGenerating = false
+            }
+
             do {
                 guard let provider = LLMProviderRegistry.shared.activeProvider else {
                     throw LLMProviderError.notConfigured(provider: .openai)
@@ -290,13 +501,31 @@ final class PromptViewModel: ObservableObject {
                     context: context
                 )
 
+                // Use array buffer to avoid O(n²) string concatenation
+                var chunks: [String] = []
                 for try await chunk in stream {
-                    // Check cancellation before appending each chunk
-                    guard !Task.isCancelled else { return }
-                    response += chunk
+                    if Task.isCancelled {
+                        // Save partial content so user can view, copy, insert, or retry
+                        let partialContent = chunks.joined()
+                        if !partialContent.isEmpty, let sess = session {
+                            sess.addAssistantMessage(partialContent)
+                            response = partialContent
+                            print("🔧 Generation stopped - saved partial response")
+                        }
+                        return
+                    }
+                    chunks.append(chunk)
+                    response = chunks.joined()  // Update UI incrementally
                 }
 
-                print("🔧 Generation complete")
+                // Add assistant response to session
+                if !response.isEmpty, let sess = session {
+                    sess.addAssistantMessage(response)
+                    // Note: Don't auto-enable chat mode here
+                    // User will transition to chat mode when they submit a follow-up
+                }
+
+                print("🔧 Generation complete - session has \(session?.messages.count ?? 0) messages")
             } catch is CancellationError {
                 // User cancelled, don't show error
                 print("🔧 Generation cancelled")
@@ -304,7 +533,6 @@ final class PromptViewModel: ObservableObject {
                 print("🔧 Generation error: \(error)")
                 self.error = error.localizedDescription
             }
-            isGenerating = false
         }
     }
 
@@ -320,13 +548,41 @@ final class PromptViewModel: ObservableObject {
     func summarize(text: String, source: ContextSource, surroundingContext: Context? = nil) {
         print("📝 PromptViewModel: Starting summarization...")
 
+        // Ensure we have a session
+        ensureSession(context: surroundingContext, instruction: "Summarize this text")
+
+        // Add summarization request as user message
+        if let sess = session {
+            let message = ChatMessage.user("Summarize this text")
+            sess.addMessage(message)
+            // Register context for this message
+            SessionManager.shared.registerContextForMessage(messageId: message.id, context: surroundingContext)
+        }
+
         isSummarizing = true
         isGenerating = true
         error = nil
         showResponse = true
         response = ""
 
+        // Capture session ID for generation tracking
+        let capturedSessionId = sessionId
+
         generationTask = Task {
+            // Register active generation to block session switching
+            if let sid = capturedSessionId {
+                SessionManager.shared.registerActiveGeneration(sessionId: sid)
+            }
+
+            defer {
+                // Always unregister when generation ends (success, error, or cancellation)
+                if let sid = capturedSessionId {
+                    SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
+                }
+                isGenerating = false
+                isSummarizing = false
+            }
+
             do {
                 let request = SummaryRequest(
                     text: text,
@@ -337,12 +593,31 @@ final class PromptViewModel: ObservableObject {
                 // Use streaming for better UX
                 let stream = summarizationService.summarizeStream(request: request)
 
+                // Use array buffer to avoid O(n²) string concatenation
+                var chunks: [String] = []
                 for try await chunk in stream {
-                    guard !Task.isCancelled else { return }
-                    response += chunk
+                    if Task.isCancelled {
+                        // Save partial content so user can view, copy, insert, or retry
+                        let partialContent = chunks.joined()
+                        if !partialContent.isEmpty, let sess = session {
+                            sess.addAssistantMessage(partialContent)
+                            response = partialContent
+                            print("📝 Summarization stopped - saved partial response")
+                        }
+                        return
+                    }
+                    chunks.append(chunk)
+                    response = chunks.joined()  // Update UI incrementally
                 }
 
-                print("📝 PromptViewModel: Summarization complete")
+                // Add assistant response to session
+                if !response.isEmpty, let sess = session {
+                    sess.addAssistantMessage(response)
+                    // Note: Don't auto-enable chat mode here
+                    // User will transition to chat mode when they submit a follow-up
+                }
+
+                print("📝 PromptViewModel: Summarization complete - session has \(session?.messages.count ?? 0) messages")
             } catch is CancellationError {
                 // User cancelled, don't show error
                 print("📝 PromptViewModel: Summarization cancelled")
@@ -350,8 +625,6 @@ final class PromptViewModel: ObservableObject {
                 print("📝 PromptViewModel: Summarization error: \(error)")
                 self.error = error.localizedDescription
             }
-            isGenerating = false
-            isSummarizing = false
         }
     }
 
@@ -395,77 +668,114 @@ final class PromptViewModel: ObservableObject {
     // MARK: - Chat Mode
 
     /// Enable chat mode after initial response is complete
+    /// Note: This is now called when user submits a follow-up message
+    /// The session may already exist from initial generation, so we only need to enable chat mode
     func enableChatMode() {
         guard !response.isEmpty else { return }
 
-        // Create conversation with initial exchange
-        let conv = ChatConversation(originalContext: currentContext, initialRequest: instructionText)
+        // If session already exists (from initial generation), just enable chat mode
+        if session != nil {
+            isChatMode = true
+            streamingContent = ""
+            print("💬 Chat mode enabled (session already exists with \(session?.messages.count ?? 0) messages)")
+            return
+        }
+
+        // Legacy path: Create session with initial exchange (for edge cases)
+        let sess = ChatSession(originalContext: currentContext, initialRequest: instructionText)
 
         // Add the initial user message (instruction or summarize request)
         let userContent = isSummarizing ? "Summarize this text" : instructionText
         if !userContent.isEmpty {
-            conv.addUserMessage(userContent)
+            sess.addUserMessage(userContent)
         }
 
         // Add the initial assistant response
-        conv.addAssistantMessage(response)
+        sess.addAssistantMessage(response)
 
-        conversation = conv
+        session = sess
+        sessionId = UUID()
         isChatMode = true
-        chatInputText = ""
+        // Note: Don't clear chatInputText here - it contains the follow-up message
         streamingContent = ""
 
-        print("💬 Chat mode enabled with \(conv.messages.count) messages")
+        // Register with SessionManager for persistence
+        SessionManager.shared.setCurrentSession(sess, id: sessionId)
+
+        print("💬 Chat mode enabled with \(sess.messages.count) messages")
     }
 
     /// Send a chat message and get a response
     func sendChatMessage() {
         let messageText = chatInputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !messageText.isEmpty else { return }
-        guard let conv = conversation else {
-            // If no conversation exists, create one first
+        guard let sess = session else {
+            // If no session exists, create one first
             enableChatMode()
             return
         }
 
         // Add user message
-        conv.addUserMessage(messageText)
+        let message = ChatMessage.user(messageText)
+        sess.addMessage(message)
+        // Register context for this chat message (uses current context from last hotkey invocation)
+        SessionManager.shared.registerContextForMessage(messageId: message.id, context: currentContext)
         chatInputText = ""
         streamingContent = ""
         isGenerating = true
         error = nil
 
+        // Capture session ID for generation tracking
+        let capturedSessionId = sessionId
+
         generationTask = Task {
+            // Register active generation to block session switching
+            if let sid = capturedSessionId {
+                SessionManager.shared.registerActiveGeneration(sessionId: sid)
+            }
+
+            defer {
+                // Always unregister when generation ends (success, error, or cancellation)
+                if let sid = capturedSessionId {
+                    SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
+                }
+                isGenerating = false
+            }
+
             do {
                 guard let provider = LLMProviderRegistry.shared.activeProvider else {
                     throw LLMProviderError.notConfigured(provider: .openai)
                 }
 
-                // Use chat streaming
+                // Use chat streaming (use messagesForLLM for trimmed context)
                 let stream = provider.generateChatStream(
-                    messages: conv.messages,
+                    messages: sess.messagesForLLM(),
                     context: currentContext
                 )
 
+                // Use array buffer to avoid O(n²) string concatenation
+                var chunks: [String] = []
                 for try await chunk in stream {
                     if Task.isCancelled {
                         // Save partial content so user can view, copy, insert, or retry
-                        if !streamingContent.isEmpty {
-                            conv.addAssistantMessage(streamingContent)
-                            response = streamingContent
+                        let partialContent = chunks.joined()
+                        if !partialContent.isEmpty {
+                            sess.addAssistantMessage(partialContent)
+                            response = partialContent
                             print("💬 Generation stopped - saved partial response")
                         }
                         streamingContent = ""
-                        isGenerating = false
                         return
                     }
-                    streamingContent += chunk
+                    chunks.append(chunk)
+                    streamingContent = chunks.joined()  // Update UI incrementally
                 }
 
-                // Add completed response to conversation
-                if !streamingContent.isEmpty {
-                    conv.addAssistantMessage(streamingContent)
-                    response = streamingContent
+                // Add completed response to session
+                let finalContent = chunks.joined()
+                if !finalContent.isEmpty {
+                    sess.addAssistantMessage(finalContent)
+                    response = finalContent
                 }
                 streamingContent = ""
 
@@ -476,15 +786,14 @@ final class PromptViewModel: ObservableObject {
                 print("💬 Chat error: \(error)")
                 self.error = error.localizedDescription
             }
-            isGenerating = false
         }
     }
 
     /// Retry/regenerate a specific assistant message
     /// Removes the message and all following messages, then regenerates using the same user input
     func retryMessage(id: UUID) {
-        guard let conv = conversation else {
-            print("🔄 Retry failed: No conversation")
+        guard let sess = session else {
+            print("🔄 Retry failed: No session")
             return
         }
 
@@ -494,8 +803,8 @@ final class PromptViewModel: ObservableObject {
         }
 
         // Remove the assistant message and all following messages
-        // The preceding user message is kept in the conversation
-        guard let precedingUserMessage = conv.removeMessageAndFollowing(id: id) else {
+        // The preceding user message is kept in the session
+        guard let precedingUserMessage = sess.removeMessageAndFollowing(id: id) else {
             print("🔄 Retry failed: Could not find message or preceding user message")
             return
         }
@@ -503,42 +812,62 @@ final class PromptViewModel: ObservableObject {
         print("🔄 Retrying with user message: \(precedingUserMessage.content.prefix(50))...")
 
         // Clear streaming content and regenerate
-        // Note: We do NOT re-add the user message - it's still in conv.messages
+        // Note: We do NOT re-add the user message - it's still in sess.messages
         streamingContent = ""
         isGenerating = true
         error = nil
 
+        // Capture session ID for generation tracking
+        let capturedSessionId = sessionId
+
         generationTask = Task {
+            // Register active generation to block session switching
+            if let sid = capturedSessionId {
+                SessionManager.shared.registerActiveGeneration(sessionId: sid)
+            }
+
+            defer {
+                // Always unregister when generation ends (success, error, or cancellation)
+                if let sid = capturedSessionId {
+                    SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
+                }
+                isGenerating = false
+            }
+
             do {
                 guard let provider = LLMProviderRegistry.shared.activeProvider else {
                     throw LLMProviderError.notConfigured(provider: .openai)
                 }
 
-                // Use chat streaming with the current messages
+                // Use chat streaming with the current messages (trimmed for LLM context)
                 let stream = provider.generateChatStream(
-                    messages: conv.messages,
+                    messages: sess.messagesForLLM(),
                     context: currentContext
                 )
 
+                // Use array buffer to avoid O(n²) string concatenation
+                var chunks: [String] = []
                 for try await chunk in stream {
                     if Task.isCancelled {
                         // Save partial content so user can view, copy, insert, or retry
-                        if !streamingContent.isEmpty {
-                            conv.addAssistantMessage(streamingContent)
-                            response = streamingContent
+                        let partialContent = chunks.joined()
+                        if !partialContent.isEmpty {
+                            sess.addAssistantMessage(partialContent)
+                            response = partialContent
                             print("🔄 Retry stopped - saved partial response")
                         }
                         streamingContent = ""
-                        isGenerating = false
                         return
                     }
-                    streamingContent += chunk
+                    chunks.append(chunk)
+                    streamingContent = chunks.joined()  // Update UI incrementally
                 }
 
-                // Add completed response to conversation
-                if !streamingContent.isEmpty {
-                    conv.addAssistantMessage(streamingContent)
-                    response = streamingContent
+                // Add completed response to session
+                let finalContent = chunks.joined()
+                if !finalContent.isEmpty {
+                    sess.addAssistantMessage(finalContent)
+                    response = finalContent
                 }
                 streamingContent = ""
 
@@ -549,14 +878,13 @@ final class PromptViewModel: ObservableObject {
                 print("🔄 Retry error: \(error)")
                 self.error = error.localizedDescription
             }
-            isGenerating = false
         }
     }
 
     /// Retry after an error - finds the last user message and regenerates
     func retryError() {
-        guard let conv = conversation else {
-            print("🔄 Retry error failed: No conversation")
+        guard let sess = session else {
+            print("🔄 Retry error failed: No session")
             return
         }
 
@@ -565,8 +893,8 @@ final class PromptViewModel: ObservableObject {
             return
         }
 
-        // Find the last user message in the conversation
-        guard let lastUserMessage = conv.messages.last(where: { $0.role == .user }) else {
+        // Find the last user message in the session
+        guard let lastUserMessage = sess.messages.last(where: { $0.role == .user }) else {
             print("🔄 Retry error failed: No user message found")
             return
         }
@@ -578,37 +906,57 @@ final class PromptViewModel: ObservableObject {
         streamingContent = ""
         isGenerating = true
 
+        // Capture session ID for generation tracking
+        let capturedSessionId = sessionId
+
         generationTask = Task {
+            // Register active generation to block session switching
+            if let sid = capturedSessionId {
+                SessionManager.shared.registerActiveGeneration(sessionId: sid)
+            }
+
+            defer {
+                // Always unregister when generation ends (success, error, or cancellation)
+                if let sid = capturedSessionId {
+                    SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
+                }
+                isGenerating = false
+            }
+
             do {
                 guard let provider = LLMProviderRegistry.shared.activeProvider else {
                     throw LLMProviderError.notConfigured(provider: .openai)
                 }
 
-                // Use chat streaming with the current messages
+                // Use chat streaming with the current messages (trimmed for LLM context)
                 let stream = provider.generateChatStream(
-                    messages: conv.messages,
+                    messages: sess.messagesForLLM(),
                     context: currentContext
                 )
 
+                // Use array buffer to avoid O(n²) string concatenation
+                var chunks: [String] = []
                 for try await chunk in stream {
                     if Task.isCancelled {
                         // Save partial content so user can view, copy, insert, or retry
-                        if !streamingContent.isEmpty {
-                            conv.addAssistantMessage(streamingContent)
-                            response = streamingContent
+                        let partialContent = chunks.joined()
+                        if !partialContent.isEmpty {
+                            sess.addAssistantMessage(partialContent)
+                            response = partialContent
                             print("🔄 Retry stopped - saved partial response")
                         }
                         streamingContent = ""
-                        isGenerating = false
                         return
                     }
-                    streamingContent += chunk
+                    chunks.append(chunk)
+                    streamingContent = chunks.joined()  // Update UI incrementally
                 }
 
-                // Add completed response to conversation
-                if !streamingContent.isEmpty {
-                    conv.addAssistantMessage(streamingContent)
-                    response = streamingContent
+                // Add completed response to session
+                let finalContent = chunks.joined()
+                if !finalContent.isEmpty {
+                    sess.addAssistantMessage(finalContent)
+                    response = finalContent
                 }
                 streamingContent = ""
 
@@ -619,14 +967,13 @@ final class PromptViewModel: ObservableObject {
                 print("🔄 Retry error: \(error)")
                 self.error = error.localizedDescription
             }
-            isGenerating = false
         }
     }
 
     /// Get the content to use for Insert/Copy (latest assistant message)
     var contentForInsert: String {
-        if isChatMode, let conv = conversation {
-            return conv.lastAssistantContent
+        if isChatMode, let sess = session {
+            return sess.lastAssistantContent
         }
         return response
     }
@@ -637,82 +984,166 @@ final class PromptViewModel: ObservableObject {
 
 struct PromptContainerView: View {
     @ObservedObject var viewModel: PromptViewModel
+    @ObservedObject var sessionManager = SessionManager.shared
     let onInsert: (String) -> Void
     let onCancel: () -> Void
     let onGenerate: () -> Void
     let onSummarize: () -> Void
+    let onSelectSession: (UUID) -> Void
+    let onNewSession: () -> Void
+    let onDeleteSession: (UUID) -> Void
 
     @State private var showContextViewer = false
+    @State private var showSidebar = false
+    @State private var sidebarRefreshKey = UUID()
+    @State private var contextForViewer: Context?  // Pre-captured for instant display
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header with provider status - compact inline style
-            HStack(spacing: 6) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 12))
-                    .foregroundColor(.accentColor)
-                Text("Extremis")
-                    .font(.system(size: 13, weight: .semibold))
+        HStack(spacing: 0) {
+            // Sidebar (session list) with smooth slide animation
+            if showSidebar {
+                HStack(spacing: 0) {
+                    SessionListView(
+                        sessionManager: SessionManager.shared,
+                        onSelectSession: { id in
+                            onSelectSession(id)
+                            sidebarRefreshKey = UUID()
+                        },
+                        onNewSession: {
+                            onNewSession()
+                            sidebarRefreshKey = UUID()
+                        },
+                        onDeleteSession: { id in
+                            onDeleteSession(id)
+                            sidebarRefreshKey = UUID()
+                        }
+                    )
+                    .id(sidebarRefreshKey)
 
-                Circle()
-                    .fill(viewModel.providerConfigured ? Color.green : Color.orange)
-                    .frame(width: 6, height: 6)
-                Text(viewModel.providerName)
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-
-                Spacer()
+                    Divider()
+                }
+                .transition(.move(edge: .leading).combined(with: .opacity))
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color(NSColor.windowBackgroundColor))
 
-            if viewModel.showResponse {
-                // Response view with chat support
-                ResponseView(
-                    response: viewModel.contentForInsert,
-                    isGenerating: viewModel.isGenerating,
-                    error: viewModel.error,
-                    onInsert: { onInsert(viewModel.contentForInsert) },
-                    onCopy: {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(viewModel.contentForInsert, forType: .string)
-                    },
-                    onCancel: onCancel,
-                    onStopGeneration: { viewModel.cancelGeneration() },
-                    isChatMode: viewModel.isChatMode,
-                    conversation: viewModel.conversation,
-                    streamingContent: viewModel.streamingContent,
-                    chatInputText: $viewModel.chatInputText,
-                    onSendChat: { viewModel.sendChatMessage() },
-                    onEnableChat: { viewModel.enableChatMode() },
-                    onRetryMessage: { messageId in viewModel.retryMessage(id: messageId) },
-                    onRetryError: { viewModel.retryError() }
-                )
-            } else {
-                // Input view
-                PromptInputView(
-                    instructionText: $viewModel.instructionText,
-                    isGenerating: $viewModel.isGenerating,
-                    contextInfo: viewModel.contextInfo,
-                    hasContext: viewModel.hasContext,
-                    hasSelection: viewModel.hasSelection,
-                    onSubmit: onGenerate,
-                    onCancel: onCancel,
-                    onSummarize: onSummarize,
-                    onViewContext: viewModel.currentContext != nil ? { showContextViewer = true } : nil
-                )
+            // Main content
+            VStack(spacing: 0) {
+                // Header - ChatGPT style minimal icons
+                HStack(spacing: 12) {
+                    // Sidebar toggle (ChatGPT style - two rectangles)
+                    Button(action: { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { showSidebar.toggle() } }) {
+                        Image(systemName: "sidebar.left")
+                            .font(.system(size: 16))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(showSidebar ? "Hide sidebar" : "Show sidebar")
+
+                    // New chat button (pencil/compose icon)
+                    Button(action: {
+                        if !sessionManager.isAnySessionGenerating {
+                            onNewSession()
+                        }
+                    }) {
+                        Image(systemName: sessionManager.isAnySessionGenerating ? "square.and.pencil.circle" : "square.and.pencil")
+                            .font(.system(size: 16))
+                            .foregroundColor(sessionManager.isAnySessionGenerating ? .secondary.opacity(0.4) : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(sessionManager.isAnySessionGenerating ? "Generation in progress - wait or cancel to start new session" : "New session")
+
+                    Spacer()
+
+                    // Provider status - compact
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(viewModel.providerConfigured ? Color.green : Color.orange)
+                            .frame(width: 6, height: 6)
+                        Text(viewModel.providerName)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color(NSColor.windowBackgroundColor))
+
+                if viewModel.showResponse {
+                    // Response view with chat support
+                    ResponseView(
+                        response: viewModel.contentForInsert,
+                        isGenerating: viewModel.isGenerating,
+                        error: viewModel.error,
+                        onInsert: { onInsert(viewModel.contentForInsert) },
+                        onCopy: {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(viewModel.contentForInsert, forType: .string)
+                        },
+                        onCancel: onCancel,
+                        onStopGeneration: { viewModel.cancelGeneration() },
+                        contextInfo: viewModel.contextInfo,
+                        onViewContext: viewModel.currentContext != nil ? {
+                            // Pre-capture context before showing to avoid lookup during animation
+                            contextForViewer = viewModel.currentContext
+                            showContextViewer = true
+                        } : nil,
+                        isChatMode: viewModel.isChatMode,
+                        session: viewModel.session,
+                        streamingContent: viewModel.streamingContent,
+                        chatInputText: $viewModel.chatInputText,
+                        onSendChat: { viewModel.sendChatMessage() },
+                        onEnableChat: { viewModel.enableChatMode() },
+                        onRetryMessage: { messageId in viewModel.retryMessage(id: messageId) },
+                        onRetryError: { viewModel.retryError() }
+                    )
+                } else {
+                    // Input view
+                    PromptInputView(
+                        instructionText: $viewModel.instructionText,
+                        isGenerating: $viewModel.isGenerating,
+                        contextInfo: viewModel.contextInfo,
+                        hasContext: viewModel.hasContext,
+                        hasSelection: viewModel.hasSelection,
+                        onSubmit: onGenerate,
+                        onCancel: onCancel,
+                        onSummarize: onSummarize,
+                        onViewContext: viewModel.currentContext != nil ? {
+                            contextForViewer = viewModel.currentContext
+                            showContextViewer = true
+                        } : nil
+                    )
+                }
             }
         }
-        .frame(minWidth: 550, minHeight: 400)
-        .sheet(isPresented: $showContextViewer) {
-            if let context = viewModel.currentContext {
-                ContextViewerSheet(
-                    context: context,
-                    onDismiss: { showContextViewer = false }
-                )
+        .frame(minWidth: 500, idealWidth: 600, minHeight: 350, idealHeight: 450)
+        .overlay {
+            // Context viewer overlay (faster than sheet)
+            if showContextViewer, let context = contextForViewer {
+                ZStack {
+                    // Dimmed background
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            showContextViewer = false
+                            contextForViewer = nil
+                        }
+
+                    // Context viewer
+                    ContextViewerSheet(
+                        context: context,
+                        onDismiss: {
+                            showContextViewer = false
+                            contextForViewer = nil
+                        }
+                    )
+                    .background(Color(NSColor.windowBackgroundColor))
+                    .cornerRadius(12)
+                    .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
+                    .padding(20)
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
         }
+        .animation(.spring(response: 0.2, dampingFraction: 0.85), value: showContextViewer)
     }
 }
 

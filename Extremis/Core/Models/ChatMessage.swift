@@ -1,11 +1,11 @@
 // MARK: - Chat Message Models
-// Models for multi-turn chat conversations
+// Models for multi-turn chat sessions
 
 import Foundation
 
 // MARK: - Chat Role
 
-/// Role of a participant in a chat conversation
+/// Role of a participant in a chat session
 enum ChatRole: String, Codable, Equatable {
     case system
     case user
@@ -14,7 +14,7 @@ enum ChatRole: String, Codable, Equatable {
 
 // MARK: - Chat Message
 
-/// A single message in a chat conversation
+/// A single message in a chat session
 struct ChatMessage: Identifiable, Codable, Equatable {
     let id: UUID
     let role: ChatRole
@@ -44,31 +44,43 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     }
 }
 
-// MARK: - Chat Conversation
+// MARK: - Chat Session
 
-/// Manages a multi-turn chat conversation
+/// Manages a multi-turn chat session
 @MainActor
-final class ChatConversation: ObservableObject {
-    /// All messages in the conversation
+final class ChatSession: ObservableObject {
+    /// All messages in the session
     @Published var messages: [ChatMessage] = []
-    
-    /// Original context when conversation started (for system prompt)
+
+    /// Original context when session started (for system prompt)
     let originalContext: Context?
-    
-    /// Original request that started the conversation (instruction or "summarize")
+
+    /// Original request that started the session (instruction or "summarize")
     let initialRequest: String?
-    
+
     /// Maximum messages to keep (for context window management)
     let maxMessages: Int
-    
+
+    /// Summary of earlier messages (for context efficiency)
+    /// When present, messagesForLLM() returns summary + recent messages instead of truncating
+    var summary: SessionSummary?
+
+    /// Number of messages covered by the summary
+    /// Used to calculate which messages are "recent" (not covered by summary)
+    var summaryCoversCount: Int = 0
+
     init(
         originalContext: Context? = nil,
         initialRequest: String? = nil,
-        maxMessages: Int = 20
+        maxMessages: Int = 20,
+        summary: SessionSummary? = nil,
+        summaryCoversCount: Int = 0
     ) {
         self.originalContext = originalContext
         self.initialRequest = initialRequest
         self.maxMessages = maxMessages
+        self.summary = summary
+        self.summaryCoversCount = summaryCoversCount
     }
     
     /// Initialize with an existing assistant response
@@ -87,11 +99,12 @@ final class ChatConversation: ObservableObject {
     }
     
     // MARK: - Message Management
-    
-    /// Add a message to the conversation
+
+    /// Add a message to the session
+    /// Note: Messages are NOT trimmed here - all messages are preserved for persistence.
+    /// Use messagesForLLM() when building LLM context to get trimmed messages.
     func addMessage(_ message: ChatMessage) {
         messages.append(message)
-        trimIfNeeded()
     }
     
     /// Add a user message
@@ -157,7 +170,7 @@ final class ChatConversation: ObservableObject {
 
         // Remove the message and all following messages
         messages.removeSubrange(index...)
-        print("[ChatConversation] Removed message at index \(index) and following, now have \(messages.count) messages")
+        print("[ChatSession] Removed message at index \(index) and following, now have \(messages.count) messages")
 
         return precedingUserMessage
     }
@@ -174,7 +187,7 @@ final class ChatConversation: ObservableObject {
         lastAssistantMessage?.content ?? ""
     }
 
-    /// Whether the conversation has any messages
+    /// Whether the session has any messages
     var isEmpty: Bool {
         messages.isEmpty
     }
@@ -184,22 +197,47 @@ final class ChatConversation: ObservableObject {
         messages.count
     }
     
-    // MARK: - Private
-    
-    /// Trim old messages if exceeding max, keeping system messages
-    private func trimIfNeeded() {
-        guard messages.count > maxMessages else { return }
-        
+    // MARK: - LLM Context
+
+    /// Get messages for LLM context
+    /// Uses summary + recent messages if summary is available, otherwise truncates to maxMessages.
+    /// This returns a trimmed copy - the original messages array is preserved for persistence.
+    func messagesForLLM() -> [ChatMessage] {
+        // If we have a valid summary, use summary + recent messages
+        if let summary = summary, summary.isValid, summaryCoversCount > 0 {
+            // Create a system message with the summary
+            let summaryMessage = ChatMessage.system("Previous session context: \(summary.content)")
+
+            // Get messages after the summarized portion
+            let recentStartIndex = min(summaryCoversCount, messages.count)
+            let recentMessages = Array(messages.suffix(from: recentStartIndex))
+
+            let result = [summaryMessage] + recentMessages
+            print("[ChatSession] messagesForLLM: using summary + \(recentMessages.count) recent messages (summary covers \(summaryCoversCount))")
+            return result
+        }
+
+        // No summary - fall back to simple truncation
+        guard messages.count > maxMessages else { return messages }
+
         // Keep system messages at the start
         let systemMessages = messages.prefix(while: { $0.role == .system })
         let nonSystemMessages = messages.dropFirst(systemMessages.count)
-        
+
         // Keep only recent non-system messages
         let keepCount = maxMessages - systemMessages.count
         let recentMessages = nonSystemMessages.suffix(keepCount)
-        
-        messages = Array(systemMessages) + Array(recentMessages)
-        print("[ChatConversation] Trimmed to \(messages.count) messages")
+
+        let trimmed = Array(systemMessages) + Array(recentMessages)
+        print("[ChatSession] messagesForLLM: returning \(trimmed.count) of \(messages.count) messages (no summary)")
+        return trimmed
+    }
+
+    /// Update the summary (called after summarization completes)
+    func updateSummary(_ newSummary: SessionSummary, coversCount: Int) {
+        self.summary = newSummary
+        self.summaryCoversCount = coversCount
+        print("[ChatSession] Updated summary covering \(coversCount) messages")
     }
 }
 

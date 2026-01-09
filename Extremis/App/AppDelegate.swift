@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let permissionManager = PermissionManager.shared
     private let contextOrchestrator = ContextOrchestrator.shared
     private let textInserter = TextInserterService.shared
+    private let sessionManager = SessionManager.shared
 
     /// Current captured context
     private var currentContext: Context?
@@ -48,7 +49,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Check Ollama connection asynchronously and rebuild menu when done
         checkOllamaAndRefreshMenu()
 
+        // Restore last session on launch
+        restoreSessionOnLaunch()
+
         print("✅ Extremis launched successfully")
+    }
+
+    /// Restore the last active session on app launch
+    private func restoreSessionOnLaunch() {
+        Task { @MainActor in
+            await sessionManager.restoreLastSession()
+
+            // If there's a restored session, make it available to the prompt window
+            if let session = sessionManager.currentSession {
+                promptWindowController.setSession(session, id: sessionManager.currentSessionId)
+                print("📚 Restored session with \(session.messages.count) messages")
+            }
+        }
     }
 
     /// Check Ollama connection and refresh the menu bar
@@ -98,6 +115,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Save session immediately on termination
+        sessionManager.saveImmediately()
+
         hotkeyManager.unregister()
         print("👋 Extremis terminating")
     }
@@ -124,6 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let openItem = NSMenuItem(title: "Open Extremis", action: #selector(showPromptWindow), keyEquivalent: "")
         openItem.target = self
         menu.addItem(openItem)
+
         menu.addItem(NSMenuItem.separator())
 
         // Show active model info (informative, not clickable)
