@@ -29,8 +29,12 @@ import AppKit
 struct ContextViewerSheet: View {
     let context: Context
     let onDismiss: () -> Void
-    
+
     @State private var copiedSection: String? = nil
+    @State private var expandedSections: Set<String> = []
+
+    /// Character limit for initial text display (performance optimization)
+    private let displayLimit = 5000
     
     var body: some View {
         VStack(spacing: 0) {
@@ -131,20 +135,31 @@ struct ContextViewerSheet: View {
     // MARK: - Text Section (reusable)
 
     private func textSection(title: String, content: String, sectionId: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let isExpanded = expandedSections.contains(sectionId)
+        let isTruncated = content.count > displayLimit
+        let displayContent = (isTruncated && !isExpanded)
+            ? String(content.prefix(displayLimit)) + "..."
+            : content
+
+        return VStack(alignment: .leading, spacing: 8) {
             HStack {
                 sectionHeader(title: title, icon: "text.alignleft")
+                if isTruncated {
+                    Text("(\(content.count.formatted()) chars)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
                 Spacer()
                 copyButton(content: content, sectionId: sectionId)
             }
 
             ScrollView {
-                Text(content)
+                Text(displayContent)
                     .font(.system(.body, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxHeight: 150)
+            .frame(maxHeight: isExpanded ? 300 : 150)
             .padding(12)
             .background(Color(NSColor.textBackgroundColor))
             .cornerRadius(8)
@@ -152,6 +167,28 @@ struct ContextViewerSheet: View {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(Color(NSColor.separatorColor), lineWidth: 1)
             )
+
+            // Show expand/collapse button for truncated content
+            if isTruncated {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        if isExpanded {
+                            expandedSections.remove(sectionId)
+                        } else {
+                            expandedSections.insert(sectionId)
+                        }
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.caption)
+                        Text(isExpanded ? "Show less" : "Show full content")
+                            .font(.caption)
+                    }
+                    .foregroundColor(.accentColor)
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
