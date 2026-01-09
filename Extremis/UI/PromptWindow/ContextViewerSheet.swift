@@ -31,17 +31,18 @@ struct ContextViewerSheet: View {
 
     @State private var copiedSection: String? = nil
     @State private var expandedSections: Set<String> = []
+    @State private var escapeMonitor: Any? = nil
 
     /// Character limit for initial text display (performance optimization)
     private let displayLimit = 5000
-    
+
     var body: some View {
         VStack(spacing: 0) {
             // Header
             header
-            
+
             Divider()
-            
+
             // Scrollable content
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -69,14 +70,31 @@ struct ContextViewerSheet: View {
                 }
                 .padding()
             }
-            
+
             Divider()
-            
+
             // Footer
             footer
         }
         .frame(minWidth: 500, idealWidth: 600, minHeight: 400, idealHeight: 500, maxHeight: 700)
         .background(Color(NSColor.windowBackgroundColor))
+        .onAppear {
+            // Install local event monitor to intercept Escape key before it reaches parent window
+            escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                if event.keyCode == 53 { // Escape key
+                    onDismiss()
+                    return nil // Consume the event
+                }
+                return event
+            }
+        }
+        .onDisappear {
+            // Clean up event monitor
+            if let monitor = escapeMonitor {
+                NSEvent.removeMonitor(monitor)
+                escapeMonitor = nil
+            }
+        }
     }
     
     // MARK: - Header
@@ -95,7 +113,6 @@ struct ContextViewerSheet: View {
                     .foregroundColor(.secondary)
             }
             .buttonStyle(.plain)
-            .keyboardShortcut(.escape, modifiers: [])
             .help("Close (Escape)")
         }
         .padding()
