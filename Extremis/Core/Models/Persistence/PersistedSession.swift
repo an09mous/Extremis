@@ -55,22 +55,12 @@ struct PersistedSession: Codable, Identifiable, Equatable {
 
     // MARK: - Computed Properties
 
-    /// Whether session has any user content
-    var hasContent: Bool {
-        messages.contains { $0.role == .user || $0.role == .assistant }
-    }
-
     /// First user message (for title generation, preview)
     var firstUserMessage: PersistedMessage? {
         messages.first { $0.role == .user }
     }
 
-    /// Last message timestamp (for sorting)
-    var lastMessageAt: Date? {
-        messages.last?.timestamp
-    }
-
-    // MARK: - LLM Context Building
+    // MARK: - LLM Context Building (for future summarization - US3)
 
     /// Build messages array for LLM API call (uses summary if available)
     /// Returns: Array of messages optimized for LLM context window
@@ -91,13 +81,6 @@ struct PersistedSession: Codable, Identifiable, Equatable {
 
         let recentMessages = Array(messages.suffix(from: min(summary.coversMessageCount, messages.count)))
         return [summaryMessage] + recentMessages
-    }
-
-    /// Estimate token count for LLM context (rough: 1 token ≈ 4 chars)
-    func estimateTokenCount() -> Int {
-        let contextMessages = buildLLMContext()
-        let totalChars = contextMessages.reduce(0) { $0 + $1.content.count }
-        return totalChars / 4
     }
 }
 
