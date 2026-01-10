@@ -3,19 +3,9 @@
 
 import Foundation
 
-// MARK: - Context Truncation Limits
-// These constants control how much context text is included in prompts.
-// Increase these values for models with larger context windows.
-// Maximum recommended: 50000 characters (~12,500-15,000 tokens)
-
-/// Maximum characters for preceding text (text before cursor)
-let kMaxPrecedingTextLength = 50000
-
-/// Maximum characters for succeeding text (text after cursor)
-let kMaxSucceedingTextLength = 50000
-
-/// Maximum characters for selected text in chat system prompt
-let kMaxChatSelectedTextLength = 50000
+// NOTE: Context text truncation is now handled at capture time in Context.swift
+// See kContextMax*Length constants there. This ensures storage efficiency and
+// prevents duplicate truncation logic.
 
 /// Builds prompts from templates with context and instruction placeholders
 final class PromptBuilder {
@@ -228,9 +218,9 @@ final class PromptBuilder {
                 parts.append("URL: \(url.absoluteString)")
             }
 
-            // Selected text (truncated if exceeds limit)
+            // Selected text (already truncated at capture time in Context.swift)
             if let selectedText = context.selectedText, !selectedText.isEmpty {
-                parts.append("Original Selected Text: \"\(truncateChatSelectedText(selectedText))\"")
+                parts.append("Original Selected Text: \"\(selectedText)\"")
             }
 
             contextInfo = parts.joined(separator: "\n")
@@ -330,10 +320,11 @@ final class PromptBuilder {
 
     private func formatPrecedingText(_ text: String?) -> String {
         if let text = text, !text.isEmpty {
+            // Note: text is already truncated at capture time in Context.swift
             return """
             [Preceding Text - BEFORE Cursor]
             \"\"\"
-            \(truncatePrecedingText(text))
+            \(text)
             \"\"\"
             """
         } else {
@@ -346,10 +337,11 @@ final class PromptBuilder {
 
     private func formatSucceedingText(_ text: String?) -> String {
         if let text = text, !text.isEmpty {
+            // Note: text is already truncated at capture time in Context.swift
             return """
             [Succeeding Text - AFTER Cursor]
             \"\"\"
-            \(truncateSucceedingText(text))
+            \(text)
             \"\"\"
             """
         } else {
@@ -482,32 +474,6 @@ final class PromptBuilder {
         }
         
         return lines.isEmpty ? "" : "[UI Context]\n" + lines.joined(separator: "\n")
-    }
-
-    // MARK: - Test Helpers (internal visibility for unit testing)
-
-    /// Truncates preceding text from the beginning, keeping the suffix (closest to cursor)
-    /// - Parameter text: The text to truncate
-    /// - Returns: Truncated text with marker if truncation occurred
-    func truncatePrecedingText(_ text: String) -> String {
-        guard text.count > kMaxPrecedingTextLength else { return text }
-        return "[truncated] ..." + String(text.suffix(kMaxPrecedingTextLength))
-    }
-
-    /// Truncates succeeding text from the end, keeping the prefix (closest to cursor)
-    /// - Parameter text: The text to truncate
-    /// - Returns: Truncated text with marker if truncation occurred
-    func truncateSucceedingText(_ text: String) -> String {
-        guard text.count > kMaxSucceedingTextLength else { return text }
-        return String(text.prefix(kMaxSucceedingTextLength)) + "... [truncated]"
-    }
-
-    /// Truncates selected text for chat system prompt from the end
-    /// - Parameter text: The text to truncate
-    /// - Returns: Truncated text with marker if truncation occurred
-    func truncateChatSelectedText(_ text: String) -> String {
-        guard text.count > kMaxChatSelectedTextLength else { return text }
-        return String(text.prefix(kMaxChatSelectedTextLength)) + "... [truncated]"
     }
 }
 

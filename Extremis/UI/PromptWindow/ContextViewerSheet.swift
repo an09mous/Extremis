@@ -14,9 +14,8 @@
 //    - For new fields in existing metadata: Update the corresponding view
 //      (slackMetadataView, gmailMetadataView, githubMetadataView, genericMetadataView)
 //
-// 2. COPY FUNCTIONALITY:
-//    - Update `formatContextForClipboard()` (~line 333) to include the new field
-//    - For metadata fields: Update `formatMetadata()` (~line 376)
+// 2. COPY FUNCTIONALITY (per-section copy buttons):
+//    - For metadata fields: Update `formatMetadata()` (~line 390)
 //
 // 3. PREVIEWS:
 //    - Update `ContextViewerSheet_Previews` to include sample data for new fields
@@ -29,16 +28,21 @@ import AppKit
 struct ContextViewerSheet: View {
     let context: Context
     let onDismiss: () -> Void
-    
+
     @State private var copiedSection: String? = nil
-    
+    @State private var expandedSections: Set<String> = []
+    @State private var escapeMonitor: Any? = nil
+
+    /// Character limit for initial text display (performance optimization)
+    private let displayLimit = 5000
+
     var body: some View {
         VStack(spacing: 0) {
             // Header
             header
-            
+
             Divider()
-            
+
             // Scrollable content
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -66,18 +70,35 @@ struct ContextViewerSheet: View {
                 }
                 .padding()
             }
-            
+
             Divider()
-            
+
             // Footer
             footer
         }
         .frame(minWidth: 500, idealWidth: 600, minHeight: 400, idealHeight: 500, maxHeight: 700)
         .background(Color(NSColor.windowBackgroundColor))
+        .onAppear {
+            // Install local event monitor to intercept Escape key before it reaches parent window
+            escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                if event.keyCode == 53 { // Escape key
+                    onDismiss()
+                    return nil // Consume the event
+                }
+                return event
+            }
+        }
+        .onDisappear {
+            // Clean up event monitor
+            if let monitor = escapeMonitor {
+                NSEvent.removeMonitor(monitor)
+                escapeMonitor = nil
+            }
+        }
     }
     
     // MARK: - Header
-    
+
     private var header: some View {
         HStack {
             Image(systemName: "doc.text.magnifyingglass")
@@ -131,20 +152,31 @@ struct ContextViewerSheet: View {
     // MARK: - Text Section (reusable)
 
     private func textSection(title: String, content: String, sectionId: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let isExpanded = expandedSections.contains(sectionId)
+        let isTruncated = content.count > displayLimit
+        let displayContent = (isTruncated && !isExpanded)
+            ? String(content.prefix(displayLimit)) + "..."
+            : content
+
+        return VStack(alignment: .leading, spacing: 8) {
             HStack {
                 sectionHeader(title: title, icon: "text.alignleft")
+                if isTruncated {
+                    Text("(\(content.count.formatted()) chars)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
                 Spacer()
                 copyButton(content: content, sectionId: sectionId)
             }
 
             ScrollView {
-                Text(content)
+                Text(displayContent)
                     .font(.system(.body, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxHeight: 150)
+            .frame(maxHeight: isExpanded ? 300 : 150)
             .padding(12)
             .background(Color(NSColor.textBackgroundColor))
             .cornerRadius(8)
@@ -152,6 +184,28 @@ struct ContextViewerSheet: View {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(Color(NSColor.separatorColor), lineWidth: 1)
             )
+
+            // Show expand/collapse button for truncated content
+            if isTruncated {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        if isExpanded {
+                            expandedSections.remove(sectionId)
+                        } else {
+                            expandedSections.insert(sectionId)
+                        }
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.caption)
+                        Text(isExpanded ? "Show less" : "Show full content")
+                            .font(.caption)
+                    }
+                    .foregroundColor(.accentColor)
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
@@ -284,16 +338,6 @@ struct ContextViewerSheet: View {
             }
 
             Spacer()
-
-            Button(action: copyAll) {
-                Label("Copy All", systemImage: "doc.on.doc")
-            }
-            .help("Copy entire context to clipboard")
-
-            Button("Close") {
-                onDismiss()
-            }
-            .keyboardShortcut(.escape, modifiers: [])
         }
         .padding()
         .animation(.easeInOut(duration: 0.2), value: copiedSection)
@@ -351,82 +395,6 @@ struct ContextViewerSheet: View {
                 }
             }
         }
-    }
-
-    private func copyAll() {
-        let formatted = formatContextForClipboard()
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(formatted, forType: .string)
-
-        withAnimation {
-            copiedSection = "all"
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            withAnimation {
-                if copiedSection == "all" {
-                    copiedSection = nil
-                }
-            }
-        }
-    }
-
-    // EXTENSIBILITY: Update this function when adding new Context fields
-    // to ensure they are included in the "Copy All" output
-    private func formatContextForClipboard() -> String {
-        var parts: [String] = []
-
-        // Source
-        // EXTENSIBILITY: Add new ContextSource fields here
-        parts.append("=== Source Application ===")
-        parts.append("Application: \(context.source.applicationName)")
-        parts.append("Bundle ID: \(context.source.bundleIdentifier)")
-        if let window = context.source.windowTitle {
-            parts.append("Window: \(window)")
-        }
-        if let url = context.source.url {
-            parts.append("URL: \(url.absoluteString)")
-        }
-        // Example for new field:
-        // if let ip = context.source.ip {
-        //     parts.append("IP: \(ip)")
-        // }
-
-        // EXTENSIBILITY: Add new top-level Context fields here
-        // Example:
-        // if let newField = context.newField, !newField.isEmpty {
-        //     parts.append("")
-        //     parts.append("=== New Field ===")
-        //     parts.append(newField)
-        // }
-
-        // Selected text
-        if let selected = context.selectedText, !selected.isEmpty {
-            parts.append("")
-            parts.append("=== Selected Text ===")
-            parts.append(selected)
-        }
-
-        // Preceding text
-        if let preceding = context.precedingText, !preceding.isEmpty {
-            parts.append("")
-            parts.append("=== Preceding Text ===")
-            parts.append(preceding)
-        }
-
-        // Succeeding text
-        if let succeeding = context.succeedingText, !succeeding.isEmpty {
-            parts.append("")
-            parts.append("=== Succeeding Text ===")
-            parts.append(succeeding)
-        }
-
-        // Metadata
-        parts.append("")
-        parts.append("=== Metadata ===")
-        parts.append(formatMetadata())
-
-        return parts.joined(separator: "\n")
     }
 
     // EXTENSIBILITY: Update this function when adding new metadata types

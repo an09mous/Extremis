@@ -718,8 +718,9 @@ final class PromptViewModel: ObservableObject {
         // Add user message
         let message = ChatMessage.user(messageText)
         sess.addMessage(message)
-        // Register context for this chat message (uses current context from last hotkey invocation)
-        SessionManager.shared.registerContextForMessage(messageId: message.id, context: currentContext)
+        // Note: We intentionally do NOT register context for follow-up chat messages.
+        // Context is only attached to the first user message when Extremis is invoked.
+        // Follow-up messages don't need their own context - they're part of the same conversation.
         chatInputText = ""
         streamingContent = ""
         isGenerating = true
@@ -1093,7 +1094,8 @@ struct PromptContainerView: View {
                         onSendChat: { viewModel.sendChatMessage() },
                         onEnableChat: { viewModel.enableChatMode() },
                         onRetryMessage: { messageId in viewModel.retryMessage(id: messageId) },
-                        onRetryError: { viewModel.retryError() }
+                        onRetryError: { viewModel.retryError() },
+                        messageContexts: sessionManager.getMessageContexts()
                     )
                 } else {
                     // Input view

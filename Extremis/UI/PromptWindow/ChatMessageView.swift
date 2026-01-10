@@ -11,9 +11,12 @@ struct ChatMessageView: View {
     var onRetry: (() -> Void)?
     /// Whether generation is currently in progress (disables retry button)
     var isGenerating: Bool = false
+    /// Context associated with this message (optional, for user messages)
+    var context: Context? = nil
 
     @State private var isHovering = false
     @State private var showCopied = false
+    @State private var showContextSheet = false
 
     private var isUser: Bool {
         message.role == .user
@@ -25,6 +28,10 @@ struct ChatMessageView: View {
 
     private var canRetry: Bool {
         isAssistant && onRetry != nil && !isGenerating
+    }
+
+    private var hasContext: Bool {
+        context != nil
     }
 
     private var bubbleColor: Color {
@@ -54,6 +61,17 @@ struct ChatMessageView: View {
                         Image(systemName: "person.fill")
                             .font(.caption2)
                             .foregroundColor(.secondary)
+
+                        // Context indicator (paperclip) for user messages with context
+                        if hasContext {
+                            Button(action: { showContextSheet = true }) {
+                                Image(systemName: "paperclip")
+                                    .font(.caption2)
+                                    .foregroundColor(.accentColor)
+                            }
+                            .buttonStyle(.plain)
+                            .help("View captured context")
+                        }
                     }
                 }
 
@@ -106,6 +124,11 @@ struct ChatMessageView: View {
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovering = hovering
+            }
+        }
+        .sheet(isPresented: $showContextSheet) {
+            if let ctx = context {
+                ContextViewerSheet(context: ctx, onDismiss: { showContextSheet = false })
             }
         }
     }
@@ -213,9 +236,30 @@ struct StreamingMessageView: View {
 // MARK: - Preview
 
 struct ChatMessageView_Previews: PreviewProvider {
+    static var sampleContext: Context {
+        Context(
+            source: ContextSource(
+                applicationName: "Visual Studio Code",
+                bundleIdentifier: "com.microsoft.VSCode",
+                windowTitle: "main.swift - MyProject",
+                url: nil
+            ),
+            selectedText: "func calculateTotal() -> Double { return items.reduce(0) { $0 + $1.price } }",
+            metadata: .generic(GenericMetadata(focusedElementRole: "AXTextArea", focusedElementLabel: "Editor"))
+        )
+    }
+
     static var previews: some View {
         VStack(spacing: 16) {
+            // User message without context
             ChatMessageView(message: ChatMessage(role: .user, content: "Can you help me improve this text?"))
+
+            // User message WITH context (shows paperclip)
+            ChatMessageView(
+                message: ChatMessage(role: .user, content: "Can you help me fix this function?"),
+                context: sampleContext
+            )
+
             ChatMessageView(
                 message: ChatMessage(role: .assistant, content: "Of course! I'd be happy to help you improve your text. Please share what you'd like me to work on."),
                 onRetry: { print("Retry tapped") },

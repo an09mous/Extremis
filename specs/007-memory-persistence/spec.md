@@ -2,7 +2,8 @@
 
 **Feature Branch**: `007-memory-persistence`
 **Created**: 2026-01-03
-**Status**: Draft
+**Completed**: 2026-01-10
+**Status**: ✅ Complete (US1+US2+US3 implemented, US4 architecture documented)
 **Input**: User description: "Build a memory and persistence feature for Extremis with session continuity, agentic memory, and dynamic summarization"
 
 ## User Scenarios & Testing *(mandatory)*

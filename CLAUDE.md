@@ -49,6 +49,10 @@ Extremis is a macOS menu bar app that provides context-aware LLM text generation
 **Build System**: Swift Package Manager (no external dependencies)
 **Linked Frameworks**: Carbon (global hotkeys), ApplicationServices (Accessibility APIs)
 
+## UI/UX Guidelines
+
+**Strictly follow [Apple Human Interface Guidelines (HIG)](https://developer.apple.com/design/human-interface-guidelines/)** for all UI decisions.
+
 ## Architecture
 
 ### Directory Structure (under Extremis/)
