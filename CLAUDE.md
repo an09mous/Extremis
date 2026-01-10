@@ -154,6 +154,12 @@ Current active feature: `specs/008-prompting-improvements/` (Prompting Improveme
 3. Load via `PromptTemplateLoader.shared.load(.myTemplate)`
 4. Use `String.replacingOccurrences(of:with:)` to substitute placeholders
 
+## Development Guidelines
+
+- **Documentation**: Always update `README.md` and `Extremis/docs/` when adding new features or modifying existing functionality. Keep documentation in sync with code changes.
+- **Prompt Templates**: Never hardcode LLM prompts in Swift - always use `.hbs` template files in `Resources/PromptTemplates/`
+- **Testing**: All new tests MUST be added to `Extremis/scripts/run-tests.sh`
+
 ## Active Technologies
 - Swift 5.9+ + SwiftUI, AppKit, Carbon (hotkeys), ApplicationServices (Accessibility APIs) (008-prompting-improvements)
 - UserDefaults (preferences), Keychain (API keys), Application Support (sessions) (008-prompting-improvements)
