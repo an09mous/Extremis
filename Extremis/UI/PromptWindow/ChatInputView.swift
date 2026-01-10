@@ -122,7 +122,7 @@ struct ScrollableChatTextEditor: NSViewRepresentable {
         textView.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
         textView.isRichText = false
         textView.allowsUndo = true
-        textView.isEditable = isEnabled
+        textView.isEditable = true  // Always editable so user can type while generating
         textView.isSelectable = true
         textView.backgroundColor = .clear
         textView.drawsBackground = false
@@ -157,14 +157,18 @@ struct ScrollableChatTextEditor: NSViewRepresentable {
             textView.string = text
         }
 
-        textView.isEditable = isEnabled
+        // Always editable so user can type while generating
+        textView.isEditable = true
+
+        // Update coordinator's isEnabled state for Enter key handling
+        context.coordinator.isEnabled = isEnabled
 
         // Update placeholder visibility
         context.coordinator.updatePlaceholderVisibility(isEmpty: text.isEmpty)
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, isFocused: $isFocused, contentHeight: $contentHeight, onSend: onSend)
+        Coordinator(text: $text, isFocused: $isFocused, contentHeight: $contentHeight, isEnabled: isEnabled, onSend: onSend)
     }
 
     // Custom NSTextField that passes through mouse clicks to the text view behind it
@@ -179,13 +183,15 @@ struct ScrollableChatTextEditor: NSViewRepresentable {
         @Binding var text: String
         @Binding var isFocused: Bool
         @Binding var contentHeight: CGFloat
+        var isEnabled: Bool
         let onSend: () -> Void
         private var placeholderLabel: NSTextField?
 
-        init(text: Binding<String>, isFocused: Binding<Bool>, contentHeight: Binding<CGFloat>, onSend: @escaping () -> Void) {
+        init(text: Binding<String>, isFocused: Binding<Bool>, contentHeight: Binding<CGFloat>, isEnabled: Bool, onSend: @escaping () -> Void) {
             _text = text
             _isFocused = isFocused
             _contentHeight = contentHeight
+            self.isEnabled = isEnabled
             self.onSend = onSend
         }
 
@@ -245,9 +251,11 @@ struct ScrollableChatTextEditor: NSViewRepresentable {
                     textView.insertNewlineIgnoringFieldEditor(nil)
                     return true
                 } else {
-                    // Enter alone: send message
-                    onSend()
-                    return true
+                    // Enter alone: send message (only if enabled, i.e. not generating)
+                    if isEnabled {
+                        onSend()
+                    }
+                    return true  // Always consume Enter to prevent newline insertion
                 }
             }
             return false
