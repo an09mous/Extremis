@@ -6,7 +6,7 @@ import AppKit
 import ApplicationServices
 
 /// Selection detection utility for determining user intent
-/// This is the entry point for Magic Mode to decide: summarize vs autocomplete
+/// Used to detect text selection for Quick Mode vs Chat Mode routing
 enum SelectionDetector {
 
     // MARK: - Types
@@ -34,14 +34,17 @@ enum SelectionDetector {
 
     /// Detect if user has text selected using clipboard-based approach
     /// This is more reliable than AX API for Electron apps
+    /// - Parameter verbose: If false, suppresses all logging (for no-op scenarios like Magic Mode without selection)
     /// - Returns: SelectionResult containing selection state and text
-    static func detectSelection() -> SelectionResult {
+    static func detectSelection(verbose: Bool = true) -> SelectionResult {
         guard let app = NSWorkspace.shared.frontmostApplication else {
-            print("[SelectionDetector] No frontmost application")
+            if verbose { print("[SelectionDetector] No frontmost application") }
             return .empty
         }
 
-        print("[SelectionDetector] Checking app: \(app.localizedName ?? "Unknown") (\(app.bundleIdentifier ?? "?"))")
+        if verbose {
+            print("[SelectionDetector] Checking app: \(app.localizedName ?? "Unknown") (\(app.bundleIdentifier ?? "?"))")
+        }
 
         let source = ContextSource(
             applicationName: app.localizedName ?? "Unknown",
@@ -49,17 +52,17 @@ enum SelectionDetector {
         )
 
         // First try AX API (fast path)
-        if let axResult = tryAXSelection(app: app, source: source) {
+        if let axResult = tryAXSelection(app: app, source: source, verbose: verbose) {
             return axResult
         }
 
         // Fallback to clipboard-based detection (reliable for all apps)
-        print("[SelectionDetector] AX API failed, trying clipboard-based detection...")
-        return detectSelectionViaClipboard(source: source)
+        if verbose { print("[SelectionDetector] AX API failed, trying clipboard-based detection...") }
+        return detectSelectionViaClipboard(source: source, verbose: verbose)
     }
 
     /// Try to detect selection via Accessibility API (fast but unreliable for some apps)
-    private static func tryAXSelection(app: NSRunningApplication, source: ContextSource) -> SelectionResult? {
+    private static func tryAXSelection(app: NSRunningApplication, source: ContextSource, verbose: Bool) -> SelectionResult? {
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
 
         // Get focused element with retry logic
@@ -84,7 +87,7 @@ enum SelectionDetector {
         }
 
         guard focusResult == .success, let focusedElement = focusedElementRef else {
-            print("[SelectionDetector] AX: Could not get focused element: \(focusResult.rawValue)")
+            if verbose { print("[SelectionDetector] AX: Could not get focused element: \(focusResult.rawValue)") }
             return nil
         }
 
@@ -100,7 +103,7 @@ enum SelectionDetector {
         if textResult == .success,
            let text = selectedTextRef as? String,
            !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            print("[SelectionDetector] AX: ✅ Found selection: \(text.prefix(50))...")
+            if verbose { print("[SelectionDetector] AX: ✅ Found selection: \(text.prefix(50))...") }
             return SelectionResult(
                 hasSelection: true,
                 selectedText: text,
@@ -109,7 +112,7 @@ enum SelectionDetector {
             )
         }
 
-        print("[SelectionDetector] AX: No selection via focused element")
+        if verbose { print("[SelectionDetector] AX: No selection via focused element") }
         return nil
     }
 
@@ -118,8 +121,8 @@ enum SelectionDetector {
     ///
     /// Note: This method includes heuristics to detect IDE "copy line" behavior where
     /// Cmd+C with no selection copies the entire current line (VS Code, JetBrains, etc.)
-    private static func detectSelectionViaClipboard(source: ContextSource) -> SelectionResult {
-        print("[SelectionDetector] Clipboard: Starting clipboard-based detection...")
+    private static func detectSelectionViaClipboard(source: ContextSource, verbose: Bool) -> SelectionResult {
+        if verbose { print("[SelectionDetector] Clipboard: Starting clipboard-based detection...") }
 
         let pasteboard = NSPasteboard.general
 
@@ -131,7 +134,7 @@ enum SelectionDetector {
                 savedData.append((type, data))
             }
         }
-        print("[SelectionDetector] Clipboard: Saved \(savedData.count) clipboard items")
+        if verbose { print("[SelectionDetector] Clipboard: Saved \(savedData.count) clipboard items") }
 
         // Clear clipboard
         pasteboard.clearContents()
@@ -151,15 +154,17 @@ enum SelectionDetector {
         if hasNonEmptyText, let text = copiedText {
             // Check for IDE "copy line" behavior using heuristics
             if isIDECopyLineBehavior(text) {
-                print("[SelectionDetector] Clipboard: ⚠️ Detected IDE 'copy line' behavior (single line + trailing newline)")
-                print("[SelectionDetector] Clipboard: ❌ Treating as no selection")
+                if verbose {
+                    print("[SelectionDetector] Clipboard: ⚠️ Detected IDE 'copy line' behavior (single line + trailing newline)")
+                    print("[SelectionDetector] Clipboard: ❌ Treating as no selection")
+                }
                 hasSelection = false
             } else {
-                print("[SelectionDetector] Clipboard: ✅ Found selection: \(text.prefix(50))...")
+                if verbose { print("[SelectionDetector] Clipboard: ✅ Found selection: \(text.prefix(50))...") }
                 hasSelection = true
             }
         } else {
-            print("[SelectionDetector] Clipboard: ❌ No selection found")
+            if verbose { print("[SelectionDetector] Clipboard: ❌ No selection found") }
         }
 
         // Restore original clipboard
@@ -169,7 +174,7 @@ enum SelectionDetector {
                 pasteboard.setData(data, forType: type)
             }
         }
-        print("[SelectionDetector] Clipboard: Restored original clipboard")
+        if verbose { print("[SelectionDetector] Clipboard: Restored original clipboard") }
 
         return SelectionResult(
             hasSelection: hasSelection,

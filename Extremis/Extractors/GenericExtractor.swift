@@ -40,14 +40,11 @@ final class GenericExtractor: ContextExtractor {
         // Get focused element info
         let focusedInfo = getFocusedElementInfo(from: app)
 
-        // Capture text around cursor using common method
-        let (precedingText, succeedingText) = captureTextAroundCursor(verbose: true)
-
         return Context(
             source: source,
             selectedText: selectedText,
-            precedingText: precedingText,
-            succeedingText: succeedingText,
+            precedingText: nil,
+            succeedingText: nil,
             metadata: .generic(GenericMetadata(
                 focusedElementRole: focusedInfo.role,
                 focusedElementLabel: focusedInfo.label

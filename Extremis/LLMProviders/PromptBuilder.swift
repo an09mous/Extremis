@@ -41,11 +41,6 @@ final class PromptBuilder {
         try! templateLoader.load(.selectionTransform)
     }
 
-    /// Autocomplete template loaded from file
-    private var autocompleteTemplate: String {
-        try! templateLoader.load(.autocomplete)
-    }
-
     /// Summarization template loaded from file
     private var summarizationTemplate: String {
         try! templateLoader.load(.summarization)
@@ -60,7 +55,6 @@ final class PromptBuilder {
 
     /// Determines the prompt mode based on instruction and context
     enum PromptMode: String {
-        case autocomplete = "AUTOCOMPLETE"               // No selection, no instruction → continue at cursor
         case instruction = "INSTRUCTION"                 // No selection, has instruction → general Q&A
         case selectionTransform = "SELECTION_TRANSFORM"  // Has selection, has instruction → transform text
         case selectionNoInstruction = "SELECTION_NO_INSTRUCTION"  // Has selection, no instruction → default to summarize
@@ -72,11 +66,10 @@ final class PromptBuilder {
         let hasSelection = context.selectedText != nil && !context.selectedText!.isEmpty
 
         if hasSelection {
-            // Selection takes priority - never autocomplete with selection
             return hasInstruction ? .selectionTransform : .selectionNoInstruction
         } else {
-            // No selection
-            return hasInstruction ? .instruction : .autocomplete
+            // No selection - instruction mode (Chat Mode handles the empty instruction case)
+            return .instruction
         }
     }
 
@@ -89,7 +82,6 @@ final class PromptBuilder {
 
     /// Build a complete prompt from instruction and context
     /// Automatically selects the appropriate template based on:
-    /// - Autocomplete: No instruction provided → continue text at cursor
     /// - Instruction: Has instruction, no selection → general Q&A with context
     /// - Selection Transform: Has instruction AND selection → transform selected text
     func buildPrompt(instruction: String, context: Context) -> String {
@@ -97,13 +89,6 @@ final class PromptBuilder {
 
         let prompt: String
         switch mode {
-        case .autocomplete:
-            // Autocomplete mode - no instruction, continue at cursor
-            let contextSection = formatContext(context)
-            prompt = autocompleteTemplate
-                .replacingOccurrences(of: "{{SYSTEM_PROMPT}}", with: systemPrompt)
-                .replacingOccurrences(of: "{{CONTEXT}}", with: contextSection)
-
         case .selectionTransform:
             // Selection transform mode - has instruction AND selection
             prompt = buildSelectionPrompt(context: context, instruction: instruction)
@@ -291,11 +276,13 @@ final class PromptBuilder {
         // Source information
         sections.append(formatSource(context.source))
 
-        // Preceding text (text BEFORE cursor) - always include, even if empty
-        sections.append(formatPrecedingText(context.precedingText))
-
-        // Succeeding text (text AFTER cursor) - always include, even if empty
-        sections.append(formatSucceedingText(context.succeedingText))
+        // Preceding/succeeding text (only include if present - typically nil since clipboard capture was removed)
+        if let preceding = context.precedingText, !preceding.isEmpty {
+            sections.append(formatPrecedingText(preceding))
+        }
+        if let succeeding = context.succeedingText, !succeeding.isEmpty {
+            sections.append(formatSucceedingText(succeeding))
+        }
 
         // App-specific metadata
         sections.append(formatMetadata(context.metadata))
@@ -318,38 +305,24 @@ final class PromptBuilder {
         return lines.joined(separator: "\n")
     }
 
-    private func formatPrecedingText(_ text: String?) -> String {
-        if let text = text, !text.isEmpty {
-            // Note: text is already truncated at capture time in Context.swift
-            return """
-            [Preceding Text - BEFORE Cursor]
-            \"\"\"
-            \(text)
-            \"\"\"
-            """
-        } else {
-            return """
-            [Preceding Text - BEFORE Cursor]
-            (empty - cursor is at the beginning of the text)
-            """
-        }
+    private func formatPrecedingText(_ text: String) -> String {
+        // Note: text is already truncated at capture time in Context.swift
+        return """
+        [Preceding Text - BEFORE Cursor]
+        \"\"\"
+        \(text)
+        \"\"\"
+        """
     }
 
-    private func formatSucceedingText(_ text: String?) -> String {
-        if let text = text, !text.isEmpty {
-            // Note: text is already truncated at capture time in Context.swift
-            return """
-            [Succeeding Text - AFTER Cursor]
-            \"\"\"
-            \(text)
-            \"\"\"
-            """
-        } else {
-            return """
-            [Succeeding Text - AFTER Cursor]
-            (empty - cursor is at the end of the text)
-            """
-        }
+    private func formatSucceedingText(_ text: String) -> String {
+        // Note: text is already truncated at capture time in Context.swift
+        return """
+        [Succeeding Text - AFTER Cursor]
+        \"\"\"
+        \(text)
+        \"\"\"
+        """
     }
 
     // MARK: - Metadata Formatting

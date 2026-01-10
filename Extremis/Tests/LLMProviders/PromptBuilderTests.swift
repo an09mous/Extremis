@@ -82,36 +82,6 @@ struct PromptBuilderTests {
 
     // MARK: - Prompt Mode Detection Tests
 
-    /// Test autocomplete mode: no instruction, no selection
-    func testDetectPromptMode_Autocomplete() {
-        builder.debugLogging = false
-
-        let context = Context(
-            source: ContextSource(applicationName: "Notes", bundleIdentifier: "com.apple.Notes"),
-            selectedText: nil,
-            precedingText: "Hello world",
-            succeedingText: nil
-        )
-
-        let mode = builder.detectPromptMode(instruction: "", context: context)
-        TestRunner.assertEqual(mode, .autocomplete, "testDetectPromptMode_Autocomplete")
-    }
-
-    /// Test autocomplete mode: whitespace-only instruction
-    func testDetectPromptMode_AutocompleteWithWhitespace() {
-        builder.debugLogging = false
-
-        let context = Context(
-            source: ContextSource(applicationName: "Notes", bundleIdentifier: "com.apple.Notes"),
-            selectedText: nil,
-            precedingText: "Hello",
-            succeedingText: nil
-        )
-
-        let mode = builder.detectPromptMode(instruction: "   \n\t  ", context: context)
-        TestRunner.assertEqual(mode, .autocomplete, "testDetectPromptMode_AutocompleteWithWhitespace")
-    }
-
     /// Test instruction mode: has instruction, no selection
     func testDetectPromptMode_Instruction() {
         builder.debugLogging = false
@@ -119,12 +89,27 @@ struct PromptBuilderTests {
         let context = Context(
             source: ContextSource(applicationName: "Notes", bundleIdentifier: "com.apple.Notes"),
             selectedText: nil,
-            precedingText: "Hello",
+            precedingText: nil,
             succeedingText: nil
         )
 
         let mode = builder.detectPromptMode(instruction: "Make this formal", context: context)
         TestRunner.assertEqual(mode, .instruction, "testDetectPromptMode_Instruction")
+    }
+
+    /// Test instruction mode: no instruction, no selection (default behavior)
+    func testDetectPromptMode_NoInstructionNoSelection() {
+        builder.debugLogging = false
+
+        let context = Context(
+            source: ContextSource(applicationName: "Notes", bundleIdentifier: "com.apple.Notes"),
+            selectedText: nil,
+            precedingText: nil,
+            succeedingText: nil
+        )
+
+        let mode = builder.detectPromptMode(instruction: "", context: context)
+        TestRunner.assertEqual(mode, .instruction, "testDetectPromptMode_NoInstructionNoSelection")
     }
 
     /// Test selection transform mode: has instruction AND selection
@@ -164,50 +149,31 @@ struct PromptBuilderTests {
         let context = Context(
             source: ContextSource(applicationName: "Notes", bundleIdentifier: "com.apple.Notes"),
             selectedText: "",
-            precedingText: "Hello",
+            precedingText: nil,
             succeedingText: nil
         )
 
         let mode = builder.detectPromptMode(instruction: "", context: context)
-        TestRunner.assertEqual(mode, .autocomplete, "testDetectPromptMode_EmptySelectionIsNoSelection")
+        TestRunner.assertEqual(mode, .instruction, "testDetectPromptMode_EmptySelectionIsNoSelection")
     }
 
-    /// Test whitespace-only selection is treated as no selection
-    func testDetectPromptMode_WhitespaceSelectionIsNoSelection() {
+    /// Test whitespace-only selection is treated as a selection
+    func testDetectPromptMode_WhitespaceSelectionIsSelection() {
         builder.debugLogging = false
 
         let context = Context(
             source: ContextSource(applicationName: "Notes", bundleIdentifier: "com.apple.Notes"),
             selectedText: "   \n\t  ",
-            precedingText: "Hello",
+            precedingText: nil,
             succeedingText: nil
         )
 
         // Note: Current implementation does NOT trim selection, so whitespace IS a selection
-        // This test documents current behavior - may want to change this
         let mode = builder.detectPromptMode(instruction: "", context: context)
-        TestRunner.assertEqual(mode, .selectionNoInstruction, "testDetectPromptMode_WhitespaceSelectionIsNoSelection")
+        TestRunner.assertEqual(mode, .selectionNoInstruction, "testDetectPromptMode_WhitespaceSelectionIsSelection")
     }
 
     // MARK: - Template Content Tests
-
-    /// Test autocomplete prompt contains required sections
-    func testBuildPrompt_AutocompleteContainsRequiredSections() {
-        builder.debugLogging = false
-
-        let context = Context(
-            source: ContextSource(applicationName: "Notes", bundleIdentifier: "com.apple.Notes"),
-            selectedText: nil,
-            precedingText: "Hello world",
-            succeedingText: " and goodbye"
-        )
-
-        let prompt = builder.buildPrompt(instruction: "", context: context)
-
-        TestRunner.assertTrue(prompt.contains("AUTOCOMPLETE MODE"), "testBuildPrompt_AutocompleteContainsRequiredSections_Mode")
-        TestRunner.assertTrue(prompt.contains("Hello world"), "testBuildPrompt_AutocompleteContainsRequiredSections_Preceding")
-        TestRunner.assertTrue(prompt.contains("and goodbye"), "testBuildPrompt_AutocompleteContainsRequiredSections_Succeeding")
-    }
 
     /// Test selection transform prompt contains required sections
     func testBuildPrompt_SelectionTransformContainsRequiredSections() {
@@ -240,11 +206,11 @@ struct PromptBuilderTests {
             succeedingText: nil
         )
 
-        let prompt = builder.buildPrompt(instruction: "", context: context)
+        let prompt = builder.buildPrompt(instruction: "Help me", context: context)
 
-        // Should still generate a valid prompt (autocomplete mode)
+        // Should still generate a valid prompt (instruction mode)
         TestRunner.assertTrue(!prompt.isEmpty, "testBuildPrompt_NilSelectedText")
-        TestRunner.assertTrue(prompt.contains("AUTOCOMPLETE"), "testBuildPrompt_NilSelectedText_Mode")
+        TestRunner.assertTrue(prompt.contains("INSTRUCTION MODE"), "testBuildPrompt_NilSelectedText_Mode")
     }
 
     /// Test selection no instruction defaults to summarize
@@ -336,22 +302,20 @@ struct PromptBuilderTests {
         TestRunner.assertTrue(prompt.contains("Line 3"), "testBuildPrompt_NewlinesInSelection_Line3")
     }
 
-    /// Test instruction with selection prioritizes selection transform
-    func testBuildPrompt_InstructionWithSelectionIsNotAutocomplete() {
+    /// Test instruction with selection uses selection transform mode
+    func testBuildPrompt_InstructionWithSelectionIsSelectionTransform() {
         builder.debugLogging = false
 
         let context = Context(
             source: ContextSource(applicationName: "Notes", bundleIdentifier: "com.apple.Notes"),
             selectedText: "Selected text",
-            precedingText: "Before text",
-            succeedingText: "After text"
+            precedingText: nil,
+            succeedingText: nil
         )
 
         let prompt = builder.buildPrompt(instruction: "Translate", context: context)
 
-        // Should NOT be autocomplete when selection exists
-        TestRunner.assertFalse(prompt.contains("AUTOCOMPLETE MODE"), "testBuildPrompt_InstructionWithSelectionIsNotAutocomplete_NotAutocomplete")
-        TestRunner.assertTrue(prompt.contains("SELECTION TRANSFORMATION MODE"), "testBuildPrompt_InstructionWithSelectionIsNotAutocomplete_IsTransform")
+        TestRunner.assertTrue(prompt.contains("SELECTION TRANSFORMATION MODE"), "testBuildPrompt_InstructionWithSelectionIsSelectionTransform")
     }
 
     /// Test empty context source fields are handled
@@ -361,15 +325,15 @@ struct PromptBuilderTests {
         let context = Context(
             source: ContextSource(applicationName: "", bundleIdentifier: ""),
             selectedText: nil,
-            precedingText: "Hello",
+            precedingText: nil,
             succeedingText: nil
         )
 
-        let prompt = builder.buildPrompt(instruction: "", context: context)
+        let prompt = builder.buildPrompt(instruction: "Help me", context: context)
 
-        // Should still produce valid autocomplete prompt
-        TestRunner.assertTrue(prompt.contains("AUTOCOMPLETE"), "testBuildPrompt_EmptyContextSource")
-        TestRunner.assertTrue(prompt.contains("Hello"), "testBuildPrompt_EmptyContextSource_Preceding")
+        // Should still produce valid instruction prompt
+        TestRunner.assertTrue(prompt.contains("INSTRUCTION MODE"), "testBuildPrompt_EmptyContextSource")
+        TestRunner.assertTrue(prompt.contains("Help me"), "testBuildPrompt_EmptyContextSource_Instruction")
     }
 
     /// Test all text fields nil produces valid prompt
@@ -383,11 +347,11 @@ struct PromptBuilderTests {
             succeedingText: nil
         )
 
-        let prompt = builder.buildPrompt(instruction: "", context: context)
+        let prompt = builder.buildPrompt(instruction: "Help me write", context: context)
 
-        // Should still produce a valid prompt
+        // Should still produce a valid instruction mode prompt
         TestRunner.assertTrue(!prompt.isEmpty, "testBuildPrompt_AllTextFieldsNil_NotEmpty")
-        TestRunner.assertTrue(prompt.contains("AUTOCOMPLETE"), "testBuildPrompt_AllTextFieldsNil_Mode")
+        TestRunner.assertTrue(prompt.contains("INSTRUCTION MODE"), "testBuildPrompt_AllTextFieldsNil_Mode")
     }
 
     /// Test unicode in instruction
@@ -501,16 +465,14 @@ struct PromptBuilderTests {
         print(String(repeating: "=", count: 50) + "\n")
 
         // Mode detection tests
-        testDetectPromptMode_Autocomplete()
-        testDetectPromptMode_AutocompleteWithWhitespace()
         testDetectPromptMode_Instruction()
+        testDetectPromptMode_NoInstructionNoSelection()
         testDetectPromptMode_SelectionTransform()
         testDetectPromptMode_SelectionNoInstruction()
         testDetectPromptMode_EmptySelectionIsNoSelection()
-        testDetectPromptMode_WhitespaceSelectionIsNoSelection()
+        testDetectPromptMode_WhitespaceSelectionIsSelection()
 
         // Template content tests
-        testBuildPrompt_AutocompleteContainsRequiredSections()
         testBuildPrompt_SelectionTransformContainsRequiredSections()
 
         // Edge case tests
@@ -520,7 +482,7 @@ struct PromptBuilderTests {
         testBuildPrompt_LongInstruction()
         testBuildPrompt_SpecialCharactersInSelection()
         testBuildPrompt_NewlinesInSelection()
-        testBuildPrompt_InstructionWithSelectionIsNotAutocomplete()
+        testBuildPrompt_InstructionWithSelectionIsSelectionTransform()
         testBuildPrompt_EmptyContextSource()
         testBuildPrompt_AllTextFieldsNil()
         testBuildPrompt_UnicodeInstruction()

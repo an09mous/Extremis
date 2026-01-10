@@ -6,7 +6,6 @@ import Foundation
 /// Defines the available prompt templates
 enum PromptTemplate: String, CaseIterable {
     case system = "system"
-    case autocomplete = "autocomplete"
     case instruction = "instruction"
     case selectionTransform = "selection_transform"
     case summarization = "summarization"

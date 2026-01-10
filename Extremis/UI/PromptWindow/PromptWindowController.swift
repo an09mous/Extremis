@@ -184,6 +184,14 @@ final class PromptWindowController: NSWindowController {
 
         print("📋 PromptWindow: Context info = \(contextInfo)")
 
+        // Enable chat mode when there's no selection (Chat Mode path)
+        // This creates a conversational interface vs. the instruction-based Quick Mode
+        if !hasSelectedText {
+            viewModel.isChatMode = true
+            viewModel.showResponse = true  // Show ResponseView which contains chat UI
+            print("📋 PromptWindow: No selection → Chat Mode enabled")
+        }
+
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
@@ -445,15 +453,9 @@ final class PromptViewModel: ObservableObject {
     }
 
     func generate(with context: Context) {
-        // Allow empty instruction - this triggers autocomplete mode
-        let isAutocomplete = instructionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if isAutocomplete {
-            print("🔧 Autocomplete mode: No instruction provided, will continue text")
-        }
-
         // Determine the user message content
-        // For autocomplete mode, use "Continue this text" as the user request
-        let userMessageContent = isAutocomplete ? "Continue this text" : instructionText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedInstruction = instructionText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let userMessageContent = trimmedInstruction.isEmpty ? "Help me with this" : trimmedInstruction
 
         // Ensure we have a session - create one if this is the first interaction
         ensureSession(context: context, instruction: userMessageContent)

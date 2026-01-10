@@ -8,7 +8,7 @@ import AppKit
 /// Identifier for registered hotkeys
 enum HotkeyIdentifier: UInt32, CaseIterable {
     case prompt = 1        // Main prompt window hotkey
-    case autocomplete = 2  // Direct autocomplete hotkey
+    case magicMode = 2     // Magic mode hotkey (Option+Tab for summarization)
 }
 
 /// Manages global hotkey registration and handling

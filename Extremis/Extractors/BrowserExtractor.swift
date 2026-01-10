@@ -56,9 +56,6 @@ final class BrowserExtractor: ContextExtractor {
         let windowTitle = getWindowTitle(appElement)
         print("🌐 BrowserExtractor: Window title = \(windowTitle ?? "nil")")
 
-        // Capture text around cursor using common method
-        let (precedingText, succeedingText) = captureTextAroundCursor(verbose: true)
-
         let source = ContextSource(
             applicationName: app.localizedName ?? "Browser",
             bundleIdentifier: app.bundleIdentifier ?? "",
@@ -69,8 +66,8 @@ final class BrowserExtractor: ContextExtractor {
         return Context(
             source: source,
             selectedText: selectedText,
-            precedingText: precedingText,
-            succeedingText: succeedingText,
+            precedingText: nil,
+            succeedingText: nil,
             metadata: .generic(GenericMetadata(
                 focusedElementRole: focusedInfo.role,
                 focusedElementLabel: focusedInfo.label
