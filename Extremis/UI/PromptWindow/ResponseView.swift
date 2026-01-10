@@ -33,6 +33,7 @@ struct ResponseView: View {
 
     // Auto-scroll tracking for quick mode
     @State private var lastResponseLength = 0
+    @State private var wasGeneratingQuickMode = false
 
     // Convenience initializer for non-chat mode
     init(
@@ -159,8 +160,18 @@ struct ResponseView: View {
                     .onChange(of: isGenerating) { generating in
                         if generating {
                             lastResponseLength = 0
+                            wasGeneratingQuickMode = true
+                        } else if wasGeneratingQuickMode {
+                            // Generation just ended - ensure final scroll after layout
+                            wasGeneratingQuickMode = false
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                                proxy.scrollTo("quickModeBottom", anchor: .bottom)
+                            }
                         }
-                        proxy.scrollTo("quickModeBottom", anchor: .bottom)
+                        // Delay scroll slightly to ensure layout is complete
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                            proxy.scrollTo("quickModeBottom", anchor: .bottom)
+                        }
                     }
                 }
                 .frame(maxHeight: .infinity)

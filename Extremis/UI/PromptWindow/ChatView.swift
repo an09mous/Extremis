@@ -16,9 +16,9 @@ struct ChatView: View {
     /// Map of message IDs to their associated context (for displaying context indicators)
     var messageContexts: [UUID: Context] = [:]
 
-    // Track if user has manually scrolled away from bottom
-    @State private var userHasScrolledUp = false
+    // Track streaming state for scroll decisions
     @State private var lastContentLength = 0
+    @State private var wasGenerating = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -62,25 +62,26 @@ struct ChatView: View {
                     .frame(minHeight: geometry.size.height, alignment: .bottom)
                 }
                 .onAppear {
-                    scrollToBottom(proxy: proxy)
+                    scrollToBottomAfterLayout(proxy: proxy)
                 }
                 .onChange(of: session.messages.count) { _ in
                     // Always scroll when new message is added
-                    userHasScrolledUp = false
-                    scrollToBottom(proxy: proxy)
+                    scrollToBottomAfterLayout(proxy: proxy)
                 }
                 .onChange(of: isGenerating) { generating in
                     if generating {
-                        // Reset scroll tracking when generation starts
-                        userHasScrolledUp = false
+                        // Reset tracking when generation starts
                         lastContentLength = 0
+                        wasGenerating = true
+                    } else if wasGenerating {
+                        // Generation just ended - ensure final scroll
+                        wasGenerating = false
+                        scrollToBottomAfterLayout(proxy: proxy)
                     }
-                    scrollToBottom(proxy: proxy)
+                    scrollToBottomAfterLayout(proxy: proxy)
                 }
                 .onChange(of: streamingContent) { newValue in
-                    // Only auto-scroll if user hasn't manually scrolled up
-                    // and only every ~100 characters to reduce scroll calls
-                    guard !userHasScrolledUp else { return }
+                    // Throttle scroll during streaming: every ~100 chars or on empty (start)
                     let newLength = newValue.count
                     if newLength == 0 || newLength - lastContentLength > 100 {
                         lastContentLength = newLength
@@ -88,9 +89,17 @@ struct ChatView: View {
                     }
                 }
                 .onChange(of: error) { _ in
-                    scrollToBottom(proxy: proxy)
+                    scrollToBottomAfterLayout(proxy: proxy)
                 }
             }
+        }
+    }
+
+    /// Scroll to bottom after giving SwiftUI time to complete layout
+    private func scrollToBottomAfterLayout(proxy: ScrollViewProxy, animated: Bool = true) {
+        // Delay scroll slightly to ensure layout is complete
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            scrollToBottom(proxy: proxy, animated: animated)
         }
     }
 
