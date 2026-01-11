@@ -182,23 +182,6 @@ final class PromptBuilder {
         print(String(repeating: "-", count: 80) + "\n")
     }
 
-    // MARK: - Context Formatting
-
-    private func formatSource(_ source: ContextSource) -> String {
-        var lines = ["[Source Information]"]
-        lines.append("Application: \(source.applicationName)")
-
-        if let windowTitle = source.windowTitle, !windowTitle.isEmpty {
-            lines.append("Window: \(windowTitle)")
-        }
-
-        if let url = source.url {
-            lines.append("URL: \(url.absoluteString)")
-        }
-
-        return lines.joined(separator: "\n")
-    }
-
     // MARK: - Metadata Formatting
 
     private func formatMetadata(_ metadata: ContextMetadata) -> String {
