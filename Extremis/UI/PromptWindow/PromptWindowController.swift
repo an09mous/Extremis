@@ -319,6 +319,11 @@ final class PromptViewModel: ObservableObject {
     private var generationTask: Task<Void, Never>?
     var currentContext: Context?  // Made internal so PromptWindowController can set it
 
+    /// Tracks whether the next message is the first since Extremis was spawned
+    /// When true, context should be attached to the next user message
+    /// Set to true in prepareForNewInput(), consumed after first message is sent
+    private var isFirstMessageSinceSpawn: Bool = true
+
     /// Cancellable for provider change subscription
     private var providerCancellable: AnyCancellable?
 
@@ -354,6 +359,7 @@ final class PromptViewModel: ObservableObject {
         chatInputText = ""
         streamingContent = ""
         isChatMode = false
+        isFirstMessageSinceSpawn = true
     }
 
     /// Prepare for new input without losing session state
@@ -375,6 +381,10 @@ final class PromptViewModel: ObservableObject {
         chatInputText = ""
         streamingContent = ""
         isChatMode = false  // Reset to simple mode - chat mode enables on follow-up
+
+        // Mark that the next message should have context attached
+        // This is the first message since the user spawned Extremis
+        isFirstMessageSinceSpawn = true
 
         // DON'T clear: session, sessionId, response (for history)
         // The session continues across invocations
@@ -484,6 +494,9 @@ final class PromptViewModel: ObservableObject {
             sess.addMessage(message)
         }
 
+        // Consume the spawn flag - this message has context attached
+        isFirstMessageSinceSpawn = false
+
         currentContext = context
         isGenerating = true
         error = nil
@@ -579,6 +592,9 @@ final class PromptViewModel: ObservableObject {
             let message = ChatMessage.user("Summarize this text", context: surroundingContext, intent: .summarize)
             sess.addMessage(message)
         }
+
+        // Consume the spawn flag - this message has context attached
+        isFirstMessageSinceSpawn = false
 
         isSummarizing = true
         isGenerating = true
@@ -740,12 +756,17 @@ final class PromptViewModel: ObservableObject {
             return
         }
 
-        // Add user message
-        let message = ChatMessage.user(messageText)
+        // First message since spawning Extremis gets context attached
+        // Follow-up messages within the same spawn don't need context
+        let message: ChatMessage
+        if isFirstMessageSinceSpawn, let ctx = currentContext {
+            message = ChatMessage.user(messageText, context: ctx, intent: .chat)
+            isFirstMessageSinceSpawn = false  // Consume the flag
+            print("💬 First message since spawn - attaching context from \(ctx.source.applicationName)")
+        } else {
+            message = ChatMessage.user(messageText)
+        }
         sess.addMessage(message)
-        // Note: We intentionally do NOT register context for follow-up chat messages.
-        // Context is only attached to the first user message when Extremis is invoked.
-        // Follow-up messages don't need their own context - they're part of the same conversation.
         chatInputText = ""
         streamingContent = ""
         isGenerating = true
