@@ -8,8 +8,11 @@ A context-aware LLM writing assistant for macOS. Press a global hotkey anywhere 
   - `Cmd+Shift+Space` - Quick Mode (with selection) or Chat Mode (without selection)
   - `Option+Tab` - Magic Mode: auto-summarize selected text (no-op without selection)
 - **Context-Aware** - Captures app context (name, window title) and selected text
-- **Smart Summarization** - Quickly summarize selected text with one keystroke
-- **Multi-turn Chat** - Continue chatting with AI after initial response for refinements and follow-ups
+- **Quick Summarization** - Summarize selected text instantly with one keystroke
+- **Multi-turn Chat** - Continue chatting with AI for refinements and follow-ups
+- **Session Management** - Multiple chat sessions with automatic persistence across restarts
+- **Context Window Management** - Long conversations are automatically summarized to fit context windows
+- **Context Inspector** - View captured context (app, window, URL, metadata) before sending
 - **Multi-Provider LLM Support**
   - OpenAI (GPT-4o, GPT-4o Mini, GPT-4 Turbo, GPT-4)
   - Anthropic (Claude Sonnet 4.5, Claude Haiku 4.5, Claude Opus 4.5)
@@ -148,18 +151,31 @@ Context metadata varies by app:
 Extremis/
 ├── App/                    # App entry point and lifecycle
 ├── Core/
-│   ├── Models/            # Data models (Context, Preferences)
-│   ├── Protocols/         # Protocol definitions
-│   └── Services/          # HotkeyManager, SessionManager
+│   ├── Models/            # Data models (Context, ChatMessage, Preferences)
+│   │   └── Persistence/   # Session storage models (PersistedSession, SessionIndex)
+│   ├── Protocols/         # Protocol definitions (LLMProvider, SessionStorage)
+│   └── Services/          # Business logic services
+│       ├── SessionManager        # Session lifecycle and persistence
+│       ├── SummarizationManager  # Long conversation summarization
+│       ├── HotkeyManager         # Global hotkey registration
+│       ├── ContextOrchestrator   # Context extraction coordination
+│       └── JSONSessionStorage    # File-based session persistence
 ├── Extractors/            # Context extractors
 │   ├── GenericExtractor   # Fallback for any app
 │   ├── BrowserExtractor   # All browsers via AX APIs
 │   └── SlackExtractor     # Slack desktop + web
 ├── LLMProviders/          # OpenAI, Anthropic, Gemini, Ollama
-├── UI/                    # SwiftUI views
-│   ├── PromptWindow       # Main floating panel
-│   └── Preferences/       # Settings tabs
-└── Utilities/             # Keychain, SelectionDetector helpers
+│   ├── PromptBuilder      # Intent-based prompt formatting
+│   └── PromptTemplateLoader # Handlebars template loading
+├── UI/
+│   ├── PromptWindow/      # Main floating panel and chat UI
+│   ├── Preferences/       # Settings tabs
+│   └── Components/        # Reusable UI components
+└── Utilities/             # Helper classes
+    ├── KeychainHelper     # Secure API key storage
+    ├── SelectionDetector  # Text selection detection
+    ├── ClipboardManager   # Clipboard operations
+    └── UserDefaultsHelper # Preferences persistence
 ```
 
 ## Tech Stack
@@ -170,18 +186,6 @@ Extremis/
   - Carbon (global hotkey registration)
   - ApplicationServices (Accessibility APIs)
   - Security (Keychain for API key storage)
-
-## Roadmap
-
-- [x] **Selection-based context** - Capture selected text across all apps
-- [x] **Universal app support** - Works in VS Code and all Electron apps via clipboard fallback
-- [x] **Summarization** - Quick summarize selected text
-- [x] **Streaming responses** - Real-time SSE/NDJSON streaming for all providers
-- [x] **Multi-turn chat** - Continue conversations with AI for refinements and follow-up questions
-- [x] **Session persistence** - Remember conversations across app restarts
-- [ ] **MCP support** - Integration with Model Context Protocol for external tools and data sources
-
-See [open issues](https://github.com/an09mous/Extremis/issues) for more details and to contribute ideas.
 
 ## License
 
