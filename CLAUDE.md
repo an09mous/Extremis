@@ -118,7 +118,7 @@ Feature specs are in `specs/` directory, each containing:
 - `tasks.md` - Task breakdown
 - `data-model.md` - Data model schemas (when applicable)
 
-Current active feature: `specs/008-prompting-improvements/` (Prompting Improvements & Mode Simplification)
+Latest completed feature: `specs/008-prompting-improvements/` (Prompting Improvements & Mode Simplification) ✅
 
 ## Key Files
 
@@ -141,10 +141,14 @@ Current active feature: `specs/008-prompting-improvements/` (Prompting Improveme
 
 | Template | Purpose | Placeholders |
 |----------|---------|--------------|
-| `chat_system.hbs` | Chat mode system prompt (explains context blocks in messages) | None |
-| `selection_transform.hbs` | Selection transformation prompt (Quick Mode) | `{{CONTEXT}}`, `{{SELECTED_TEXT}}`, `{{INSTRUCTION}}` |
-| `summarization.hbs` | Text summarization prompt (Magic Mode) | `{{CONTEXT}}`, `{{SELECTED_TEXT}}`, `{{FORMAT_INSTRUCTION}}`, `{{LENGTH_INSTRUCTION}}` |
-| `session_summarization.hbs` | Session/conversation summarization for context preservation | `{{CONVERSATION_TRANSCRIPT}}` |
+| `system.hbs` | Unified system prompt with capabilities, guidelines, security | None |
+| `intent_instruct.hbs` | Quick Mode - selection transforms | `{{CONTENT}}` |
+| `intent_chat.hbs` | Chat Mode - conversational messages | `{{CONTENT}}` |
+| `intent_summarize.hbs` | Magic Mode - summarization | `{{CONTENT}}` |
+| `session_summarization_initial.hbs` | First-time session summary | `{{CONTENT}}` |
+| `session_summarization_update.hbs` | Hierarchical summary updates | `{{CONTENT}}` |
+
+**Architecture**: Intent-based prompt injection - templates are selected based on `MessageIntent` enum and injected into user messages. Context is embedded inline with each user message, not in the system prompt.
 
 **Adding a new prompt template**:
 1. Create `my_template.hbs` in `Extremis/Resources/PromptTemplates/`
@@ -158,9 +162,8 @@ Current active feature: `specs/008-prompting-improvements/` (Prompting Improveme
 - **Prompt Templates**: Never hardcode LLM prompts in Swift - always use `.hbs` template files in `Resources/PromptTemplates/`
 - **Testing**: All new tests MUST be added to `Extremis/scripts/run-tests.sh`
 
-## Active Technologies
-- Swift 5.9+ + SwiftUI, AppKit, Carbon (hotkeys), ApplicationServices (Accessibility APIs) (008-prompting-improvements)
-- UserDefaults (preferences), Keychain (API keys), Application Support (sessions) (008-prompting-improvements)
-
-## Recent Changes
-- 008-prompting-improvements: Added Swift 5.9+ + SwiftUI, AppKit, Carbon (hotkeys), ApplicationServices (Accessibility APIs)
+## Tech Stack
+- Swift 5.9+ with Swift Concurrency
+- SwiftUI + AppKit hybrid (NSPanel, NSHostingView)
+- Carbon (global hotkeys), ApplicationServices (Accessibility APIs)
+- UserDefaults (preferences), Keychain (API keys), Application Support (sessions)
