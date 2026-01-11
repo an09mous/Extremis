@@ -141,23 +141,4 @@ enum PreferencesError: LocalizedError, Equatable {
     }
 }
 
-// MARK: - Conversation Store Protocol (Phase 2 Ready)
-
-/// Protocol for conversation persistence (in-memory for Phase 1)
-protocol ConversationStore {
-    /// Save a conversation
-    func save(_ conversation: Conversation) async throws
-    
-    /// Load a conversation by ID
-    func load(id: UUID) async throws -> Conversation?
-    
-    /// Get recent conversations
-    func recent(limit: Int) async throws -> [Conversation]
-    
-    /// Delete a conversation
-    func delete(id: UUID) async throws
-    
-    /// Clear all conversations
-    func clearAll() async throws
-}
 

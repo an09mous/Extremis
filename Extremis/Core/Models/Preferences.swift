@@ -112,37 +112,3 @@ enum AppearanceMode: String, Codable, CaseIterable {
     case dark
 }
 
-// MARK: - Conversation (Phase 2 Ready)
-
-/// In-memory conversation tracking (persistence in Phase 2)
-struct Conversation: Identifiable, Codable {
-    let id: UUID
-    let startedAt: Date
-    var turns: [ConversationTurn]
-    var context: Context
-    
-    init(
-        id: UUID = UUID(),
-        startedAt: Date = Date(),
-        turns: [ConversationTurn] = [],
-        context: Context
-    ) {
-        self.id = id
-        self.startedAt = startedAt
-        self.turns = turns
-        self.context = context
-    }
-}
-
-struct ConversationTurn: Codable, Equatable {
-    let instruction: Instruction
-    var generation: Generation?
-    var status: GenerationStatus
-    
-    init(instruction: Instruction, generation: Generation? = nil, status: GenerationStatus = .pending) {
-        self.instruction = instruction
-        self.generation = generation
-        self.status = status
-    }
-}
-
