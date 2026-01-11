@@ -9,20 +9,17 @@ struct Preferences: Codable, Equatable {
     var hotkey: HotkeyConfiguration
     var activeProvider: LLMProviderType
     var launchAtLogin: Bool
-    var appearance: AppearanceSettings
-    
+
     init(
         hotkey: HotkeyConfiguration = .default,
         activeProvider: LLMProviderType = .ollama,
-        launchAtLogin: Bool = false,
-        appearance: AppearanceSettings = .default
+        launchAtLogin: Bool = false
     ) {
         self.hotkey = hotkey
         self.activeProvider = activeProvider
         self.launchAtLogin = launchAtLogin
-        self.appearance = appearance
     }
-    
+
     /// Default preferences
     static let `default` = Preferences()
 }
@@ -80,35 +77,4 @@ struct HotkeyConfiguration: Codable, Equatable {
     }
 }
 
-// MARK: - Appearance Settings
-
-/// Visual appearance settings
-struct AppearanceSettings: Codable, Equatable {
-    var appearance: AppearanceMode
-    var windowWidth: Int
-    var windowHeight: Int
-    var fontSize: Int
-
-    init(
-        appearance: AppearanceMode = .system,
-        windowWidth: Int = 500,
-        windowHeight: Int = 300,
-        fontSize: Int = 14
-    ) {
-        self.appearance = appearance
-        self.windowWidth = windowWidth
-        self.windowHeight = windowHeight
-        self.fontSize = fontSize
-    }
-
-    /// Default appearance settings
-    static let `default` = AppearanceSettings()
-}
-
-/// App appearance mode
-enum AppearanceMode: String, Codable, CaseIterable {
-    case system
-    case light
-    case dark
-}
 
