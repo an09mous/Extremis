@@ -56,7 +56,6 @@ final class GeminiProvider: LLMProvider {
             throw LLMProviderError.notConfigured(provider: .gemini)
         }
 
-        let startTime = Date()
         let request = try buildRequest(apiKey: apiKey, prompt: prompt)
         let (data, response) = try await session.data(for: request)
 
@@ -68,20 +67,8 @@ final class GeminiProvider: LLMProvider {
 
         let result = try JSONDecoder().decode(GeminiResponse.self, from: data)
         let content = result.candidates?.first?.content.parts.first?.text ?? ""
-        let latencyMs = Int(Date().timeIntervalSince(startTime) * 1000)
 
-        return Generation(
-            instructionId: UUID(),
-            provider: .gemini,
-            content: content,
-            tokenUsage: result.usageMetadata.map {
-                TokenUsage(
-                    promptTokens: $0.promptTokenCount ?? 0,
-                    completionTokens: $0.candidatesTokenCount ?? 0
-                )
-            },
-            latencyMs: latencyMs
-        )
+        return Generation(content: content)
     }
 
     /// Stream from a raw prompt (already built, no additional processing)
@@ -135,7 +122,6 @@ final class GeminiProvider: LLMProvider {
             throw LLMProviderError.notConfigured(provider: .gemini)
         }
 
-        let startTime = Date()
         let request = try buildChatRequest(apiKey: apiKey, messages: messages)
         let (data, response) = try await session.data(for: request)
 
@@ -147,20 +133,8 @@ final class GeminiProvider: LLMProvider {
 
         let result = try JSONDecoder().decode(GeminiResponse.self, from: data)
         let content = result.candidates?.first?.content.parts.first?.text ?? ""
-        let latencyMs = Int(Date().timeIntervalSince(startTime) * 1000)
 
-        return Generation(
-            instructionId: UUID(),
-            provider: .gemini,
-            content: content,
-            tokenUsage: result.usageMetadata.map {
-                TokenUsage(
-                    promptTokens: $0.promptTokenCount ?? 0,
-                    completionTokens: $0.candidatesTokenCount ?? 0
-                )
-            },
-            latencyMs: latencyMs
-        )
+        return Generation(content: content)
     }
 
     func generateChatStream(messages: [ChatMessage]) -> AsyncThrowingStream<String, Error> {

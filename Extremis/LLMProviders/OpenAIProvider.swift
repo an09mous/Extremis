@@ -54,7 +54,6 @@ final class OpenAIProvider: LLMProvider {
             throw LLMProviderError.notConfigured(provider: .openai)
         }
 
-        let startTime = Date()
         let request = try buildRequest(apiKey: apiKey, prompt: prompt)
         let (data, response) = try await session.data(for: request)
 
@@ -66,18 +65,8 @@ final class OpenAIProvider: LLMProvider {
 
         let result = try JSONDecoder().decode(OpenAIResponse.self, from: data)
         let content = result.choices.first?.message.content ?? ""
-        let latencyMs = Int(Date().timeIntervalSince(startTime) * 1000)
 
-        return Generation(
-            instructionId: UUID(),
-            provider: .openai,
-            content: content,
-            tokenUsage: TokenUsage(
-                promptTokens: result.usage?.prompt_tokens ?? 0,
-                completionTokens: result.usage?.completion_tokens ?? 0
-            ),
-            latencyMs: latencyMs
-        )
+        return Generation(content: content)
     }
 
     /// Stream from a raw prompt (already built, no additional processing)
@@ -136,7 +125,6 @@ final class OpenAIProvider: LLMProvider {
             throw LLMProviderError.notConfigured(provider: .openai)
         }
 
-        let startTime = Date()
         let request = try buildChatRequest(apiKey: apiKey, messages: messages)
         let (data, response) = try await session.data(for: request)
 
@@ -148,18 +136,8 @@ final class OpenAIProvider: LLMProvider {
 
         let result = try JSONDecoder().decode(OpenAIResponse.self, from: data)
         let content = result.choices.first?.message.content ?? ""
-        let latencyMs = Int(Date().timeIntervalSince(startTime) * 1000)
 
-        return Generation(
-            instructionId: UUID(),
-            provider: .openai,
-            content: content,
-            tokenUsage: TokenUsage(
-                promptTokens: result.usage?.prompt_tokens ?? 0,
-                completionTokens: result.usage?.completion_tokens ?? 0
-            ),
-            latencyMs: latencyMs
-        )
+        return Generation(content: content)
     }
 
     func generateChatStream(messages: [ChatMessage]) -> AsyncThrowingStream<String, Error> {

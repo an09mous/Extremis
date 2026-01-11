@@ -130,10 +130,6 @@ actor JSONSessionStorage: SessionStorage {
         try loadIndex().activeSessions
     }
 
-    func listArchivedSessions() throws -> [SessionIndexEntry] {
-        try loadIndex().archivedSessions
-    }
-
     // MARK: - Active Session Tracking
 
     func getActiveSessionId() throws -> UUID? {
@@ -145,59 +141,6 @@ actor JSONSessionStorage: SessionStorage {
         index.activeSessionId = id
         index.lastUpdated = Date()
         try saveIndex(index)
-    }
-
-    // MARK: - Archive Operations
-
-    func archiveSession(id: UUID) throws {
-        guard var session = try loadSession(id: id) else {
-            throw StorageError.sessionNotFound(id: id)
-        }
-        session.isArchived = true
-        try saveSession(session)
-    }
-
-    func unarchiveSession(id: UUID) throws {
-        guard var session = try loadSession(id: id) else {
-            throw StorageError.sessionNotFound(id: id)
-        }
-        session.isArchived = false
-        try saveSession(session)
-    }
-
-    func purgeArchivedBefore(_ date: Date) throws {
-        let index = try loadIndex()
-        for entry in index.archivedSessions {
-            if entry.updatedAt < date {
-                try deleteSession(id: entry.id)
-            }
-        }
-    }
-
-    // MARK: - Maintenance
-
-    func calculateStorageSize() throws -> Int64 {
-        let fm = FileManager.default
-        var totalSize: Int64 = 0
-
-        guard let enumerator = fm.enumerator(at: baseURL, includingPropertiesForKeys: [.fileSizeKey]) else {
-            return 0
-        }
-
-        while let url = enumerator.nextObject() as? URL {
-            do {
-                let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-                totalSize += Int64(size)
-            } catch {
-                continue
-            }
-        }
-
-        return totalSize
-    }
-
-    func getStorageDescription() -> String {
-        "JSON Files: \(baseURL.path)"
     }
 
     // MARK: - Private: Index Operations
@@ -239,11 +182,6 @@ actor JSONSessionStorage: SessionStorage {
             cachedIndex = nil
             throw StorageError.fileWriteFailed(path: indexURL.path, underlying: error)
         }
-    }
-
-    /// Invalidate the cached index (force reload from disk)
-    func invalidateIndexCache() {
-        cachedIndex = nil
     }
 
     // MARK: - Private: Migration
