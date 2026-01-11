@@ -244,7 +244,6 @@ struct ChatMessage: Identifiable, Codable, Equatable {
 
 enum PromptTemplate: String, CaseIterable {
     case system = "system"
-    case sessionSummarization = "session_summarization"
     case intentInstruct = "intent_instruct"
     case intentSummarize = "intent_summarize"
     case intentChat = "intent_chat"

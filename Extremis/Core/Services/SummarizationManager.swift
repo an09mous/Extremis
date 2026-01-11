@@ -259,34 +259,40 @@ final class SummarizationManager {
         let instructions: String
         if previousSummary != nil {
             instructions = """
-            You are updating a conversation summary with new messages.
+            Update this conversation summary with new messages.
 
-            Your task is to create an UPDATED summary that:
-            1. Integrates the key information from the previous summary
-            2. Incorporates the new messages that followed
-            3. Maintains a coherent, comprehensive overview
+            ## Task
+            Integrate the previous summary with the new messages to create a unified, updated summary.
 
-            Guidelines:
-            - Keep the summary under 500 words
+            ## What to Capture
+            - **Key Facts**: Names, dates, numbers, file paths, technical specifications
+            - **User Preferences**: Stated preferences for tone, format, or approach
+            - **Decisions**: Solutions agreed upon, problems resolved
+            - **Open Items**: Pending tasks, unresolved questions
+
+            ## Guidelines
+            - Under 400 words, organized by relevance
             - Preserve important context from the previous summary
-            - Add new topics, decisions, or details from the recent messages
-            - Remove outdated information if it was superseded
-            - Focus on information needed to continue the conversation effectively
-            - Be direct and factual, avoid meta-commentary
+            - Add new topics, decisions, or details from recent messages
+            - Remove outdated information if superseded by new messages
+            - Be direct and factual - no meta-commentary
+            - Preserve exact values rather than paraphrasing
             """
         } else {
             instructions = """
-            You are summarizing a conversation history for context preservation.
+            Create a memory summary for continuing this conversation later.
 
-            Create a concise summary that captures:
-            1. The main topics discussed
-            2. Key decisions or conclusions reached
-            3. Important facts mentioned (names, dates, technical details)
-            4. Any ongoing tasks or questions that need follow-up
+            ## What to Capture
+            - **Key Facts**: Names, dates, numbers, file paths, technical specifications
+            - **User Preferences**: Stated preferences for tone, format, or approach
+            - **Decisions**: Solutions agreed upon, problems resolved
+            - **Open Items**: Pending tasks, unresolved questions
 
-            Keep the summary under 500 words. Focus on information needed to continue the conversation effectively.
-            Do not include phrases like "In this conversation" or "The user and assistant discussed".
-            Be direct and factual.
+            ## Guidelines
+            - Under 400 words, organized by relevance
+            - Be direct and factual - no "In this conversation..." or "The user discussed..."
+            - Preserve exact values (names, paths, numbers) rather than paraphrasing
+            - Focus on information needed to continue the conversation effectively
             """
         }
 

@@ -8,9 +8,6 @@ enum PromptTemplate: String, CaseIterable {
     /// System prompt - base instructions for all interactions
     case system = "system"
 
-    /// Session summarization - for memory management (summarizing conversation history)
-    case sessionSummarization = "session_summarization"
-
     // Intent injection templates (appended to user messages based on MessageIntent)
     /// Rules for instructions about selected text (transform, explain, question, etc.)
     case intentInstruct = "intent_instruct"
