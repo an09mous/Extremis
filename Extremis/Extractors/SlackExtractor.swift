@@ -66,20 +66,6 @@ final class SlackExtractor: ContextExtractor {
         let selectedText = getSelectedText(appElement)
         print("🔍 SlackExtractor: Selected text via AX = \(selectedText ?? "nil")")
 
-        // Capture text around cursor using common method
-        let (precedingText, succeedingText) = captureTextAroundCursor(verbose: true)
-
-        // Parse messages from captured content (use preceding text for context)
-        var extractedMessages: [SlackMessage] = []
-        var extractedParticipants: [String] = []
-
-        if let content = precedingText, !content.isEmpty {
-            let parsed = parseSlackContent(content)
-            extractedMessages = parsed.messages
-            extractedParticipants = parsed.participants
-            print("🔍 SlackExtractor: Parsed \(extractedMessages.count) messages from clipboard content")
-        }
-
         let source = ContextSource(
             applicationName: "Slack",
             bundleIdentifier: app.bundleIdentifier ?? "com.tinyspeck.slackmacgap",
@@ -89,84 +75,17 @@ final class SlackExtractor: ContextExtractor {
         let metadata = SlackMetadata(
             channelName: channelInfo.name,
             channelType: channelInfo.type,
-            participants: extractedParticipants,
-            recentMessages: extractedMessages
+            participants: [],
+            recentMessages: []
         )
 
         return Context(
             source: source,
             selectedText: selectedText,
-            precedingText: precedingText,
-            succeedingText: succeedingText,
+            precedingText: nil,
+            succeedingText: nil,
             metadata: .slack(metadata)
         )
-    }
-
-    // MARK: - Content Parsing
-
-    /// Parse Slack content to extract messages and participants
-    private func parseSlackContent(_ content: String) -> (messages: [SlackMessage], participants: [String]) {
-        var messages: [SlackMessage] = []
-        var participants: Set<String> = []
-
-        let lines = content.components(separatedBy: .newlines)
-        var currentSender: String?
-        var currentMessage: String = ""
-
-        // Common Slack message patterns:
-        // "Name  HH:MM AM/PM" or "Name  Yesterday at HH:MM" followed by message
-        // Or just "Name" on one line, message on next
-
-        let timestampPattern = try? NSRegularExpression(
-            pattern: "^([A-Za-z][A-Za-z0-9 _.-]*)\\s{2,}(\\d{1,2}:\\d{2}\\s*(?:AM|PM)?|Yesterday|Today|\\d{1,2}/\\d{1,2}/\\d{2,4})",
-            options: .caseInsensitive
-        )
-
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { continue }
-
-            // Skip UI elements
-            let skipPatterns = ["New message", "Jump to", "Add bookmark", "Search",
-                               "Threads", "Direct messages", "Channels", "Apps",
-                               "replied to a thread", "joined the channel", "left the channel",
-                               "Add a reaction", "Start a thread", "Share message"]
-            if skipPatterns.contains(where: { trimmed.contains($0) }) {
-                continue
-            }
-
-            // Check if this is a sender line with timestamp
-            if let regex = timestampPattern,
-               let match = regex.firstMatch(in: trimmed, options: [], range: NSRange(trimmed.startIndex..., in: trimmed)) {
-                // Save previous message
-                if let sender = currentSender, !currentMessage.isEmpty {
-                    messages.append(SlackMessage(sender: sender, content: currentMessage.trimmingCharacters(in: .whitespacesAndNewlines), timestamp: Date()))
-                    participants.insert(sender)
-                }
-
-                // Start new message
-                if let senderRange = Range(match.range(at: 1), in: trimmed) {
-                    currentSender = String(trimmed[senderRange]).trimmingCharacters(in: .whitespaces)
-                }
-                currentMessage = ""
-            } else if currentSender != nil {
-                // Continuation of current message
-                if !currentMessage.isEmpty {
-                    currentMessage += "\n"
-                }
-                currentMessage += trimmed
-            }
-        }
-
-        // Don't forget the last message
-        if let sender = currentSender, !currentMessage.isEmpty {
-            messages.append(SlackMessage(sender: sender, content: currentMessage.trimmingCharacters(in: .whitespacesAndNewlines), timestamp: Date()))
-            participants.insert(sender)
-        }
-
-        print("🔍 SlackExtractor: parseSlackContent found \(messages.count) messages, \(participants.count) participants")
-
-        return (messages, Array(participants))
     }
 
     /// Print the complete AX tree for debugging

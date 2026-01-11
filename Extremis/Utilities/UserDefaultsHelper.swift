@@ -76,42 +76,20 @@ extension UserDefaultsHelper {
     var activeProvider: LLMProviderType {
         preferences.activeProvider
     }
-    
+
     /// Set the active LLM provider type
     func setActiveProvider(_ provider: LLMProviderType) throws {
         var updated = preferences
         updated.activeProvider = provider
         try update(updated)
     }
-    
-    /// Get the hotkey configuration
-    var hotkeyConfiguration: HotkeyConfiguration {
-        preferences.hotkey
-    }
-    
-    /// Set the hotkey configuration
-    func setHotkeyConfiguration(_ config: HotkeyConfiguration) throws {
-        var updated = preferences
-        updated.hotkey = config
-        try update(updated)
-    }
-    
+
     /// Get launch at login setting
     var launchAtLogin: Bool {
         get { preferences.launchAtLogin }
         set {
             var updated = preferences
             updated.launchAtLogin = newValue
-            try? update(updated)
-        }
-    }
-
-    /// Get appearance settings
-    var appearanceSettings: AppearanceSettings {
-        get { preferences.appearance }
-        set {
-            var updated = preferences
-            updated.appearance = newValue
             try? update(updated)
         }
     }

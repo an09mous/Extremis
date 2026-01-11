@@ -50,34 +50,6 @@ extension ContextExtractor {
 
         return false
     }
-
-    /// Capture text around cursor position using clipboard simulation
-    /// - Parameter verbose: Whether to print detailed logs
-    /// - Returns: Tuple of (precedingText, succeedingText)
-    func captureTextAroundCursor(verbose: Bool = true) -> (preceding: String?, succeeding: String?) {
-        // Capture preceding text (text before cursor)
-        if verbose {
-            print("📋 \(displayName): Capturing preceding text via clipboard...")
-        }
-        let precedingText = ClipboardCapture.shared.captureVisibleContent(verbose: verbose)
-        if verbose {
-            print("📋 \(displayName): Captured \(precedingText?.count ?? 0) characters (preceding)")
-        }
-
-        // Small delay between captures to ensure cursor is stable
-        Thread.sleep(forTimeInterval: 0.2)
-
-        // Capture succeeding text (text after cursor)
-        if verbose {
-            print("📋 \(displayName): Capturing succeeding text via clipboard...")
-        }
-        let succeedingText = ClipboardCapture.shared.captureSucceedingContent(verbose: verbose)
-        if verbose {
-            print("📋 \(displayName): Captured \(succeedingText?.count ?? 0) characters (succeeding)")
-        }
-
-        return (precedingText, succeedingText)
-    }
 }
 
 // MARK: - Context Extractor Registry Protocol

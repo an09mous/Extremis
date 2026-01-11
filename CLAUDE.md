@@ -43,7 +43,11 @@ swiftc -parse-as-library Extremis/Tests/Core/SessionManagerTests.swift -o /tmp/t
 
 ## Project Overview
 
-Extremis is a macOS menu bar app that provides context-aware LLM text generation via global hotkeys (`Cmd+Shift+Space` and `Option+Tab`). It captures surrounding text from any application and sends it to various LLM providers.
+Extremis is a macOS menu bar app that provides context-aware LLM text generation via global hotkeys:
+- **Cmd+Shift+Space**: Opens Quick Mode (with selection) or Chat Mode (without selection)
+- **Option+Tab**: Magic Mode - summarizes selected text (no-op without selection)
+
+Context is captured via AX metadata (app name, window title) and selected text when present.
 
 **Tech Stack**: Swift 5.9+, SwiftUI + AppKit hybrid, macOS 13.0+ (Ventura)
 **Build System**: Swift Package Manager (no external dependencies)
@@ -114,7 +118,7 @@ Feature specs are in `specs/` directory, each containing:
 - `tasks.md` - Task breakdown
 - `data-model.md` - Data model schemas (when applicable)
 
-Current active feature: `specs/007-memory-persistence/` (Memory & Persistence)
+Latest completed feature: `specs/008-prompting-improvements/` (Prompting Improvements & Mode Simplification) ✅
 
 ## Key Files
 
@@ -137,16 +141,29 @@ Current active feature: `specs/007-memory-persistence/` (Memory & Persistence)
 
 | Template | Purpose | Placeholders |
 |----------|---------|--------------|
-| `system.hbs` | Base system prompt for all interactions | None |
-| `instruction.hbs` | Quick mode instruction prompt | `{{SYSTEM_PROMPT}}`, `{{CONTEXT}}`, `{{INSTRUCTION}}` |
-| `chat_system.hbs` | Chat mode system prompt | `{{SYSTEM_PROMPT}}`, `{{CONTEXT}}` |
-| `autocomplete.hbs` | Text autocomplete prompt | `{{SYSTEM_PROMPT}}`, `{{CONTEXT}}` |
-| `selection_transform.hbs` | Selection transformation prompt | `{{SYSTEM_PROMPT}}`, `{{CONTEXT}}`, `{{SELECTED_TEXT}}`, `{{INSTRUCTION}}` |
-| `summarization.hbs` | Text summarization prompt | `{{SYSTEM_PROMPT}}`, `{{CONTEXT}}`, `{{SELECTED_TEXT}}`, `{{FORMAT_INSTRUCTION}}`, `{{LENGTH_INSTRUCTION}}` |
-| `session_summarization.hbs` | Session/conversation summarization for context preservation | `{{CONVERSATION_TRANSCRIPT}}` |
+| `system.hbs` | Unified system prompt with capabilities, guidelines, security | None |
+| `intent_instruct.hbs` | Quick Mode - selection transforms | `{{CONTENT}}` |
+| `intent_chat.hbs` | Chat Mode - conversational messages | `{{CONTENT}}` |
+| `intent_summarize.hbs` | Magic Mode - summarization | `{{CONTENT}}` |
+| `session_summarization_initial.hbs` | First-time session summary | `{{CONTENT}}` |
+| `session_summarization_update.hbs` | Hierarchical summary updates | `{{CONTENT}}` |
+
+**Architecture**: Intent-based prompt injection - templates are selected based on `MessageIntent` enum and injected into user messages. Context is embedded inline with each user message, not in the system prompt.
 
 **Adding a new prompt template**:
 1. Create `my_template.hbs` in `Extremis/Resources/PromptTemplates/`
 2. Add case to `PromptTemplate` enum in `LLMProviders/PromptTemplateLoader.swift`
 3. Load via `PromptTemplateLoader.shared.load(.myTemplate)`
 4. Use `String.replacingOccurrences(of:with:)` to substitute placeholders
+
+## Development Guidelines
+
+- **Documentation**: Always update `README.md` and `Extremis/docs/` when adding new features or modifying existing functionality. Keep documentation in sync with code changes.
+- **Prompt Templates**: Never hardcode LLM prompts in Swift - always use `.hbs` template files in `Resources/PromptTemplates/`
+- **Testing**: All new tests MUST be added to `Extremis/scripts/run-tests.sh`
+
+## Tech Stack
+- Swift 5.9+ with Swift Concurrency
+- SwiftUI + AppKit hybrid (NSPanel, NSHostingView)
+- Carbon (global hotkeys), ApplicationServices (Accessibility APIs)
+- UserDefaults (preferences), Keychain (API keys), Application Support (sessions)

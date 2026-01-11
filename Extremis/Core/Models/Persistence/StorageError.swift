@@ -10,11 +10,9 @@ enum StorageError: LocalizedError {
     case fileReadFailed(path: String, underlying: Error)
     case fileDeleteFailed(path: String, underlying: Error)
     case encodingFailed(type: String, underlying: Error)
-    case decodingFailed(type: String, underlying: Error)
     case migrationFailed(fromVersion: Int, toVersion: Int)
     case sessionNotFound(id: UUID)
     case indexCorrupted(underlying: Error)
-    case storageUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -28,16 +26,12 @@ enum StorageError: LocalizedError {
             return "Failed to delete file at \(path): \(underlying.localizedDescription)"
         case .encodingFailed(let type, let underlying):
             return "Failed to encode \(type): \(underlying.localizedDescription)"
-        case .decodingFailed(let type, let underlying):
-            return "Failed to decode \(type): \(underlying.localizedDescription)"
         case .migrationFailed(let fromVersion, let toVersion):
             return "Failed to migrate from version \(fromVersion) to \(toVersion)"
         case .sessionNotFound(let id):
             return "Session not found: \(id)"
         case .indexCorrupted(let underlying):
             return "Session index is corrupted: \(underlying.localizedDescription)"
-        case .storageUnavailable:
-            return "Storage is unavailable"
         }
     }
 }

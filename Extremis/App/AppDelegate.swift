@@ -26,7 +26,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private let hotkeyManager = HotkeyManager.shared
     private let permissionManager = PermissionManager.shared
-    private let contextOrchestrator = ContextOrchestrator.shared
     private let textInserter = TextInserterService.shared
     private let sessionManager = SessionManager.shared
 
@@ -339,20 +338,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("❌ Failed to register prompt hotkey: \(error)")
         }
 
-        // Autocomplete hotkey: Option+Tab
-        let autocompleteConfig = HotkeyConfiguration(
+        // Magic Mode hotkey: Option+Tab (summarization when text selected, no-op otherwise)
+        let magicModeConfig = HotkeyConfiguration(
             keyCode: UInt32(kVK_Tab),  // Tab key
             modifiers: UInt32(optionKey)  // Option
         )
         do {
             try hotkeyManager.register(
-                identifier: .autocomplete,
-                configuration: autocompleteConfig
+                identifier: .magicMode,
+                configuration: magicModeConfig
             ) { [weak self] in
-                self?.handleAutocompleteActivation()
+                self?.handleMagicModeActivation()
             }
         } catch {
-            print("❌ Failed to register autocomplete hotkey: \(error)")
+            print("❌ Failed to register magic mode hotkey: \(error)")
         }
     }
 
@@ -398,35 +397,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// Handle Magic Mode hotkey - selection-aware: summarize if selected, autocomplete if not
+    /// Handle Magic Mode hotkey - summarize if text selected, no-op otherwise
     func handleMagicModeActivation() {
-        print("✨ Magic Mode hotkey activated!")
-
         Task { @MainActor in
             // Small delay to let the system settle after hotkey press
             // This prevents the "no focused element" error caused by hotkey transition
             try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
 
-            // Fast selection detection (~10ms)
-            let selectionResult = SelectionDetector.detectSelection()
+            // Fast selection detection (silent mode - no logging for no-op case)
+            let selectionResult = SelectionDetector.detectSelection(verbose: false)
 
             if selectionResult.hasSelection,
                let selectedText = selectionResult.selectedText,
                let source = selectionResult.source {
                 // Selection exists → Summarize path
-                print("📝 Selection detected: \(selectedText.prefix(50))...")
+                print("✨ Magic Mode: Selection detected, summarizing...")
                 await performSummarization(text: selectedText, source: source)
-            } else {
-                // No selection → Autocomplete path (existing behavior)
-                print("✨ No selection, proceeding with autocomplete...")
-                await performDirectAutocomplete()
             }
+            // No selection → complete no-op (no logs, no processing)
         }
-    }
-
-    /// Legacy alias for handleMagicModeActivation
-    func handleAutocompleteActivation() {
-        handleMagicModeActivation()
     }
 
     /// Perform summarization - shows toast and opens PromptWindow with auto-summarize
@@ -454,120 +443,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @MainActor
-    private func performDirectAutocomplete() async {
-        // Show completing toast
-        LoadingOverlayController.shared.show(message: "✨ Completing...")
+    private func captureContextAndShowPrompt() async {
+        print("\n" + String(repeating: "=", count: 60))
+        print("🚀 EXTREMIS ACTIVATED - Capturing Context...")
+        print(String(repeating: "=", count: 60))
 
-        defer {
-            // Always hide loading overlay when done
-            LoadingOverlayController.shared.hide()
-        }
+        // Detect if user has text selected
+        let selectionResult = SelectionDetector.detectSelection()
 
-        do {
-            print("\n" + String(repeating: "=", count: 60))
-            print("⚡ DIRECT AUTOCOMPLETE - Capturing Context...")
-            print(String(repeating: "=", count: 60))
+        if selectionResult.hasSelection,
+           let selectedText = selectionResult.selectedText,
+           let source = selectionResult.source {
+            // Selection exists → Quick Mode with selection as context
+            print("📋 Selection detected → Quick Mode")
 
-            // Capture context
-            let context = try await contextOrchestrator.captureContext()
+            let context = Context(
+                source: source,
+                selectedText: selectedText,
+                precedingText: nil,
+                succeedingText: nil
+            )
+            currentContext = context
+            logCapturedContext(context)
+            promptWindowController.showPrompt(with: context)
+        } else {
+            // No selection → Chat Mode with AX metadata only
+            print("📋 No selection → Chat Mode")
+
+            // Capture AX metadata only (no clipboard marker capture for privacy)
+            let source = selectionResult.source ?? ContextSource(
+                applicationName: NSWorkspace.shared.frontmostApplication?.localizedName ?? "Unknown",
+                bundleIdentifier: NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? ""
+            )
+
+            let context = Context(
+                source: source,
+                selectedText: nil,
+                precedingText: nil,
+                succeedingText: nil
+            )
+            currentContext = context
             logCapturedContext(context)
 
-            // Check if provider is configured
-            guard let provider = LLMProviderRegistry.shared.activeProvider else {
-                print("❌ No LLM provider configured")
-                showAutocompleteError("No LLM provider configured")
-                return
-            }
-
-            print("🤖 Generating autocomplete response...")
-
-            // Generate response using empty instruction (autocomplete mode)
-            var generatedText = ""
-            for try await chunk in provider.generateStream(instruction: "", context: context) {
-                generatedText += chunk
-            }
-
-            print("✅ Generated: \(generatedText.prefix(100))...")
-
-            // Insert the generated text
-            if !generatedText.isEmpty {
-                // Small delay to ensure focus returns to the original app
-                try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
-
-                try await textInserter.insert(text: generatedText, into: context.source)
-                print("✅ Autocomplete text inserted")
-            } else {
-                showAutocompleteError("No text generated")
-            }
-
-        } catch {
-            print("❌ Autocomplete failed: \(error)")
-            showAutocompleteError(error.localizedDescription)
-        }
-    }
-
-    /// Show error notification for autocomplete failures
-    private func showAutocompleteError(_ message: String) {
-        DispatchQueue.main.async {
-            let alert = NSAlert()
-            alert.messageText = "Autocomplete Failed"
-            alert.informativeText = message
-            alert.alertStyle = .warning
-            let okButton = alert.addButton(withTitle: "OK")
-            okButton.keyEquivalent = "\r" // Enter key dismisses
-
-            // Show as a floating alert
-            alert.window.level = .floating
-            alert.runModal()
-        }
-    }
-
-    @MainActor
-    private func captureContextAndShowPrompt() async {
-        do {
-            print("\n" + String(repeating: "=", count: 60))
-            print("🚀 EXTREMIS ACTIVATED - Capturing Context...")
-            print(String(repeating: "=", count: 60))
-
-            // First, detect if user has text selected using reliable clipboard method
-            // This is fast and gives us selection before any destructive operations
-            let selectionResult = SelectionDetector.detectSelection()
-
-            if selectionResult.hasSelection,
-               let selectedText = selectionResult.selectedText,
-               let source = selectionResult.source {
-                // FAST PATH: User has selection - skip expensive marker-based capture
-                // For selection-based operations (summarize, rewrite, etc.), we don't need preceding/succeeding text
-                print("📋 Selection detected - using fast path (skipping marker-based capture)")
-
-                let context = Context(
-                    source: source,
-                    selectedText: selectedText,
-                    precedingText: nil,
-                    succeedingText: nil
-                )
-                currentContext = context
-                logCapturedContext(context)
-                promptWindowController.showPrompt(with: context)
-            } else {
-                // SLOW PATH: No selection - do full context capture for autocomplete-style usage
-                print("📋 No selection - doing full context capture")
-
-                let context = try await contextOrchestrator.captureContext()
-                currentContext = context
-                logCapturedContext(context)
-                promptWindowController.showPrompt(with: context)
-            }
-        } catch {
-            print("❌ Failed to capture context: \(error)")
-            // Show prompt anyway with minimal context
-            let fallbackContext = Context(
-                source: ContextSource(
-                    applicationName: "Unknown",
-                    bundleIdentifier: ""
-                )
-            )
-            promptWindowController.showPrompt(with: fallbackContext)
+            // Show prompt window for Chat Mode (no selection)
+            // Chat mode will naturally activate after user submits and gets first response
+            promptWindowController.showPrompt(with: context)
         }
     }
 

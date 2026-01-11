@@ -255,49 +255,24 @@ final class SummarizationManager {
             contentToSummarize = transcript
         }
 
-        // Build the appropriate prompt based on whether this is hierarchical
-        let instructions: String
-        if previousSummary != nil {
-            instructions = """
-            You are updating a conversation summary with new messages.
+        // Load the appropriate template based on whether this is hierarchical
+        let template: PromptTemplate = previousSummary != nil
+            ? .sessionSummarizationUpdate
+            : .sessionSummarizationInitial
 
-            Your task is to create an UPDATED summary that:
-            1. Integrates the key information from the previous summary
-            2. Incorporates the new messages that followed
-            3. Maintains a coherent, comprehensive overview
+        do {
+            let promptTemplate = try templateLoader.load(template)
+            return promptTemplate.replacingOccurrences(of: "{{CONTENT}}", with: contentToSummarize)
+        } catch {
+            // Fallback to inline prompt if template loading fails
+            print("[SummarizationManager] Failed to load template \(template.filename): \(error)")
+            return """
+            Summarize this conversation for future context.
 
-            Guidelines:
-            - Keep the summary under 500 words
-            - Preserve important context from the previous summary
-            - Add new topics, decisions, or details from the recent messages
-            - Remove outdated information if it was superseded
-            - Focus on information needed to continue the conversation effectively
-            - Be direct and factual, avoid meta-commentary
-            """
-        } else {
-            instructions = """
-            You are summarizing a conversation history for context preservation.
+            \(contentToSummarize)
 
-            Create a concise summary that captures:
-            1. The main topics discussed
-            2. Key decisions or conclusions reached
-            3. Important facts mentioned (names, dates, technical details)
-            4. Any ongoing tasks or questions that need follow-up
-
-            Keep the summary under 500 words. Focus on information needed to continue the conversation effectively.
-            Do not include phrases like "In this conversation" or "The user and assistant discussed".
-            Be direct and factual.
+            Summary:
             """
         }
-
-        return """
-        \(instructions)
-
-        Content to summarize:
-
-        \(contentToSummarize)
-
-        Summary:
-        """
     }
 }

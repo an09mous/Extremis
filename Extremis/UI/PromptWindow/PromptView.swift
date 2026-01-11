@@ -37,7 +37,6 @@ struct PromptInputView: View {
                 .padding(.top, 16)
 
                 // Text input - uses custom view that submits on Enter
-                // Empty instruction = autocomplete mode
                 SubmittableTextEditor(
                     text: $instructionText,
                     onSubmit: {
@@ -60,13 +59,7 @@ struct PromptInputView: View {
                 HStack(spacing: 12) {
                     // Hint text - contextual guidance (left-aligned)
                     Group {
-                        if hasSelection {
-                            Text("Enter instruction to transform")
-                        } else if hasContext {
-                            Text("Enter instruction or summarize")
-                        } else {
-                            Text("Empty = autocomplete")
-                        }
+                        Text("Enter your instruction")
                     }
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -99,7 +92,7 @@ struct PromptInputView: View {
                                         .scaleEffect(0.7)
                                         .frame(width: 16, height: 16)
                                 }
-                                Text(primaryButtonLabel(isEmpty: isEmpty))
+                                Text(primaryButtonLabel())
                             }
                         }
                         .disabled(isGenerating || (hasSelection && isEmpty))
@@ -114,13 +107,9 @@ struct PromptInputView: View {
     }
 
     // Helper to determine primary button label
-    private func primaryButtonLabel(isEmpty: Bool) -> String {
+    private func primaryButtonLabel() -> String {
         if isGenerating {
             return "Generating..."
-        } else if hasSelection {
-            return "Generate"
-        } else if isEmpty {
-            return "Autocomplete"
         } else {
             return "Generate"
         }

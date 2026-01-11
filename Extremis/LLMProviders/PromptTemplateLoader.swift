@@ -5,13 +5,22 @@ import Foundation
 
 /// Defines the available prompt templates
 enum PromptTemplate: String, CaseIterable {
+    /// System prompt - base instructions for all interactions
     case system = "system"
-    case autocomplete = "autocomplete"
-    case instruction = "instruction"
-    case selectionTransform = "selection_transform"
-    case summarization = "summarization"
-    case sessionSummarization = "session_summarization"
-    case chatSystem = "chat_system"
+
+    // Intent injection templates (appended to user messages based on MessageIntent)
+    /// Rules for instructions about selected text (transform, explain, question, etc.)
+    case intentInstruct = "intent_instruct"
+    /// Rules for summarizing selected text
+    case intentSummarize = "intent_summarize"
+    /// Standard chat/follow-up message format
+    case intentChat = "intent_chat"
+
+    // Session summarization templates (for memory management)
+    /// First-time session summarization
+    case sessionSummarizationInitial = "session_summarization_initial"
+    /// Hierarchical update of existing summary with new messages
+    case sessionSummarizationUpdate = "session_summarization_update"
 
     /// The filename for this template (without extension)
     var filename: String { rawValue }

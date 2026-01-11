@@ -1,10 +1,10 @@
 // MARK: - Loading Overlay Controller
-// Minimalistic floating loading indicator for autocomplete
+// Minimalistic floating loading indicator for generation operations
 
 import AppKit
 import SwiftUI
 
-/// Controller for displaying a floating loading overlay during autocomplete
+/// Controller for displaying a floating loading overlay during generation
 final class LoadingOverlayController {
     
     // MARK: - Singleton

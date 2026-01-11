@@ -210,23 +210,6 @@ struct SessionIndex: Codable, Equatable {
             .sorted { $0.updatedAt > $1.updatedAt }
     }
 
-    /// Get archived sessions
-    var archivedSessions: [SessionIndexEntry] {
-        sessions
-            .filter { $0.isArchived }
-            .sorted { $0.updatedAt > $1.updatedAt }
-    }
-
-    /// Find entry by ID
-    func entry(for id: UUID) -> SessionIndexEntry? {
-        sessions.first { $0.id == id }
-    }
-
-    /// Check if session exists
-    func contains(id: UUID) -> Bool {
-        sessions.contains { $0.id == id }
-    }
-
     // MARK: - Mutation Helpers
 
     /// Update or insert an entry

@@ -26,13 +26,12 @@ struct ResponseView: View {
     var onEnableChat: (() -> Void)?
     var onRetryMessage: ((UUID) -> Void)?
     var onRetryError: (() -> Void)?
-    /// Map of message IDs to their associated context (for displaying context indicators)
-    var messageContexts: [UUID: Context] = [:]
 
     @State private var showCopiedToast = false
 
     // Auto-scroll tracking for quick mode
     @State private var lastResponseLength = 0
+    @State private var wasGeneratingQuickMode = false
 
     // Convenience initializer for non-chat mode
     init(
@@ -61,7 +60,6 @@ struct ResponseView: View {
         self.onEnableChat = nil
         self.onRetryMessage = nil
         self.onRetryError = nil
-        self.messageContexts = [:]
     }
 
     // Full initializer with chat support
@@ -82,8 +80,7 @@ struct ResponseView: View {
         onSendChat: @escaping () -> Void,
         onEnableChat: @escaping () -> Void,
         onRetryMessage: ((UUID) -> Void)? = nil,
-        onRetryError: (() -> Void)? = nil,
-        messageContexts: [UUID: Context] = [:]
+        onRetryError: (() -> Void)? = nil
     ) {
         self.response = response
         self.isGenerating = isGenerating
@@ -102,7 +99,6 @@ struct ResponseView: View {
         self.onEnableChat = onEnableChat
         self.onRetryMessage = onRetryMessage
         self.onRetryError = onRetryError
-        self.messageContexts = messageContexts
     }
 
     var body: some View {
@@ -120,8 +116,7 @@ struct ResponseView: View {
                     isGenerating: isGenerating,
                     error: error,
                     onRetryMessage: onRetryMessage,
-                    onRetryError: onRetryError,
-                    messageContexts: messageContexts
+                    onRetryError: onRetryError
                 )
                 .frame(maxHeight: .infinity)
             } else {
@@ -159,8 +154,18 @@ struct ResponseView: View {
                     .onChange(of: isGenerating) { generating in
                         if generating {
                             lastResponseLength = 0
+                            wasGeneratingQuickMode = true
+                        } else if wasGeneratingQuickMode {
+                            // Generation just ended - ensure final scroll after layout
+                            wasGeneratingQuickMode = false
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                                proxy.scrollTo("quickModeBottom", anchor: .bottom)
+                            }
                         }
-                        proxy.scrollTo("quickModeBottom", anchor: .bottom)
+                        // Delay scroll slightly to ensure layout is complete
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                            proxy.scrollTo("quickModeBottom", anchor: .bottom)
+                        }
                     }
                 }
                 .frame(maxHeight: .infinity)

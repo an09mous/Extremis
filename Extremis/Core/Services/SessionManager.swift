@@ -25,7 +25,6 @@ final class SessionManager: ObservableObject {
     // MARK: - Private State
     private var isDirty = false
     private var currentContext: Context?  // Track current context for saving with messages
-    private var messageContexts: [UUID: Context] = [:]  // Map message IDs to their context
     private var saveDebounceTask: Task<Void, Never>?
     private let debounceInterval: TimeInterval = 2.0
     private var cancellables = Set<AnyCancellable>()
@@ -67,7 +66,6 @@ final class SessionManager: ObservableObject {
         // Don't set isDirty = true here - empty sessions shouldn't be saved
         // isDirty will be set when messages are added (via observeSession)
         isDirty = false
-        messageContexts = [:]  // Clear message contexts for fresh session
 
         // Observe changes to the session
         observeSession(session)
@@ -93,17 +91,16 @@ final class SessionManager: ObservableObject {
                 return
             }
 
-            // Convert to live session
+            // Convert to live session (context is now embedded in messages)
             let session = persisted.toSession()
             currentSession = session
             currentSessionId = activeId
-            messageContexts = persisted.restoreMessageContexts()  // Restore message contexts
             isDirty = false
 
             // Observe changes
             observeSession(session)
 
-            print("[SessionManager] Restored session \(activeId) with \(session.messages.count) messages and \(messageContexts.count) contexts")
+            print("[SessionManager] Restored session \(activeId) with \(session.messages.count) messages")
         } catch {
             print("[SessionManager] Failed to restore session: \(error)")
         }
@@ -119,7 +116,7 @@ final class SessionManager: ObservableObject {
     }
 
     /// Update the current context (called when hotkey is triggered with new context)
-    /// This context will be attached to the next user message when saved
+    /// This context will be attached to the next user message
     func updateCurrentContext(_ context: Context?) {
         currentContext = context
         if context != nil {
@@ -127,17 +124,9 @@ final class SessionManager: ObservableObject {
         }
     }
 
-    /// Register context for a specific message (called when user message is added)
-    /// This ensures each user message has its associated context preserved
-    func registerContextForMessage(messageId: UUID, context: Context?) {
-        guard let ctx = context else { return }
-        messageContexts[messageId] = ctx
-        print("[SessionManager] Registered context for message \(messageId) from \(ctx.source.applicationName)")
-    }
-
-    /// Get contexts for all messages (for saving)
-    func getMessageContexts() -> [UUID: Context] {
-        return messageContexts
+    /// Get the current context (for attaching to new user messages)
+    func getCurrentContext() -> Context? {
+        return currentContext
     }
 
     // MARK: - Generation State Tracking
@@ -200,12 +189,11 @@ final class SessionManager: ObservableObject {
         saveDebounceTask?.cancel()
 
         do {
-            // Convert to persisted format, passing contexts for all messages
+            // Convert to persisted format (context is embedded in messages)
             var persisted = PersistedSession.from(
                 session,
                 id: id,
-                currentContext: currentContext,
-                messageContexts: messageContexts
+                currentContext: currentContext
             )
             persisted.updatedAt = Date()
 
@@ -217,7 +205,7 @@ final class SessionManager: ObservableObject {
 
             isDirty = false
             sessionListVersion += 1  // Notify sidebar to refresh
-            print("[SessionManager] Saved session \(id) with \(messageContexts.count) message contexts")
+            print("[SessionManager] Saved session \(id)")
 
             // Check if summarization is needed (runs async, doesn't block)
             let storageRef = self.storage
@@ -254,7 +242,6 @@ final class SessionManager: ObservableObject {
 
         // Capture values for the closure
         let contextToSave = currentContext
-        let contextsToSave = messageContexts
 
         // Use semaphore to block until save completes
         let semaphore = DispatchSemaphore(value: 0)
@@ -264,8 +251,7 @@ final class SessionManager: ObservableObject {
                 var persisted = PersistedSession.from(
                     session,
                     id: id,
-                    currentContext: contextToSave,
-                    messageContexts: contextsToSave
+                    currentContext: contextToSave
                 )
                 persisted.updatedAt = Date()
                 try await storage.saveSession(persisted)
@@ -346,14 +332,13 @@ final class SessionManager: ObservableObject {
         currentSession = session
         currentSessionId = id
         currentContext = nil  // Clear context when switching sessions
-        messageContexts = persisted.restoreMessageContexts()  // Restore message contexts
         isDirty = false
 
         // Set active session but don't mark dirty (don't update timestamp)
         try await storage.setActiveSessionId(id)
         observeSession(session)
 
-        print("[SessionManager] Loaded session \(id) with \(messageContexts.count) message contexts")
+        print("[SessionManager] Loaded session \(id)")
     }
 
     /// Delete a session by ID

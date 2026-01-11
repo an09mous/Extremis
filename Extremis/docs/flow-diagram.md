@@ -1,18 +1,18 @@
 # Extremis Code Flow Diagram
 
-This document describes the complete flow for **Magic Mode**, **Prompt Mode**, and **Summarization** in Extremis.
+This document describes the complete flow for **Magic Mode**, **Quick Mode**, **Chat Mode**, and **Summarization** in Extremis.
 
 
 ================================================================================
-                              MAGIC MODE (⌥+Tab)
+                              MAGIC MODE (Option+Tab)
 ================================================================================
 
   ┌─────────────────────────────────────────────────────────────────────────┐
   │                    CONTEXT-AWARE SMART ACTION                           │
-  │         Text Selected → Summarize | No Selection → Autocomplete         │
+  │         Text Selected → Summarize | No Selection → No-op (silent)       │
   └─────────────────────────────────────────────────────────────────────────┘
 
-       ⌥+Tab
+       Option+Tab
          │
          ▼
   ┌──────────────────┐
@@ -27,15 +27,10 @@ This document describes the complete flow for **Magic Mode**, **Prompt Mode**, a
                │
                ▼
   ┌────────────────────────────┐
-  │ ContextOrchestrator        │
-  │   .captureContext()        │──────────────────┐
-  └────────────┬───────────────┘                  │
-               │                                   │
-               ▼                                   ▼
-  ┌────────────────────────────┐      ┌─────────────────────────┐
-  │ Check: Has Selected Text?  │      │   CONTEXT CAPTURE       │
-  └────────────┬───────────────┘      │   (See below)           │
-               │                      └─────────────────────────┘
+  │ SelectionDetector          │
+  │   .detectSelection()       │  ← Silent mode (verbose: false)
+  └────────────┬───────────────┘
+               │
       ┌────────┴────────┐
       ▼                 ▼
   ┌────────┐      ┌────────────┐
@@ -45,41 +40,30 @@ This document describes the complete flow for **Magic Mode**, **Prompt Mode**, a
       │                 │
       ▼                 ▼
   ┌────────────┐  ┌────────────────┐
-  │ SUMMARIZE  │  │ AUTOCOMPLETE   │
-  │ Selection  │  │ at cursor      │
-  └─────┬──────┘  └───────┬────────┘
-        │                 │
-        ▼                 ▼
-  ┌────────────┐  ┌────────────────┐
-  │Summarize   │  │generateStream( │
-  │Service     │  │ instruction:"" │
-  │.summarize()│  │ context        │
-  └─────┬──────┘  └───────┬────────┘
-        │                 │
-        └────────┬────────┘
-                 │
-                 ▼
+  │ SUMMARIZE  │  │    NO-OP       │
+  │ Selection  │  │ (silent exit)  │
+  └─────┬──────┘  └────────────────┘
+        │
+        ▼
   ┌────────────────────────────┐
-  │ TextInserterService        │
-  │   .insert(text, source)    │
-  └────────────┬───────────────┘
-               │
-               ▼
-  ┌────────────────────────────┐
-  │ ✅ Text Inserted at Cursor │
+  │ performSummarization()     │
+  │   - Show loading toast     │
+  │   - Build context          │
+  │   - Open PromptWindow      │
+  │   - Auto-trigger summarize │
   └────────────────────────────┘
 
 
 ================================================================================
-                              PROMPT MODE (⌘+⇧+Space)
+                         PROMPT MODE (Cmd+Shift+Space)
 ================================================================================
 
   ┌─────────────────────────────────────────────────────────────────────────┐
   │                         INTERACTIVE PROMPT UI                           │
-  │         Summarize, Transform, or Autocomplete with instructions         │
+  │      With Selection → Quick Mode | Without Selection → Chat Mode        │
   └─────────────────────────────────────────────────────────────────────────┘
 
-       ⌘+⇧+Space
+       Cmd+Shift+Space
          │
          ▼
   ┌──────────────────┐
@@ -94,23 +78,51 @@ This document describes the complete flow for **Magic Mode**, **Prompt Mode**, a
                │
                ▼
   ┌────────────────────────────┐
-  │ ContextOrchestrator        │
-  │   .captureContext()        │──────────────────┐
-  └────────────┬───────────────┘                  │
-               │                                   │
-               ▼                                   ▼
-  ┌────────────────────────────┐      ┌─────────────────────────┐
-  │ PromptWindowController     │      │   CONTEXT CAPTURE       │
-  │   .showPrompt(context)     │      │   (See below)           │
-  └────────────┬───────────────┘      └─────────────────────────┘
+  │ captureContextAndShowPrompt│
+  └────────────┬───────────────┘
                │
                ▼
   ┌────────────────────────────┐
-  │ PromptView shows:          │
+  │ SelectionDetector          │
+  │   .detectSelection()       │
+  └────────────┬───────────────┘
+               │
+      ┌────────┴────────┐
+      ▼                 ▼
+  ┌────────────┐  ┌────────────────┐
+  │   YES      │  │      NO        │
+  │  Selected  │  │  No Selection  │
+  └─────┬──────┘  └───────┬────────┘
+        │                 │
+        ▼                 ▼
+  ┌────────────┐  ┌────────────────┐
+  │ QUICK MODE │  │   CHAT MODE    │
+  │ Instruction│  │  Conversational│
+  │   Input    │  │    Interface   │
+  └─────┬──────┘  └───────┬────────┘
+        │                 │
+        └────────┬────────┘
+                 │
+                 ▼
+  ┌────────────────────────────┐
+  │ PromptWindowController     │
+  │   .showPrompt(context)     │
+  └────────────────────────────┘
+
+
+================================================================================
+                              QUICK MODE FLOW
+================================================================================
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  User has text selected - instruction-based transformation              │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────┐
+  │ PromptInputView shows:     │
   │  - Context info bar        │
   │  - Instruction text field  │
   │  - Summarize button        │  ← Shows when hasContext=true
-  │    (if text/context avail) │
   └────────────┬───────────────┘
                │
       ┌────────┴────────┐
@@ -122,8 +134,8 @@ This document describes the complete flow for **Magic Mode**, **Prompt Mode**, a
         │                 │
         ▼                 ▼
   ┌────────────┐  ┌─────────────────┐
-  │Summarize   │  │ Transform/      │
-  │Service     │  │ Autocomplete    │
+  │Summarize   │  │ Transform       │
+  │            │  │ Selection       │
   └─────┬──────┘  └───────┬─────────┘
         │                 │
         └────────┬────────┘
@@ -149,15 +161,52 @@ This document describes the complete flow for **Magic Mode**, **Prompt Mode**, a
 
 
 ================================================================================
-                              CONTEXT CAPTURE (Shared)
+                              CHAT MODE FLOW
 ================================================================================
 
   ┌─────────────────────────────────────────────────────────────────────────┐
-  │                    Used by both Autocomplete and Prompt modes           │
+  │  No selection - conversational interface with session history           │
   └─────────────────────────────────────────────────────────────────────────┘
 
   ┌────────────────────────────┐
-  │ ContextOrchestrator        │
+  │ ResponseView (ChatView)    │
+  │  - Session history         │  ← Shows previous messages
+  │  - Chat input field        │  ← "Ask a follow-up question..."
+  │  - Context info bar        │
+  └────────────┬───────────────┘
+               │
+               ▼
+  ┌────────────────────────────┐
+  │ User types message         │
+  │   + Press Enter            │
+  └────────────┬───────────────┘
+               │
+               ▼
+  ┌────────────────────────────┐
+  │ sendChatMessage()          │
+  │   - Add to session         │
+  │   - Generate response      │
+  │   - Stream to UI           │
+  └────────────┬───────────────┘
+               │
+               ▼
+  ┌────────────────────────────┐
+  │ Response added to session  │
+  │   - Can continue chatting  │
+  │   - Session persisted      │
+  └────────────────────────────┘
+
+
+================================================================================
+                              CONTEXT CAPTURE
+================================================================================
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │                    Used by all modes                                    │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────┐
+  │ SelectionDetector          │
   └────────────┬───────────────┘
                │
                ▼
@@ -167,84 +216,38 @@ This document describes the complete flow for **Magic Mode**, **Prompt Mode**, a
   └────────────┬───────────────┘
                │
                ▼
-  ┌────────────────────────────┐
-  │ ExtractorRegistry          │
-  │   .extractor(for: source)  │
-  └────────────┬───────────────┘
+  ┌────────────────────────────────────────────┐
+  │ Try AX API first (fast path)               │
+  │   - AXUIElementCreateApplication           │
+  │   - kAXFocusedUIElementAttribute           │
+  │   - kAXSelectedTextAttribute               │
+  └────────────┬───────────────────────────────┘
                │
-      ┌────────┴────────┬───────────────┐
-      ▼                 ▼               ▼
-  ┌─────────┐    ┌───────────┐    ┌───────────┐
-  │ Generic │    │  Browser  │    │   Slack   │
-  │Extractor│    │ Extractor │    │ Extractor │
-  └────┬────┘    └─────┬─────┘    └─────┬─────┘
-       │               │                │
-       └───────────────┼────────────────┘
-                       │
-                       ▼
-          ┌────────────────────────┐
-          │ captureTextAroundCursor│  ← Protocol extension
-          └────────────┬───────────┘
-                       │
-          ┌────────────┴────────────┐
-          ▼                         ▼
-  ┌──────────────────┐    ┌──────────────────┐
-  │captureVisibleCont│    │captureSucceeding │
-  │ent (Preceding)   │    │Content (After)   │
-  └────────┬─────────┘    └────────┬─────────┘
-           │                       │
-           └───────────┬───────────┘
-                       │
-                       ▼
-          ┌────────────────────────┐
-          │ Build Context Object   │
-          │  - source              │
-          │  - precedingText       │
-          │  - succeedingText      │
-          │  - selectedText        │
-          │  - metadata            │
-          └────────────────────────┘
-
-
-================================================================================
-                         MARKER-BASED CAPTURE (ClipboardCapture)
-================================================================================
-
-  ┌─────────────────────────────────────────────────────────────────────────┐
-  │  Why Marker? Accessibility APIs don't work in Electron apps (VS Code)   │
-  └─────────────────────────────────────────────────────────────────────────┘
-
-  PRECEDING TEXT (captureVisibleContent)
-  ──────────────────────────────────────
-
-  Cursor: "Hello World|"  (| = cursor position)
-
-  Step 1: Save clipboard
-  Step 2: Release modifiers (important for ⌘+⇧+Space hotkey)
-  Step 3: Type space marker     →  "Hello World |"
-  Step 4: ⌘+⇧+↑ (select up)     →  "█████████████"  (all selected)
-  Step 5: ⌘+C (copy)            →  Clipboard: "Hello World "
-  Step 6: → (right arrow)       →  Deselect, cursor at end
-  Step 7: ⌫ (backspace)         →  "Hello World|"  (marker deleted)
-  Step 8: Strip last char       →  Result: "Hello World"
-  Step 9: Restore clipboard
-
-
-  SUCCEEDING TEXT (captureSucceedingContent)
-  ──────────────────────────────────────────
-
-  Cursor: "|Hello World"  (| = cursor position)
-
-  Step 1: Save clipboard
-  Step 2: Release modifiers
-  Step 3: Type space marker     →  " |Hello World"
-  Step 4: ← (left arrow)        →  "| Hello World"  (cursor before marker)
-  Step 5: ⌘+⇧+↓ (select down)   →  "█████████████"  (all selected)
-  Step 6: ⌘+C (copy)            →  Clipboard: " Hello World"
-  Step 7: ← (left arrow)        →  Deselect, cursor at start
-  Step 8: ⌦ (delete forward)    →  "|Hello World"  (marker deleted)
-  Step 9: Strip first char      →  Result: "Hello World"
-  Step 10: Restore clipboard
+      ┌────────┴────────┐
+      ▼                 ▼
+  ┌─────────┐     ┌───────────────┐
+  │  Found  │     │   Not Found   │
+  │Selection│     │   (AX fail)   │
+  └────┬────┘     └───────┬───────┘
+       │                  │
+       │                  ▼
+       │          ┌───────────────────────────┐
+       │          │ Fallback: Clipboard-based │
+       │          │   - Save clipboard        │
+       │          │   - Cmd+C to copy         │
+       │          │   - Check clipboard       │
+       │          │   - Restore clipboard     │
+       │          └───────────┬───────────────┘
+       │                      │
+       └──────────┬───────────┘
+                  │
+                  ▼
+  ┌────────────────────────────────────────────┐
+  │ Build Context Object                       │
+  │   - source (app name, bundle ID, window)   │
+  │   - selectedText (if any)                  │
+  │   - metadata (generic/slack/browser)       │
+  └────────────────────────────────────────────┘
 
 
 ================================================================================
@@ -276,7 +279,7 @@ This document describes the complete flow for **Magic Mode**, **Prompt Mode**, a
   ┌────────────────────────────┐
   │ 1. Save original clipboard │
   │ 2. Set text to clipboard   │
-  │ 3. ⌘+V (paste)             │
+  │ 3. Cmd+V (paste)           │
   │ 4. Restore clipboard       │
   └────────────────────────────┘
 
@@ -286,39 +289,25 @@ This document describes the complete flow for **Magic Mode**, **Prompt Mode**, a
 ================================================================================
 
   ┌─────────────────────────────────────────────────────────────────────────┐
-  │                    Summarize selected text or context                   │
+  │                    Summarize selected text                              │
   └─────────────────────────────────────────────────────────────────────────┘
 
   Triggered via:
-  - Click "Summarize" button in Prompt Mode
-  - ⌥+Tab (Magic Mode) when text is selected
+  - Click "Summarize" button in Quick Mode
+  - Option+Tab (Magic Mode) when text is selected
 
   ┌────────────────────────────┐
   │ PromptViewModel            │
-  │   .summarizeSelection()    │
-  └────────────┬───────────────┘
-               │
-               ▼
-  ┌────────────────────────────┐
-  │ Determine text to summarize│
-  │  - selectedText (priority) │
-  │  - OR preceding+succeeding │
+  │   .summarize()             │
   └────────────┬───────────────┘
                │
                ▼
   ┌────────────────────────────┐
   │ Build SummaryRequest       │
-  │  - text                    │
+  │  - text (selected)         │
   │  - source (app info)       │
-  │  - surroundingContext      │
   │  - format (paragraph)      │
   │  - length (normal)         │
-  └────────────┬───────────────┘
-               │
-               ▼
-  ┌────────────────────────────┐
-  │ SummarizationService       │
-  │   .summarizeStream()       │
   └────────────┬───────────────┘
                │
                ▼
@@ -338,9 +327,6 @@ This document describes the complete flow for **Magic Mode**, **Prompt Mode**, a
   │      • URL (for browsers)                          │
   │  - [App Metadata] (Slack/Gmail/GitHub context)     │
   │  - Format & length instructions                    │
-  │                                                    │
-  │  NOTE: No preceding/succeeding text               │
-  │        (avoids duplicating summarized content)     │
   └────────────────────────────────────────────────────┘
                │
                ▼

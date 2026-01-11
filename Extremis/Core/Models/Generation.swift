@@ -4,46 +4,11 @@
 import Foundation
 
 /// The AI-generated text response
-struct Generation: Codable, Equatable, Identifiable {
-    let id: UUID
-    let instructionId: UUID
-    let provider: LLMProviderType
+struct Generation: Codable, Equatable {
     let content: String
-    let createdAt: Date
-    let tokenUsage: TokenUsage?
-    let latencyMs: Int?
-    
-    init(
-        id: UUID = UUID(),
-        instructionId: UUID,
-        provider: LLMProviderType,
-        content: String,
-        createdAt: Date = Date(),
-        tokenUsage: TokenUsage? = nil,
-        latencyMs: Int? = nil
-    ) {
-        self.id = id
-        self.instructionId = instructionId
-        self.provider = provider
+
+    init(content: String) {
         self.content = content
-        self.createdAt = createdAt
-        self.tokenUsage = tokenUsage
-        self.latencyMs = latencyMs
-    }
-}
-
-// MARK: - Token Usage
-
-/// Token usage information from the LLM provider
-struct TokenUsage: Codable, Equatable {
-    let promptTokens: Int
-    let completionTokens: Int
-    let totalTokens: Int
-    
-    init(promptTokens: Int, completionTokens: Int) {
-        self.promptTokens = promptTokens
-        self.completionTokens = completionTokens
-        self.totalTokens = promptTokens + completionTokens
     }
 }
 
@@ -123,14 +88,4 @@ struct LLMModel: Identifiable, Codable, Equatable, Hashable {
     }
 }
 
-// MARK: - Generation Status
-
-/// Status of a generation request
-enum GenerationStatus: String, Codable, Equatable {
-    case pending
-    case generating
-    case completed
-    case failed
-    case cancelled
-}
 

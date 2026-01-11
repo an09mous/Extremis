@@ -184,6 +184,14 @@ final class PromptWindowController: NSWindowController {
 
         print("📋 PromptWindow: Context info = \(contextInfo)")
 
+        // Enable chat mode when there's no selection (Chat Mode path)
+        // This creates a conversational interface vs. the instruction-based Quick Mode
+        if !hasSelectedText {
+            viewModel.isChatMode = true
+            viewModel.showResponse = true  // Show ResponseView which contains chat UI
+            print("📋 PromptWindow: No selection → Chat Mode enabled")
+        }
+
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
@@ -311,8 +319,10 @@ final class PromptViewModel: ObservableObject {
     private var generationTask: Task<Void, Never>?
     var currentContext: Context?  // Made internal so PromptWindowController can set it
 
-    /// Summarization service
-    private let summarizationService = SummarizationService.shared
+    /// Tracks whether the next message is the first since Extremis was spawned
+    /// When true, context should be attached to the next user message
+    /// Set to true in prepareForNewInput(), consumed after first message is sent
+    private var isFirstMessageSinceSpawn: Bool = true
 
     /// Cancellable for provider change subscription
     private var providerCancellable: AnyCancellable?
@@ -349,6 +359,7 @@ final class PromptViewModel: ObservableObject {
         chatInputText = ""
         streamingContent = ""
         isChatMode = false
+        isFirstMessageSinceSpawn = true
     }
 
     /// Prepare for new input without losing session state
@@ -370,6 +381,10 @@ final class PromptViewModel: ObservableObject {
         chatInputText = ""
         streamingContent = ""
         isChatMode = false  // Reset to simple mode - chat mode enables on follow-up
+
+        // Mark that the next message should have context attached
+        // This is the first message since the user spawned Extremis
+        isFirstMessageSinceSpawn = true
 
         // DON'T clear: session, sessionId, response (for history)
         // The session continues across invocations
@@ -445,26 +460,42 @@ final class PromptViewModel: ObservableObject {
     }
 
     func generate(with context: Context) {
-        // Allow empty instruction - this triggers autocomplete mode
-        let isAutocomplete = instructionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if isAutocomplete {
-            print("🔧 Autocomplete mode: No instruction provided, will continue text")
-        }
+        // Determine the user message content and intent
+        let trimmedInstruction = instructionText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasSelection = context.selectedText?.isEmpty == false
+        let hasInstruction = !trimmedInstruction.isEmpty
 
-        // Determine the user message content
-        // For autocomplete mode, use "Continue this text" as the user request
-        let userMessageContent = isAutocomplete ? "Continue this text" : instructionText.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Determine message content and intent based on context
+        let userMessageContent: String
+        let intent: MessageIntent
+
+        if hasSelection {
+            if hasInstruction {
+                // Selection + instruction → transform mode
+                userMessageContent = trimmedInstruction
+                intent = .selectionTransform
+            } else {
+                // Selection + no instruction → summarization mode
+                userMessageContent = "Summarize this"
+                intent = .summarize
+            }
+        } else {
+            // No selection → chat mode
+            userMessageContent = hasInstruction ? trimmedInstruction : "Help me with this"
+            intent = .chat
+        }
 
         // Ensure we have a session - create one if this is the first interaction
         ensureSession(context: context, instruction: userMessageContent)
 
-        // Add user message to session immediately
+        // Add user message to session with embedded context and intent
         if let sess = session {
-            let message = ChatMessage.user(userMessageContent)
+            let message = ChatMessage.user(userMessageContent, context: context, intent: intent)
             sess.addMessage(message)
-            // Register context for this message so it's saved with the message
-            SessionManager.shared.registerContextForMessage(messageId: message.id, context: context)
         }
+
+        // Consume the spawn flag - this message has context attached
+        isFirstMessageSinceSpawn = false
 
         currentContext = context
         isGenerating = true
@@ -494,11 +525,14 @@ final class PromptViewModel: ObservableObject {
                     throw LLMProviderError.notConfigured(provider: .openai)
                 }
 
-                // Use streaming for better UX - response appears incrementally
-                // This matches the pattern used in summarize() for consistency
-                let stream = provider.generateStream(
-                    instruction: self.instructionText,
-                    context: context
+                guard let sess = self.session else {
+                    throw LLMProviderError.unknown("No session available")
+                }
+
+                // Use chat streaming with session messages (context is embedded in user message)
+                // This ensures Quick Mode with selection is part of the session for follow-ups
+                let stream = provider.generateChatStream(
+                    messages: sess.messagesForLLM()
                 )
 
                 // Use array buffer to avoid O(n²) string concatenation
@@ -507,7 +541,7 @@ final class PromptViewModel: ObservableObject {
                     if Task.isCancelled {
                         // Save partial content so user can view, copy, insert, or retry
                         let partialContent = chunks.joined()
-                        if !partialContent.isEmpty, let sess = session {
+                        if !partialContent.isEmpty {
                             sess.addAssistantMessage(partialContent)
                             response = partialContent
                             print("🔧 Generation stopped - saved partial response")
@@ -519,13 +553,13 @@ final class PromptViewModel: ObservableObject {
                 }
 
                 // Add assistant response to session
-                if !response.isEmpty, let sess = session {
+                if !response.isEmpty {
                     sess.addAssistantMessage(response)
                     // Note: Don't auto-enable chat mode here
                     // User will transition to chat mode when they submit a follow-up
                 }
 
-                print("🔧 Generation complete - session has \(session?.messages.count ?? 0) messages")
+                print("🔧 Generation complete - session has \(sess.messages.count) messages")
             } catch is CancellationError {
                 // User cancelled, don't show error
                 print("🔧 Generation cancelled")
@@ -545,19 +579,22 @@ final class PromptViewModel: ObservableObject {
     // MARK: - Summarization
 
     /// Summarize the given text (called from Magic Mode or Summarize button)
+    /// Uses the unified session-based approach with intent injection
     func summarize(text: String, source: ContextSource, surroundingContext: Context? = nil) {
         print("📝 PromptViewModel: Starting summarization...")
 
         // Ensure we have a session
         ensureSession(context: surroundingContext, instruction: "Summarize this text")
 
-        // Add summarization request as user message
+        // Add summarization request as user message with embedded context and summarize intent
+        // The .summarize intent triggers injection of summarization rules in formatUserMessageWithContext()
         if let sess = session {
-            let message = ChatMessage.user("Summarize this text")
+            let message = ChatMessage.user("Summarize this text", context: surroundingContext, intent: .summarize)
             sess.addMessage(message)
-            // Register context for this message
-            SessionManager.shared.registerContextForMessage(messageId: message.id, context: surroundingContext)
         }
+
+        // Consume the spawn flag - this message has context attached
+        isFirstMessageSinceSpawn = false
 
         isSummarizing = true
         isGenerating = true
@@ -584,14 +621,18 @@ final class PromptViewModel: ObservableObject {
             }
 
             do {
-                let request = SummaryRequest(
-                    text: text,
-                    source: source,
-                    surroundingContext: surroundingContext
-                )
+                guard let provider = LLMProviderRegistry.shared.activeProvider else {
+                    throw LLMProviderError.notConfigured(provider: .openai)
+                }
 
-                // Use streaming for better UX
-                let stream = summarizationService.summarizeStream(request: request)
+                guard let sess = self.session else {
+                    throw LLMProviderError.unknown("No session available")
+                }
+
+                // Use chat streaming with session messages (intent injection handles summarization rules)
+                let stream = provider.generateChatStream(
+                    messages: sess.messagesForLLM()
+                )
 
                 // Use array buffer to avoid O(n²) string concatenation
                 var chunks: [String] = []
@@ -599,7 +640,7 @@ final class PromptViewModel: ObservableObject {
                     if Task.isCancelled {
                         // Save partial content so user can view, copy, insert, or retry
                         let partialContent = chunks.joined()
-                        if !partialContent.isEmpty, let sess = session {
+                        if !partialContent.isEmpty {
                             sess.addAssistantMessage(partialContent)
                             response = partialContent
                             print("📝 Summarization stopped - saved partial response")
@@ -611,13 +652,13 @@ final class PromptViewModel: ObservableObject {
                 }
 
                 // Add assistant response to session
-                if !response.isEmpty, let sess = session {
+                if !response.isEmpty {
                     sess.addAssistantMessage(response)
                     // Note: Don't auto-enable chat mode here
                     // User will transition to chat mode when they submit a follow-up
                 }
 
-                print("📝 PromptViewModel: Summarization complete - session has \(session?.messages.count ?? 0) messages")
+                print("📝 PromptViewModel: Summarization complete - session has \(sess.messages.count) messages")
             } catch is CancellationError {
                 // User cancelled, don't show error
                 print("📝 PromptViewModel: Summarization cancelled")
@@ -715,12 +756,17 @@ final class PromptViewModel: ObservableObject {
             return
         }
 
-        // Add user message
-        let message = ChatMessage.user(messageText)
+        // First message since spawning Extremis gets context attached
+        // Follow-up messages within the same spawn don't need context
+        let message: ChatMessage
+        if isFirstMessageSinceSpawn, let ctx = currentContext {
+            message = ChatMessage.user(messageText, context: ctx, intent: .chat)
+            isFirstMessageSinceSpawn = false  // Consume the flag
+            print("💬 First message since spawn - attaching context from \(ctx.source.applicationName)")
+        } else {
+            message = ChatMessage.user(messageText)
+        }
         sess.addMessage(message)
-        // Note: We intentionally do NOT register context for follow-up chat messages.
-        // Context is only attached to the first user message when Extremis is invoked.
-        // Follow-up messages don't need their own context - they're part of the same conversation.
         chatInputText = ""
         streamingContent = ""
         isGenerating = true
@@ -748,10 +794,9 @@ final class PromptViewModel: ObservableObject {
                     throw LLMProviderError.notConfigured(provider: .openai)
                 }
 
-                // Use chat streaming (use messagesForLLM for trimmed context)
+                // Use chat streaming (context is embedded in messages)
                 let stream = provider.generateChatStream(
-                    messages: sess.messagesForLLM(),
-                    context: currentContext
+                    messages: sess.messagesForLLM()
                 )
 
                 // Use array buffer to avoid O(n²) string concatenation
@@ -840,10 +885,9 @@ final class PromptViewModel: ObservableObject {
                     throw LLMProviderError.notConfigured(provider: .openai)
                 }
 
-                // Use chat streaming with the current messages (trimmed for LLM context)
+                // Use chat streaming (context is embedded in messages)
                 let stream = provider.generateChatStream(
-                    messages: sess.messagesForLLM(),
-                    context: currentContext
+                    messages: sess.messagesForLLM()
                 )
 
                 // Use array buffer to avoid O(n²) string concatenation
@@ -929,10 +973,9 @@ final class PromptViewModel: ObservableObject {
                     throw LLMProviderError.notConfigured(provider: .openai)
                 }
 
-                // Use chat streaming with the current messages (trimmed for LLM context)
+                // Use chat streaming (context is embedded in messages)
                 let stream = provider.generateChatStream(
-                    messages: sess.messagesForLLM(),
-                    context: currentContext
+                    messages: sess.messagesForLLM()
                 )
 
                 // Use array buffer to avoid O(n²) string concatenation
@@ -1094,8 +1137,7 @@ struct PromptContainerView: View {
                         onSendChat: { viewModel.sendChatMessage() },
                         onEnableChat: { viewModel.enableChatMode() },
                         onRetryMessage: { messageId in viewModel.retryMessage(id: messageId) },
-                        onRetryError: { viewModel.retryError() },
-                        messageContexts: sessionManager.getMessageContexts()
+                        onRetryError: { viewModel.retryError() }
                     )
                 } else {
                     // Input view
