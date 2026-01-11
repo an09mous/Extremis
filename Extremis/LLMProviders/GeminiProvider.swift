@@ -210,13 +210,13 @@ final class GeminiProvider: LLMProvider {
 
     // MARK: - Chat Methods
 
-    func generateChat(messages: [ChatMessage], context: Context?) async throws -> Generation {
+    func generateChat(messages: [ChatMessage]) async throws -> Generation {
         guard let apiKey = apiKey else {
             throw LLMProviderError.notConfigured(provider: .gemini)
         }
 
         let startTime = Date()
-        let request = try buildChatRequest(apiKey: apiKey, messages: messages, context: context)
+        let request = try buildChatRequest(apiKey: apiKey, messages: messages)
         let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -243,7 +243,7 @@ final class GeminiProvider: LLMProvider {
         )
     }
 
-    func generateChatStream(messages: [ChatMessage], context: Context?) -> AsyncThrowingStream<String, Error> {
+    func generateChatStream(messages: [ChatMessage]) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             Task {
                 do {
@@ -252,7 +252,7 @@ final class GeminiProvider: LLMProvider {
                         return
                     }
 
-                    let request = try self.buildChatStreamRequest(apiKey: apiKey, messages: messages, context: context)
+                    let request = try self.buildChatStreamRequest(apiKey: apiKey, messages: messages)
 
                     let (bytes, response) = try await self.session.bytes(for: request)
 
@@ -329,13 +329,13 @@ final class GeminiProvider: LLMProvider {
 
     /// Build a non-streaming chat request with messages array
     /// Gemini uses a different format: contents array with role and parts
-    private func buildChatRequest(apiKey: String, messages: [ChatMessage], context: Context?) throws -> URLRequest {
+    private func buildChatRequest(apiKey: String, messages: [ChatMessage]) throws -> URLRequest {
         let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(currentModel.id):generateContent?key=\(apiKey)"
         var request = URLRequest(url: URL(string: urlString)!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let contents = formatMessagesForGemini(messages: messages, context: context)
+        let contents = formatMessagesForGemini(messages: messages)
         let body: [String: Any] = [
             "contents": contents,
             "generationConfig": [
@@ -347,13 +347,13 @@ final class GeminiProvider: LLMProvider {
     }
 
     /// Build a streaming chat request with messages array
-    private func buildChatStreamRequest(apiKey: String, messages: [ChatMessage], context: Context?) throws -> URLRequest {
+    private func buildChatStreamRequest(apiKey: String, messages: [ChatMessage]) throws -> URLRequest {
         let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(currentModel.id):streamGenerateContent?key=\(apiKey)"
         var request = URLRequest(url: URL(string: urlString)!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let contents = formatMessagesForGemini(messages: messages, context: context)
+        let contents = formatMessagesForGemini(messages: messages)
         let body: [String: Any] = [
             "contents": contents,
             "generationConfig": [
@@ -366,26 +366,27 @@ final class GeminiProvider: LLMProvider {
 
     /// Format messages for Gemini API
     /// Gemini uses "user" and "model" roles, and system messages are prepended to first user message
-    private func formatMessagesForGemini(messages: [ChatMessage], context: Context?) -> [[String: Any]] {
-        var contents: [[String: Any]] = []
+    private func formatMessagesForGemini(messages: [ChatMessage]) -> [[String: Any]] {
+        // Use formatChatMessages() which handles context formatting
+        let allMessages = PromptBuilder.shared.formatChatMessages(messages: messages)
 
-        // Build system prompt
-        let systemPrompt = PromptBuilder.shared.buildChatSystemPrompt(context: context)
+        var contents: [[String: Any]] = []
         var systemPrepended = false
 
-        for message in messages {
+        for message in allMessages {
             // Skip system messages - we'll prepend to first user message
-            if message.role == .system {
+            if message["role"] == "system" {
                 continue
             }
 
             // Map roles: user -> user, assistant -> model
-            let geminiRole = message.role == .user ? "user" : "model"
-            var content = message.content
+            let geminiRole = message["role"] == "user" ? "user" : "model"
+            var content = message["content"] ?? ""
 
             // Prepend system prompt to first user message
-            if message.role == .user && !systemPrepended {
-                content = systemPrompt + "\n\n" + content
+            if message["role"] == "user" && !systemPrepended {
+                let systemContent = allMessages.first { $0["role"] == "system" }?["content"] ?? ""
+                content = systemContent + "\n\n" + content
                 systemPrepended = true
             }
 

@@ -141,11 +141,9 @@ Current active feature: `specs/008-prompting-improvements/` (Prompting Improveme
 
 | Template | Purpose | Placeholders |
 |----------|---------|--------------|
-| `system.hbs` | Base system prompt for all interactions | None |
-| `instruction.hbs` | Quick mode instruction prompt | `{{SYSTEM_PROMPT}}`, `{{CONTEXT}}`, `{{INSTRUCTION}}` |
-| `chat_system.hbs` | Chat mode system prompt | `{{SYSTEM_PROMPT}}`, `{{CONTEXT}}` |
-| `selection_transform.hbs` | Selection transformation prompt | `{{SYSTEM_PROMPT}}`, `{{CONTEXT}}`, `{{SELECTED_TEXT}}`, `{{INSTRUCTION}}` |
-| `summarization.hbs` | Text summarization prompt | `{{SYSTEM_PROMPT}}`, `{{CONTEXT}}`, `{{SELECTED_TEXT}}`, `{{FORMAT_INSTRUCTION}}`, `{{LENGTH_INSTRUCTION}}` |
+| `chat_system.hbs` | Chat mode system prompt (explains context blocks in messages) | None |
+| `selection_transform.hbs` | Selection transformation prompt (Quick Mode) | `{{CONTEXT}}`, `{{SELECTED_TEXT}}`, `{{INSTRUCTION}}` |
+| `summarization.hbs` | Text summarization prompt (Magic Mode) | `{{CONTEXT}}`, `{{SELECTED_TEXT}}`, `{{FORMAT_INSTRUCTION}}`, `{{LENGTH_INSTRUCTION}}` |
 | `session_summarization.hbs` | Session/conversation summarization for context preservation | `{{CONVERSATION_TRANSCRIPT}}` |
 
 **Adding a new prompt template**:

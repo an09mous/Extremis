@@ -4,7 +4,7 @@
 import Foundation
 
 /// A single message in a persisted conversation
-/// Separate from ChatMessage to include context without polluting live model
+/// Uses contextData for compact JSON storage while ChatMessage uses Context directly
 struct PersistedMessage: Codable, Identifiable, Equatable {
     let id: UUID
     let role: ChatRole
@@ -30,18 +30,18 @@ struct PersistedMessage: Codable, Identifiable, Equatable {
 
     // MARK: - Convenience Initializers
 
-    /// Create from existing ChatMessage (without context)
-    init(from message: ChatMessage, contextData: Data? = nil) {
+    /// Create from existing ChatMessage (context is embedded in message)
+    init(from message: ChatMessage) {
         self.id = message.id
         self.role = message.role
         self.content = message.content
         self.timestamp = message.timestamp
-        self.contextData = contextData
+        self.contextData = Self.encodeContext(message.context)
     }
 
-    /// Convert to ChatMessage (for UI - loses context data)
+    /// Convert to ChatMessage (restores embedded context)
     func toChatMessage() -> ChatMessage {
-        ChatMessage(id: id, role: role, content: content, timestamp: timestamp)
+        ChatMessage(id: id, role: role, content: content, timestamp: timestamp, context: decodeContext())
     }
 
     // MARK: - Context Helpers

@@ -59,21 +59,16 @@ protocol LLMProvider: AnyObject {
 
     /// Generate a chat response from a conversation (non-streaming)
     /// - Parameters:
-    ///   - messages: Array of chat messages in the conversation
-    ///   - context: Optional context for system prompt enrichment
+    ///   - messages: Array of chat messages in the conversation (each message may have embedded context)
     /// - Returns: Generated response
     /// - Throws: LLMProviderError on failure
-    func generateChat(messages: [ChatMessage], context: Context?) async throws -> Generation
+    func generateChat(messages: [ChatMessage]) async throws -> Generation
 
     /// Generate a chat response with streaming
     /// - Parameters:
-    ///   - messages: Array of chat messages in the conversation
-    ///   - context: Optional context for system prompt enrichment
+    ///   - messages: Array of chat messages in the conversation (each message may have embedded context)
     /// - Returns: Async stream of text chunks
-    func generateChatStream(
-        messages: [ChatMessage],
-        context: Context?
-    ) -> AsyncThrowingStream<String, Error>
+    func generateChatStream(messages: [ChatMessage]) -> AsyncThrowingStream<String, Error>
 }
 
 // MARK: - LLM Provider Registry Protocol

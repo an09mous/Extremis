@@ -26,16 +26,6 @@ final class PromptBuilder {
 
     // MARK: - Template Properties
 
-    /// System prompt loaded from template
-    private var systemPrompt: String {
-        try! templateLoader.load(.system)
-    }
-
-    /// Instruction template loaded from file
-    private var instructionTemplate: String {
-        try! templateLoader.load(.instruction)
-    }
-
     /// Selection transform template loaded from file
     private var selectionTransformTemplate: String {
         try! templateLoader.load(.selectionTransform)
@@ -53,24 +43,18 @@ final class PromptBuilder {
 
     // MARK: - Prompt Mode Detection
 
-    /// Determines the prompt mode based on instruction and context
+    /// Determines the prompt mode for Quick Mode (selection-based operations)
+    /// Note: Without selection, the app uses Chat Mode which bypasses buildPrompt() entirely
     enum PromptMode: String {
-        case instruction = "INSTRUCTION"                 // No selection, has instruction → general Q&A
-        case selectionTransform = "SELECTION_TRANSFORM"  // Has selection, has instruction → transform text
+        case selectionTransform = "SELECTION_TRANSFORM"  // Has selection + instruction → transform text
         case selectionNoInstruction = "SELECTION_NO_INSTRUCTION"  // Has selection, no instruction → default to summarize
     }
 
-    /// Detect the appropriate prompt mode
+    /// Detect the appropriate prompt mode for selection-based operations
+    /// This is only used by buildPrompt() which is called in Quick Mode (with selection)
     func detectPromptMode(instruction: String, context: Context) -> PromptMode {
         let hasInstruction = !instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let hasSelection = context.selectedText != nil && !context.selectedText!.isEmpty
-
-        if hasSelection {
-            return hasInstruction ? .selectionTransform : .selectionNoInstruction
-        } else {
-            // No selection - instruction mode (Chat Mode handles the empty instruction case)
-            return .instruction
-        }
+        return hasInstruction ? .selectionTransform : .selectionNoInstruction
     }
 
     // MARK: - Configuration
@@ -81,9 +65,7 @@ final class PromptBuilder {
     // MARK: - Public Methods
 
     /// Build a complete prompt from instruction and context
-    /// Automatically selects the appropriate template based on:
-    /// - Instruction: Has instruction, no selection → general Q&A with context
-    /// - Selection Transform: Has instruction AND selection → transform selected text
+    /// Used by Quick Mode (with selection) - Chat Mode uses formatChatMessages() instead
     func buildPrompt(instruction: String, context: Context) -> String {
         let mode = detectPromptMode(instruction: instruction, context: context)
 
@@ -92,14 +74,6 @@ final class PromptBuilder {
         case .selectionTransform:
             // Selection transform mode - has instruction AND selection
             prompt = buildSelectionPrompt(context: context, instruction: instruction)
-
-        case .instruction:
-            // Standard instruction mode - has instruction, no selection
-            let contextSection = formatContext(context)
-            prompt = instructionTemplate
-                .replacingOccurrences(of: "{{SYSTEM_PROMPT}}", with: systemPrompt)
-                .replacingOccurrences(of: "{{CONTEXT}}", with: contextSection)
-                .replacingOccurrences(of: "{{INSTRUCTION}}", with: instruction)
 
         case .selectionNoInstruction:
             // Has selection but no instruction - default to summarization behavior
@@ -117,7 +91,6 @@ final class PromptBuilder {
         let contextSection = formatContextForSummarization(context.source, context: context)
 
         return selectionTransformTemplate
-            .replacingOccurrences(of: "{{SYSTEM_PROMPT}}", with: systemPrompt)
             .replacingOccurrences(of: "{{SELECTED_TEXT}}", with: context.selectedText ?? "")
             .replacingOccurrences(of: "{{CONTEXT}}", with: contextSection)
             .replacingOccurrences(of: "{{INSTRUCTION}}", with: instruction)
@@ -144,7 +117,6 @@ final class PromptBuilder {
         let contextSection = formatContextForSummarization(request.source, context: request.surroundingContext)
 
         let prompt = summarizationTemplate
-            .replacingOccurrences(of: "{{SYSTEM_PROMPT}}", with: systemPrompt)
             .replacingOccurrences(of: "{{SELECTED_TEXT}}", with: request.text)
             .replacingOccurrences(of: "{{CONTEXT}}", with: contextSection)
             .replacingOccurrences(of: "{{FORMAT_INSTRUCTION}}", with: request.format.promptInstruction)
@@ -185,35 +157,12 @@ final class PromptBuilder {
 
     // MARK: - Chat Support
 
-    /// Build a system prompt for chat mode
-    /// - Parameter context: Optional context to include in system prompt
+    /// Build a system prompt for chat mode (no longer includes context - context is now per-message)
     /// - Returns: Formatted system prompt for chat
-    func buildChatSystemPrompt(context: Context?) -> String {
-        var contextInfo = ""
-
-        if let context = context {
-            var parts: [String] = []
-
-            // Source info
-            parts.append("Application: \(context.source.applicationName)")
-            if let windowTitle = context.source.windowTitle, !windowTitle.isEmpty {
-                parts.append("Window: \(windowTitle)")
-            }
-            if let url = context.source.url {
-                parts.append("URL: \(url.absoluteString)")
-            }
-
-            // Selected text (already truncated at capture time in Context.swift)
-            if let selectedText = context.selectedText, !selectedText.isEmpty {
-                parts.append("Original Selected Text: \"\(selectedText)\"")
-            }
-
-            contextInfo = parts.joined(separator: "\n")
-        } else {
-            contextInfo = "(No specific context)"
-        }
-
-        let prompt = chatSystemPromptTemplate.replacingOccurrences(of: "{{CONTEXT}}", with: contextInfo)
+    func buildChatSystemPrompt() -> String {
+        // System prompt now just loads the template without context
+        // Context is included inline with each user message that has it
+        let prompt = chatSystemPromptTemplate
         logChatSystemPrompt(prompt)
         return prompt
     }
@@ -228,24 +177,87 @@ final class PromptBuilder {
         print(String(repeating: "=", count: 80) + "\n")
     }
 
-    /// Format chat messages for provider API
+    /// Format a user message with inline context block
     /// - Parameters:
-    ///   - messages: Array of chat messages
-    ///   - context: Optional context for system prompt
+    ///   - content: The user's message content
+    ///   - context: Optional context to include inline
+    ///   - mode: Optional prompt mode for special formatting (e.g., summarization)
+    /// - Returns: Formatted message content with context inline
+    func formatUserMessageWithContext(_ content: String, context: Context?, mode: PromptMode? = nil) -> String {
+        guard let context = context else {
+            return content
+        }
+
+        var parts: [String] = []
+
+        // Build context block
+        var contextLines: [String] = ["[Context]"]
+        contextLines.append("Application: \(context.source.applicationName)")
+
+        if let windowTitle = context.source.windowTitle, !windowTitle.isEmpty {
+            contextLines.append("Window: \(windowTitle)")
+        }
+
+        if let url = context.source.url {
+            contextLines.append("URL: \(url.absoluteString)")
+        }
+
+        // Add metadata if present
+        let metadataSection = formatMetadata(context.metadata)
+        if !metadataSection.isEmpty {
+            contextLines.append(metadataSection)
+        }
+
+        // Add selected text if present
+        if let selectedText = context.selectedText, !selectedText.isEmpty {
+            contextLines.append("")
+            contextLines.append("Selected Text:")
+            contextLines.append("\"\"\"")
+            contextLines.append(selectedText)
+            contextLines.append("\"\"\"")
+        }
+
+        parts.append(contextLines.joined(separator: "\n"))
+
+        // Add the user message/instruction
+        parts.append("")
+        if mode == .selectionTransform || mode == .selectionNoInstruction {
+            parts.append("[Instruction]")
+        } else {
+            parts.append("[User Message]")
+        }
+        parts.append(content)
+
+        return parts.joined(separator: "\n")
+    }
+
+    /// Format chat messages for provider API with per-message context
+    /// - Parameters:
+    ///   - messages: Array of chat messages (each may have embedded context)
     /// - Returns: Array of message dictionaries formatted for API
-    func formatChatMessages(messages: [ChatMessage], context: Context?) -> [[String: String]] {
+    func formatChatMessages(messages: [ChatMessage]) -> [[String: String]] {
         var result: [[String: String]] = []
 
-        // Add system message with context
-        let systemPrompt = buildChatSystemPrompt(context: context)
+        // Add system message (no context - context is now per-message)
+        let systemPrompt = buildChatSystemPrompt()
         result.append(["role": "system", "content": systemPrompt])
 
-        // Add conversation messages
+        // Add conversation messages with inline context for user messages
         for message in messages {
-            result.append([
-                "role": message.role.rawValue,
-                "content": message.content
-            ])
+            if message.role == .user {
+                // Use context embedded in the message
+                let formattedContent = formatUserMessageWithContext(message.content, context: message.context)
+                result.append([
+                    "role": message.role.rawValue,
+                    "content": formattedContent
+                ])
+            } else {
+                // Assistant/system messages pass through unchanged
+                result.append([
+                    "role": message.role.rawValue,
+                    "content": message.content
+                ])
+            }
         }
 
         logChatMessages(result)

@@ -460,12 +460,10 @@ final class PromptViewModel: ObservableObject {
         // Ensure we have a session - create one if this is the first interaction
         ensureSession(context: context, instruction: userMessageContent)
 
-        // Add user message to session immediately
+        // Add user message to session with embedded context
         if let sess = session {
-            let message = ChatMessage.user(userMessageContent)
+            let message = ChatMessage.user(userMessageContent, context: context)
             sess.addMessage(message)
-            // Register context for this message so it's saved with the message
-            SessionManager.shared.registerContextForMessage(messageId: message.id, context: context)
         }
 
         currentContext = context
@@ -496,11 +494,14 @@ final class PromptViewModel: ObservableObject {
                     throw LLMProviderError.notConfigured(provider: .openai)
                 }
 
-                // Use streaming for better UX - response appears incrementally
-                // This matches the pattern used in summarize() for consistency
-                let stream = provider.generateStream(
-                    instruction: self.instructionText,
-                    context: context
+                guard let sess = self.session else {
+                    throw LLMProviderError.unknown("No session available")
+                }
+
+                // Use chat streaming with session messages (context is embedded in user message)
+                // This ensures Quick Mode with selection is part of the session for follow-ups
+                let stream = provider.generateChatStream(
+                    messages: sess.messagesForLLM()
                 )
 
                 // Use array buffer to avoid O(n²) string concatenation
@@ -509,7 +510,7 @@ final class PromptViewModel: ObservableObject {
                     if Task.isCancelled {
                         // Save partial content so user can view, copy, insert, or retry
                         let partialContent = chunks.joined()
-                        if !partialContent.isEmpty, let sess = session {
+                        if !partialContent.isEmpty {
                             sess.addAssistantMessage(partialContent)
                             response = partialContent
                             print("🔧 Generation stopped - saved partial response")
@@ -521,13 +522,13 @@ final class PromptViewModel: ObservableObject {
                 }
 
                 // Add assistant response to session
-                if !response.isEmpty, let sess = session {
+                if !response.isEmpty {
                     sess.addAssistantMessage(response)
                     // Note: Don't auto-enable chat mode here
                     // User will transition to chat mode when they submit a follow-up
                 }
 
-                print("🔧 Generation complete - session has \(session?.messages.count ?? 0) messages")
+                print("🔧 Generation complete - session has \(sess.messages.count) messages")
             } catch is CancellationError {
                 // User cancelled, don't show error
                 print("🔧 Generation cancelled")
@@ -553,12 +554,10 @@ final class PromptViewModel: ObservableObject {
         // Ensure we have a session
         ensureSession(context: surroundingContext, instruction: "Summarize this text")
 
-        // Add summarization request as user message
+        // Add summarization request as user message with embedded context
         if let sess = session {
-            let message = ChatMessage.user("Summarize this text")
+            let message = ChatMessage.user("Summarize this text", context: surroundingContext)
             sess.addMessage(message)
-            // Register context for this message
-            SessionManager.shared.registerContextForMessage(messageId: message.id, context: surroundingContext)
         }
 
         isSummarizing = true
@@ -750,10 +749,9 @@ final class PromptViewModel: ObservableObject {
                     throw LLMProviderError.notConfigured(provider: .openai)
                 }
 
-                // Use chat streaming (use messagesForLLM for trimmed context)
+                // Use chat streaming (context is embedded in messages)
                 let stream = provider.generateChatStream(
-                    messages: sess.messagesForLLM(),
-                    context: currentContext
+                    messages: sess.messagesForLLM()
                 )
 
                 // Use array buffer to avoid O(n²) string concatenation
@@ -842,10 +840,9 @@ final class PromptViewModel: ObservableObject {
                     throw LLMProviderError.notConfigured(provider: .openai)
                 }
 
-                // Use chat streaming with the current messages (trimmed for LLM context)
+                // Use chat streaming (context is embedded in messages)
                 let stream = provider.generateChatStream(
-                    messages: sess.messagesForLLM(),
-                    context: currentContext
+                    messages: sess.messagesForLLM()
                 )
 
                 // Use array buffer to avoid O(n²) string concatenation
@@ -931,10 +928,9 @@ final class PromptViewModel: ObservableObject {
                     throw LLMProviderError.notConfigured(provider: .openai)
                 }
 
-                // Use chat streaming with the current messages (trimmed for LLM context)
+                // Use chat streaming (context is embedded in messages)
                 let stream = provider.generateChatStream(
-                    messages: sess.messagesForLLM(),
-                    context: currentContext
+                    messages: sess.messagesForLLM()
                 )
 
                 // Use array buffer to avoid O(n²) string concatenation
@@ -1096,8 +1092,7 @@ struct PromptContainerView: View {
                         onSendChat: { viewModel.sendChatMessage() },
                         onEnableChat: { viewModel.enableChatMode() },
                         onRetryMessage: { messageId in viewModel.retryMessage(id: messageId) },
-                        onRetryError: { viewModel.retryError() },
-                        messageContexts: sessionManager.getMessageContexts()
+                        onRetryError: { viewModel.retryError() }
                     )
                 } else {
                     // Input view

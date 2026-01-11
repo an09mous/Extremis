@@ -91,40 +91,16 @@ extension PersistedSession {
     /// - Parameters:
     ///   - session: The live session
     ///   - id: Existing ID (for updates) or nil (for new)
-    ///   - currentContext: Current context to attach to latest user message (fallback)
-    ///   - messageContexts: Dictionary mapping message IDs to their contexts
+    ///   - currentContext: Current context (fallback for originalContext if not set)
     @MainActor
     static func from(
         _ session: ChatSession,
         id: UUID? = nil,
-        currentContext: Context? = nil,
-        messageContexts: [UUID: Context] = [:]
+        currentContext: Context? = nil
     ) -> PersistedSession {
-        // Convert messages with context attachment
-        let persistedMessages = session.messages.enumerated().map { index, message -> PersistedMessage in
-            var contextData: Data? = nil
-
-            // Attach context to user messages
-            if message.role == .user {
-                // Priority 1: Use context from messageContexts dictionary (per-message tracking)
-                if let ctx = messageContexts[message.id] {
-                    contextData = PersistedMessage.encodeContext(ctx)
-                }
-                // Priority 2: First user message - use original context
-                else if index == session.messages.firstIndex(where: { $0.role == .user }) {
-                    if let ctx = session.originalContext {
-                        contextData = PersistedMessage.encodeContext(ctx)
-                    }
-                }
-                // Priority 3: Latest user message - use current context if provided
-                else if index == session.messages.lastIndex(where: { $0.role == .user }) {
-                    if let ctx = currentContext {
-                        contextData = PersistedMessage.encodeContext(ctx)
-                    }
-                }
-            }
-
-            return PersistedMessage(from: message, contextData: contextData)
+        // Convert messages - context is now embedded in ChatMessage
+        let persistedMessages = session.messages.map { message -> PersistedMessage in
+            PersistedMessage(from: message)
         }
 
         return PersistedSession(
@@ -151,23 +127,11 @@ extension PersistedSession {
             summaryCoversCount: summary?.coversMessageCount ?? 0
         )
 
-        // Restore messages (avoid triggering trimIfNeeded for each)
+        // Restore messages with embedded context
         for message in messages {
             session.messages.append(message.toChatMessage())
         }
 
         return session
-    }
-
-    /// Restore message contexts dictionary from persisted messages
-    /// Used when loading a session to restore context viewing capability
-    func restoreMessageContexts() -> [UUID: Context] {
-        var contexts: [UUID: Context] = [:]
-        for message in messages {
-            if message.role == .user, let context = message.decodeContext() {
-                contexts[message.id] = context
-            }
-        }
-        return contexts
     }
 }

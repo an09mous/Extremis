@@ -13,8 +13,6 @@ struct ChatView: View {
     var onRetryMessage: ((UUID) -> Void)?
     /// Callback to retry after an error (retries the last user message)
     var onRetryError: (() -> Void)?
-    /// Map of message IDs to their associated context (for displaying context indicators)
-    var messageContexts: [UUID: Context] = [:]
 
     // Track streaming state for scroll decisions
     @State private var lastContentLength = 0
@@ -31,7 +29,7 @@ struct ChatView: View {
                                 message: message,
                                 onRetry: message.role == .assistant ? { onRetryMessage?(message.id) } : nil,
                                 isGenerating: isGenerating,
-                                context: messageContexts[message.id]
+                                context: message.context
                             )
                             .id(message.id)
                         }

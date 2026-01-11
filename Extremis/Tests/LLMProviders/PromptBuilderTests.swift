@@ -81,38 +81,10 @@ struct PromptBuilderTests {
     private let builder = PromptBuilder.shared
 
     // MARK: - Prompt Mode Detection Tests
+    // Note: detectPromptMode() is only used by buildPrompt() in Quick Mode (with selection)
+    // Without selection, the app uses Chat Mode which bypasses buildPrompt() entirely
 
-    /// Test instruction mode: has instruction, no selection
-    func testDetectPromptMode_Instruction() {
-        builder.debugLogging = false
-
-        let context = Context(
-            source: ContextSource(applicationName: "Notes", bundleIdentifier: "com.apple.Notes"),
-            selectedText: nil,
-            precedingText: nil,
-            succeedingText: nil
-        )
-
-        let mode = builder.detectPromptMode(instruction: "Make this formal", context: context)
-        TestRunner.assertEqual(mode, .instruction, "testDetectPromptMode_Instruction")
-    }
-
-    /// Test instruction mode: no instruction, no selection (default behavior)
-    func testDetectPromptMode_NoInstructionNoSelection() {
-        builder.debugLogging = false
-
-        let context = Context(
-            source: ContextSource(applicationName: "Notes", bundleIdentifier: "com.apple.Notes"),
-            selectedText: nil,
-            precedingText: nil,
-            succeedingText: nil
-        )
-
-        let mode = builder.detectPromptMode(instruction: "", context: context)
-        TestRunner.assertEqual(mode, .instruction, "testDetectPromptMode_NoInstructionNoSelection")
-    }
-
-    /// Test selection transform mode: has instruction AND selection
+    /// Test selection transform mode: has instruction
     func testDetectPromptMode_SelectionTransform() {
         builder.debugLogging = false
 
@@ -142,8 +114,8 @@ struct PromptBuilderTests {
         TestRunner.assertEqual(mode, .selectionNoInstruction, "testDetectPromptMode_SelectionNoInstruction")
     }
 
-    /// Test empty selection is treated as no selection
-    func testDetectPromptMode_EmptySelectionIsNoSelection() {
+    /// Test no instruction returns selectionNoInstruction mode
+    func testDetectPromptMode_NoInstruction() {
         builder.debugLogging = false
 
         let context = Context(
@@ -154,7 +126,7 @@ struct PromptBuilderTests {
         )
 
         let mode = builder.detectPromptMode(instruction: "", context: context)
-        TestRunner.assertEqual(mode, .instruction, "testDetectPromptMode_EmptySelectionIsNoSelection")
+        TestRunner.assertEqual(mode, .selectionNoInstruction, "testDetectPromptMode_NoInstruction")
     }
 
     /// Test whitespace-only selection is treated as a selection
@@ -208,9 +180,9 @@ struct PromptBuilderTests {
 
         let prompt = builder.buildPrompt(instruction: "Help me", context: context)
 
-        // Should still generate a valid prompt (instruction mode)
+        // Should still generate a valid prompt (uses selection_transform template with empty selection)
         TestRunner.assertTrue(!prompt.isEmpty, "testBuildPrompt_NilSelectedText")
-        TestRunner.assertTrue(prompt.contains("INSTRUCTION MODE"), "testBuildPrompt_NilSelectedText_Mode")
+        TestRunner.assertTrue(prompt.contains("Help me"), "testBuildPrompt_NilSelectedText_Instruction")
     }
 
     /// Test selection no instruction defaults to summarize
@@ -331,8 +303,8 @@ struct PromptBuilderTests {
 
         let prompt = builder.buildPrompt(instruction: "Help me", context: context)
 
-        // Should still produce valid instruction prompt
-        TestRunner.assertTrue(prompt.contains("INSTRUCTION MODE"), "testBuildPrompt_EmptyContextSource")
+        // Should still produce valid prompt (uses selection_transform template)
+        TestRunner.assertTrue(!prompt.isEmpty, "testBuildPrompt_EmptyContextSource")
         TestRunner.assertTrue(prompt.contains("Help me"), "testBuildPrompt_EmptyContextSource_Instruction")
     }
 
@@ -349,9 +321,9 @@ struct PromptBuilderTests {
 
         let prompt = builder.buildPrompt(instruction: "Help me write", context: context)
 
-        // Should still produce a valid instruction mode prompt
+        // Should still produce a valid prompt (uses selection_transform template with empty selection)
         TestRunner.assertTrue(!prompt.isEmpty, "testBuildPrompt_AllTextFieldsNil_NotEmpty")
-        TestRunner.assertTrue(prompt.contains("INSTRUCTION MODE"), "testBuildPrompt_AllTextFieldsNil_Mode")
+        TestRunner.assertTrue(prompt.contains("Help me write"), "testBuildPrompt_AllTextFieldsNil_Instruction")
     }
 
     /// Test unicode in instruction
@@ -465,11 +437,9 @@ struct PromptBuilderTests {
         print(String(repeating: "=", count: 50) + "\n")
 
         // Mode detection tests
-        testDetectPromptMode_Instruction()
-        testDetectPromptMode_NoInstructionNoSelection()
         testDetectPromptMode_SelectionTransform()
         testDetectPromptMode_SelectionNoInstruction()
-        testDetectPromptMode_EmptySelectionIsNoSelection()
+        testDetectPromptMode_NoInstruction()
         testDetectPromptMode_WhitespaceSelectionIsSelection()
 
         // Template content tests

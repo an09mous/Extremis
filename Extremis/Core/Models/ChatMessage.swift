@@ -20,24 +20,32 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     let role: ChatRole
     let content: String
     let timestamp: Date
-    
-    init(id: UUID = UUID(), role: ChatRole, content: String, timestamp: Date = Date()) {
+    /// Context captured when this message was created (only relevant for user messages)
+    let context: Context?
+
+    init(id: UUID = UUID(), role: ChatRole, content: String, timestamp: Date = Date(), context: Context? = nil) {
         self.id = id
         self.role = role
         self.content = content
         self.timestamp = timestamp
+        self.context = context
     }
-    
+
     /// Create a user message
     static func user(_ content: String) -> ChatMessage {
         ChatMessage(role: .user, content: content)
     }
-    
+
+    /// Create a user message with context
+    static func user(_ content: String, context: Context?) -> ChatMessage {
+        ChatMessage(role: .user, content: content, context: context)
+    }
+
     /// Create an assistant message
     static func assistant(_ content: String) -> ChatMessage {
         ChatMessage(role: .assistant, content: content)
     }
-    
+
     /// Create a system message
     static func system(_ content: String) -> ChatMessage {
         ChatMessage(role: .system, content: content)
@@ -129,10 +137,11 @@ final class ChatSession: ObservableObject {
             id: existing.id,
             role: .assistant,
             content: content,
-            timestamp: existing.timestamp
+            timestamp: existing.timestamp,
+            context: existing.context
         )
     }
-    
+
     /// Append to the last assistant message (for streaming chunks)
     func appendToLastAssistantMessage(_ chunk: String) {
         guard let lastIndex = messages.lastIndex(where: { $0.role == .assistant }) else {
@@ -144,7 +153,8 @@ final class ChatSession: ObservableObject {
             id: existing.id,
             role: .assistant,
             content: existing.content + chunk,
-            timestamp: existing.timestamp
+            timestamp: existing.timestamp,
+            context: existing.context
         )
     }
     

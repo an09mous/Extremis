@@ -210,13 +210,13 @@ final class AnthropicProvider: LLMProvider {
 
     // MARK: - Chat Methods
 
-    func generateChat(messages: [ChatMessage], context: Context?) async throws -> Generation {
+    func generateChat(messages: [ChatMessage]) async throws -> Generation {
         guard let apiKey = apiKey else {
             throw LLMProviderError.notConfigured(provider: .anthropic)
         }
 
         let startTime = Date()
-        let request = try buildChatRequest(apiKey: apiKey, messages: messages, context: context)
+        let request = try buildChatRequest(apiKey: apiKey, messages: messages)
         let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -241,7 +241,7 @@ final class AnthropicProvider: LLMProvider {
         )
     }
 
-    func generateChatStream(messages: [ChatMessage], context: Context?) -> AsyncThrowingStream<String, Error> {
+    func generateChatStream(messages: [ChatMessage]) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             Task {
                 do {
@@ -250,7 +250,7 @@ final class AnthropicProvider: LLMProvider {
                         return
                     }
 
-                    let request = try self.buildChatStreamRequest(apiKey: apiKey, messages: messages, context: context)
+                    let request = try self.buildChatStreamRequest(apiKey: apiKey, messages: messages)
                     let (bytes, response) = try await self.session.bytes(for: request)
 
                     guard let httpResponse = response as? HTTPURLResponse else {
@@ -324,23 +324,21 @@ final class AnthropicProvider: LLMProvider {
 
     /// Build a non-streaming chat request with messages array
     /// Anthropic uses a separate system parameter instead of a system message in the array
-    private func buildChatRequest(apiKey: String, messages: [ChatMessage], context: Context?) throws -> URLRequest {
+    private func buildChatRequest(apiKey: String, messages: [ChatMessage]) throws -> URLRequest {
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         request.httpMethod = "POST"
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        // Anthropic requires system prompt as separate parameter
-        let systemPrompt = PromptBuilder.shared.buildChatSystemPrompt(context: context)
+        // Use formatChatMessages() which handles context formatting
+        let allMessages = PromptBuilder.shared.formatChatMessages(messages: messages)
 
-        // Filter out system messages and format for Anthropic
-        let anthropicMessages = messages.filter { $0.role != .system }.map { message -> [String: String] in
-            [
-                "role": message.role.rawValue,
-                "content": message.content
-            ]
-        }
+        // Extract system prompt for Anthropic's separate system parameter
+        let systemPrompt = allMessages.first { $0["role"] == "system" }?["content"] ?? ""
+
+        // Filter to non-system messages (already formatted with context)
+        let anthropicMessages = allMessages.filter { $0["role"] != "system" }
 
         let body: [String: Any] = [
             "model": currentModel.id,
@@ -353,20 +351,21 @@ final class AnthropicProvider: LLMProvider {
     }
 
     /// Build a streaming chat request with messages array
-    private func buildChatStreamRequest(apiKey: String, messages: [ChatMessage], context: Context?) throws -> URLRequest {
+    private func buildChatStreamRequest(apiKey: String, messages: [ChatMessage]) throws -> URLRequest {
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         request.httpMethod = "POST"
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let systemPrompt = PromptBuilder.shared.buildChatSystemPrompt(context: context)
-        let anthropicMessages = messages.filter { $0.role != .system }.map { message -> [String: String] in
-            [
-                "role": message.role.rawValue,
-                "content": message.content
-            ]
-        }
+        // Use formatChatMessages() which handles context formatting
+        let allMessages = PromptBuilder.shared.formatChatMessages(messages: messages)
+
+        // Extract system prompt for Anthropic's separate system parameter
+        let systemPrompt = allMessages.first { $0["role"] == "system" }?["content"] ?? ""
+
+        // Filter to non-system messages (already formatted with context)
+        let anthropicMessages = allMessages.filter { $0["role"] != "system" }
 
         let body: [String: Any] = [
             "model": currentModel.id,
