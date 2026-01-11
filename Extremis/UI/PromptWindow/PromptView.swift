@@ -59,11 +59,7 @@ struct PromptInputView: View {
                 HStack(spacing: 12) {
                     // Hint text - contextual guidance (left-aligned)
                     Group {
-                        if hasSelection {
-                            Text("Enter instruction to transform")
-                        } else {
-                            Text("Enter your instruction")
-                        }
+                        Text("Enter your instruction")
                     }
                     .font(.caption)
                     .foregroundColor(.secondary)

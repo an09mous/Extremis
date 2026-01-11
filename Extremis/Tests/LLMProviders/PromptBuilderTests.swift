@@ -247,6 +247,8 @@ enum PromptTemplate: String, CaseIterable {
     case intentInstruct = "intent_instruct"
     case intentSummarize = "intent_summarize"
     case intentChat = "intent_chat"
+    case sessionSummarizationInitial = "session_summarization_initial"
+    case sessionSummarizationUpdate = "session_summarization_update"
 
     var filename: String { rawValue }
 }

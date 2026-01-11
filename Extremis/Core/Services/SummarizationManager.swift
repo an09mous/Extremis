@@ -255,55 +255,24 @@ final class SummarizationManager {
             contentToSummarize = transcript
         }
 
-        // Build the appropriate prompt based on whether this is hierarchical
-        let instructions: String
-        if previousSummary != nil {
-            instructions = """
-            Update this conversation summary with new messages.
+        // Load the appropriate template based on whether this is hierarchical
+        let template: PromptTemplate = previousSummary != nil
+            ? .sessionSummarizationUpdate
+            : .sessionSummarizationInitial
 
-            ## Task
-            Integrate the previous summary with the new messages to create a unified, updated summary.
+        do {
+            let promptTemplate = try templateLoader.load(template)
+            return promptTemplate.replacingOccurrences(of: "{{CONTENT}}", with: contentToSummarize)
+        } catch {
+            // Fallback to inline prompt if template loading fails
+            print("[SummarizationManager] Failed to load template \(template.filename): \(error)")
+            return """
+            Summarize this conversation for future context.
 
-            ## What to Capture
-            - **Key Facts**: Names, dates, numbers, file paths, technical specifications
-            - **User Preferences**: Stated preferences for tone, format, or approach
-            - **Decisions**: Solutions agreed upon, problems resolved
-            - **Open Items**: Pending tasks, unresolved questions
+            \(contentToSummarize)
 
-            ## Guidelines
-            - Under 400 words, organized by relevance
-            - Preserve important context from the previous summary
-            - Add new topics, decisions, or details from recent messages
-            - Remove outdated information if superseded by new messages
-            - Be direct and factual - no meta-commentary
-            - Preserve exact values rather than paraphrasing
-            """
-        } else {
-            instructions = """
-            Create a memory summary for continuing this conversation later.
-
-            ## What to Capture
-            - **Key Facts**: Names, dates, numbers, file paths, technical specifications
-            - **User Preferences**: Stated preferences for tone, format, or approach
-            - **Decisions**: Solutions agreed upon, problems resolved
-            - **Open Items**: Pending tasks, unresolved questions
-
-            ## Guidelines
-            - Under 400 words, organized by relevance
-            - Be direct and factual - no "In this conversation..." or "The user discussed..."
-            - Preserve exact values (names, paths, numbers) rather than paraphrasing
-            - Focus on information needed to continue the conversation effectively
+            Summary:
             """
         }
-
-        return """
-        \(instructions)
-
-        Content to summarize:
-
-        \(contentToSummarize)
-
-        Summary:
-        """
     }
 }

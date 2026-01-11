@@ -16,6 +16,12 @@ enum PromptTemplate: String, CaseIterable {
     /// Standard chat/follow-up message format
     case intentChat = "intent_chat"
 
+    // Session summarization templates (for memory management)
+    /// First-time session summarization
+    case sessionSummarizationInitial = "session_summarization_initial"
+    /// Hierarchical update of existing summary with new messages
+    case sessionSummarizationUpdate = "session_summarization_update"
+
     /// The filename for this template (without extension)
     var filename: String { rawValue }
 }
