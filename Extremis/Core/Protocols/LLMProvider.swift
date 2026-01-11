@@ -26,24 +26,6 @@ protocol LLMProvider: AnyObject {
     /// - Parameter model: The model to use for generation
     func setModel(_ model: LLMModel)
 
-    /// Generate a response (non-streaming)
-    /// - Parameters:
-    ///   - instruction: User's instruction text
-    ///   - context: Captured context
-    /// - Returns: Generated response
-    /// - Throws: LLMProviderError on failure
-    func generate(instruction: String, context: Context) async throws -> Generation
-
-    /// Generate a response with streaming
-    /// - Parameters:
-    ///   - instruction: User's instruction text
-    ///   - context: Captured context
-    /// - Returns: Async stream of text chunks
-    func generateStream(
-        instruction: String,
-        context: Context
-    ) -> AsyncThrowingStream<String, Error>
-
     /// Generate a response from a raw prompt (non-streaming)
     /// Use this when the prompt is already fully built (e.g., summarization)
     /// - Parameter prompt: The complete prompt to send to the LLM

@@ -319,9 +319,6 @@ final class PromptViewModel: ObservableObject {
     private var generationTask: Task<Void, Never>?
     var currentContext: Context?  // Made internal so PromptWindowController can set it
 
-    /// Summarization service
-    private let summarizationService = SummarizationService.shared
-
     /// Cancellable for provider change subscription
     private var providerCancellable: AnyCancellable?
 
@@ -453,16 +450,37 @@ final class PromptViewModel: ObservableObject {
     }
 
     func generate(with context: Context) {
-        // Determine the user message content
+        // Determine the user message content and intent
         let trimmedInstruction = instructionText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let userMessageContent = trimmedInstruction.isEmpty ? "Help me with this" : trimmedInstruction
+        let hasSelection = context.selectedText?.isEmpty == false
+        let hasInstruction = !trimmedInstruction.isEmpty
+
+        // Determine message content and intent based on context
+        let userMessageContent: String
+        let intent: MessageIntent
+
+        if hasSelection {
+            if hasInstruction {
+                // Selection + instruction → transform mode
+                userMessageContent = trimmedInstruction
+                intent = .selectionTransform
+            } else {
+                // Selection + no instruction → summarization mode
+                userMessageContent = "Summarize this"
+                intent = .summarize
+            }
+        } else {
+            // No selection → chat mode
+            userMessageContent = hasInstruction ? trimmedInstruction : "Help me with this"
+            intent = .chat
+        }
 
         // Ensure we have a session - create one if this is the first interaction
         ensureSession(context: context, instruction: userMessageContent)
 
-        // Add user message to session with embedded context
+        // Add user message to session with embedded context and intent
         if let sess = session {
-            let message = ChatMessage.user(userMessageContent, context: context)
+            let message = ChatMessage.user(userMessageContent, context: context, intent: intent)
             sess.addMessage(message)
         }
 
@@ -548,15 +566,17 @@ final class PromptViewModel: ObservableObject {
     // MARK: - Summarization
 
     /// Summarize the given text (called from Magic Mode or Summarize button)
+    /// Uses the unified session-based approach with intent injection
     func summarize(text: String, source: ContextSource, surroundingContext: Context? = nil) {
         print("📝 PromptViewModel: Starting summarization...")
 
         // Ensure we have a session
         ensureSession(context: surroundingContext, instruction: "Summarize this text")
 
-        // Add summarization request as user message with embedded context
+        // Add summarization request as user message with embedded context and summarize intent
+        // The .summarize intent triggers injection of summarization rules in formatUserMessageWithContext()
         if let sess = session {
-            let message = ChatMessage.user("Summarize this text", context: surroundingContext)
+            let message = ChatMessage.user("Summarize this text", context: surroundingContext, intent: .summarize)
             sess.addMessage(message)
         }
 
@@ -585,14 +605,18 @@ final class PromptViewModel: ObservableObject {
             }
 
             do {
-                let request = SummaryRequest(
-                    text: text,
-                    source: source,
-                    surroundingContext: surroundingContext
-                )
+                guard let provider = LLMProviderRegistry.shared.activeProvider else {
+                    throw LLMProviderError.notConfigured(provider: .openai)
+                }
 
-                // Use streaming for better UX
-                let stream = summarizationService.summarizeStream(request: request)
+                guard let sess = self.session else {
+                    throw LLMProviderError.unknown("No session available")
+                }
+
+                // Use chat streaming with session messages (intent injection handles summarization rules)
+                let stream = provider.generateChatStream(
+                    messages: sess.messagesForLLM()
+                )
 
                 // Use array buffer to avoid O(n²) string concatenation
                 var chunks: [String] = []
@@ -600,7 +624,7 @@ final class PromptViewModel: ObservableObject {
                     if Task.isCancelled {
                         // Save partial content so user can view, copy, insert, or retry
                         let partialContent = chunks.joined()
-                        if !partialContent.isEmpty, let sess = session {
+                        if !partialContent.isEmpty {
                             sess.addAssistantMessage(partialContent)
                             response = partialContent
                             print("📝 Summarization stopped - saved partial response")
@@ -612,13 +636,13 @@ final class PromptViewModel: ObservableObject {
                 }
 
                 // Add assistant response to session
-                if !response.isEmpty, let sess = session {
+                if !response.isEmpty {
                     sess.addAssistantMessage(response)
                     // Note: Don't auto-enable chat mode here
                     // User will transition to chat mode when they submit a follow-up
                 }
 
-                print("📝 PromptViewModel: Summarization complete - session has \(session?.messages.count ?? 0) messages")
+                print("📝 PromptViewModel: Summarization complete - session has \(sess.messages.count) messages")
             } catch is CancellationError {
                 // User cancelled, don't show error
                 print("📝 PromptViewModel: Summarization cancelled")

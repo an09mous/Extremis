@@ -108,7 +108,12 @@ run_test_suite "PromptBuilder Truncation Tests" \
     "$PROJECT_DIR/Tests/LLMProviders/PromptBuilderTruncationTests.swift" \
     "Foundation"
 
-# 3. ModelConfigLoader Tests (JSON model configuration)
+# 3. PromptBuilder Intent Tests (intent-based prompt injection framework)
+run_test_suite "PromptBuilder Intent Tests" \
+    "$PROJECT_DIR/Tests/LLMProviders/PromptBuilderTests.swift" \
+    "Foundation"
+
+# 4. ModelConfigLoader Tests (JSON model configuration)
 # Note: This test needs to run from the Extremis directory to find Resources/models.json
 pushd "$PROJECT_DIR" > /dev/null
 run_test_suite "ModelConfigLoader Tests" \
