@@ -36,10 +36,10 @@ struct HotkeyConfiguration: Codable, Equatable {
         self.modifiers = modifiers
     }
     
-    /// Default hotkey: ⌘+Shift+Space
+    /// Default hotkey: ⌥+Space (Option+Space)
     static let `default` = HotkeyConfiguration(
         keyCode: UInt32(kVK_Space),      // Space key
-        modifiers: UInt32(cmdKey | shiftKey)  // Cmd + Shift
+        modifiers: UInt32(optionKey)     // Option
     )
     
     /// Human-readable description of the hotkey

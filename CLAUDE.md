@@ -44,7 +44,7 @@ swiftc -parse-as-library Extremis/Tests/Core/SessionManagerTests.swift -o /tmp/t
 ## Project Overview
 
 Extremis is a macOS menu bar app that provides context-aware LLM text generation via global hotkeys:
-- **Cmd+Shift+Space**: Opens Quick Mode (with selection) or Chat Mode (without selection)
+- **Option+Space**: Opens Quick Mode (with selection) or Chat Mode (without selection)
 - **Option+Tab**: Magic Mode - summarizes selected text (no-op without selection)
 
 Context is captured via AX metadata (app name, window title) and selected text when present.
