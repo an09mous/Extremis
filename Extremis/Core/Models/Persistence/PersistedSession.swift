@@ -70,6 +70,13 @@ struct PersistedSession: Codable, Identifiable, Equatable {
             return messages
         }
 
+        // Defensive: validate summary consistency
+        // This catches edge cases where summary state got out of sync (e.g., after retry)
+        if summary.coversMessageCount > messages.count {
+            print("[PersistedSession] Warning: summary.coversMessageCount (\(summary.coversMessageCount)) > messages.count (\(messages.count)) - using all messages")
+            return messages
+        }
+
         // Use summary + messages after the summarized portion
         let summaryMessage = PersistedMessage(
             id: UUID(),

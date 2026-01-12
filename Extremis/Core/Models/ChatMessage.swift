@@ -243,6 +243,15 @@ final class ChatSession: ObservableObject {
     /// Uses summary + recent messages if summary is available, otherwise truncates to maxMessages.
     /// This returns a trimmed copy - the original messages array is preserved for persistence.
     func messagesForLLM() -> [ChatMessage] {
+        // Defensive: validate summary consistency
+        // This catches edge cases where summary state got out of sync (e.g., after retry)
+        if summaryCoversCount > messages.count {
+            print("[ChatSession] Warning: summaryCoversCount (\(summaryCoversCount)) > messages.count (\(messages.count)) - resetting summary")
+            summary = nil
+            summaryCoversCount = 0
+            return messages
+        }
+
         // If we have a valid summary, use summary + recent messages
         if let summary = summary, summary.isValid, summaryCoversCount > 0 {
             // Create a system message with the summary
@@ -278,6 +287,18 @@ final class ChatSession: ObservableObject {
         self.summary = newSummary
         self.summaryCoversCount = coversCount
         print("[ChatSession] Updated summary covering \(coversCount) messages")
+    }
+
+    // MARK: - Retry Validation
+
+    /// Check if a message at the given ID can be retried
+    /// Messages within the summarized portion cannot be retried to avoid inconsistent state
+    func canRetryMessage(id: UUID) -> Bool {
+        guard let index = messages.firstIndex(where: { $0.id == id }) else {
+            return false
+        }
+        // Can only retry messages AFTER the summarized portion
+        return index >= summaryCoversCount
     }
 }
 

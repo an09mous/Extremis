@@ -114,6 +114,8 @@ struct ChatMessage: Identifiable, Codable, Equatable {
 final class ChatConversation {
     var messages: [ChatMessage] = []
     let maxMessages: Int
+    /// Number of messages covered by the summary (0 means no summary)
+    var summaryCoversCount: Int = 0
 
     init(maxMessages: Int = 20) {
         self.maxMessages = maxMessages
@@ -149,6 +151,16 @@ final class ChatConversation {
 
         messages.removeSubrange(index...)
         return precedingUserMessage
+    }
+
+    /// Check if a message at the given ID can be retried
+    /// Messages within the summarized portion cannot be retried to avoid inconsistent state
+    func canRetryMessage(id: UUID) -> Bool {
+        guard let index = messages.firstIndex(where: { $0.id == id }) else {
+            return false
+        }
+        // Can only retry messages AFTER the summarized portion
+        return index >= summaryCoversCount
     }
 
     var lastAssistantMessage: ChatMessage? {
@@ -323,6 +335,102 @@ func testRemoveMessageAndFollowing_RetryWorkflow() {
     TestRunner.assertEqual(conv.messages[2].content, "Violets are blue...", "New response added")
 }
 
+// MARK: - canRetryMessage Tests
+
+func testCanRetryMessage_WithinSummarizedPortion_ReturnsFalse() {
+    print("")
+    print("📦 canRetryMessage - Within Summarized Portion")
+    print("----------------------------------------")
+
+    // Setup: 10 messages, 6 summarized (indices 0-5), 4 recent (indices 6-9)
+    let conv = ChatConversation()
+    for i in 0..<5 {
+        conv.addUserMessage("Q\(i)")
+        conv.addAssistantMessage("A\(i)")
+    }
+    conv.summaryCoversCount = 6  // First 6 messages are summarized
+
+    // Message at index 1 (A0) is within summarized portion
+    let summarizedMessageId = conv.messages[1].id
+    TestRunner.assertTrue(!conv.canRetryMessage(id: summarizedMessageId), "Cannot retry message at index 1 (within summarized)")
+
+    // Message at index 5 (A2) is within summarized portion
+    let boundaryMessageId = conv.messages[5].id
+    TestRunner.assertTrue(!conv.canRetryMessage(id: boundaryMessageId), "Cannot retry message at index 5 (within summarized)")
+}
+
+func testCanRetryMessage_OutsideSummarizedPortion_ReturnsTrue() {
+    print("")
+    print("📦 canRetryMessage - Outside Summarized Portion")
+    print("----------------------------------------")
+
+    // Setup: 10 messages, 6 summarized (indices 0-5), 4 recent (indices 6-9)
+    let conv = ChatConversation()
+    for i in 0..<5 {
+        conv.addUserMessage("Q\(i)")
+        conv.addAssistantMessage("A\(i)")
+    }
+    conv.summaryCoversCount = 6  // First 6 messages are summarized
+
+    // Message at index 7 (A3) is outside summarized portion
+    let recentMessageId = conv.messages[7].id
+    TestRunner.assertTrue(conv.canRetryMessage(id: recentMessageId), "Can retry message at index 7 (recent)")
+
+    // Message at index 9 (A4) is outside summarized portion
+    let lastMessageId = conv.messages[9].id
+    TestRunner.assertTrue(conv.canRetryMessage(id: lastMessageId), "Can retry message at index 9 (most recent)")
+}
+
+func testCanRetryMessage_AtBoundary_ReturnsTrue() {
+    print("")
+    print("📦 canRetryMessage - At Boundary")
+    print("----------------------------------------")
+
+    // Setup: 10 messages, 6 summarized
+    let conv = ChatConversation()
+    for i in 0..<5 {
+        conv.addUserMessage("Q\(i)")
+        conv.addAssistantMessage("A\(i)")
+    }
+    conv.summaryCoversCount = 6
+
+    // Message at index 6 (Q3) is exactly at boundary - should be retryable
+    let boundaryMessageId = conv.messages[6].id
+    TestRunner.assertTrue(conv.canRetryMessage(id: boundaryMessageId), "Can retry message at exact boundary (index 6)")
+}
+
+func testCanRetryMessage_NoSummary_AllMessagesRetryable() {
+    print("")
+    print("📦 canRetryMessage - No Summary")
+    print("----------------------------------------")
+
+    // Setup: 6 messages, no summary (summaryCoversCount = 0)
+    let conv = ChatConversation()
+    for i in 0..<3 {
+        conv.addUserMessage("Q\(i)")
+        conv.addAssistantMessage("A\(i)")
+    }
+    // summaryCoversCount defaults to 0
+
+    // All messages should be retryable
+    TestRunner.assertTrue(conv.canRetryMessage(id: conv.messages[0].id), "Can retry first message (no summary)")
+    TestRunner.assertTrue(conv.canRetryMessage(id: conv.messages[1].id), "Can retry second message (no summary)")
+    TestRunner.assertTrue(conv.canRetryMessage(id: conv.messages[5].id), "Can retry last message (no summary)")
+}
+
+func testCanRetryMessage_NonExistentId_ReturnsFalse() {
+    print("")
+    print("📦 canRetryMessage - Non-Existent ID")
+    print("----------------------------------------")
+
+    let conv = ChatConversation()
+    conv.addUserMessage("Q1")
+    conv.addAssistantMessage("A1")
+
+    let fakeId = UUID()
+    TestRunner.assertTrue(!conv.canRetryMessage(id: fakeId), "Cannot retry non-existent message")
+}
+
 // MARK: - Main Entry Point
 
 @main
@@ -332,6 +440,7 @@ struct ChatConversationTestRunner {
         print("🧪 ChatConversation Unit Tests")
         print("==================================================")
 
+        // removeMessageAndFollowing tests
         testRemoveMessageAndFollowing_BasicRemoval()
         testRemoveMessageAndFollowing_RemovesAllFollowing()
         testRemoveMessageAndFollowing_FirstAssistantMessage()
@@ -340,6 +449,13 @@ struct ChatConversationTestRunner {
         testRemoveMessageAndFollowing_SystemMessageSkipped()
         testRemoveMessageAndFollowing_MultipleAssistantsBetweenUsers()
         testRemoveMessageAndFollowing_RetryWorkflow()
+
+        // canRetryMessage tests
+        testCanRetryMessage_WithinSummarizedPortion_ReturnsFalse()
+        testCanRetryMessage_OutsideSummarizedPortion_ReturnsTrue()
+        testCanRetryMessage_AtBoundary_ReturnsTrue()
+        testCanRetryMessage_NoSummary_AllMessagesRetryable()
+        testCanRetryMessage_NonExistentId_ReturnsFalse()
 
         TestRunner.printSummary()
 

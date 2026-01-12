@@ -355,9 +355,9 @@ func testBuildLLMContext_SummaryCoversMoreThanExists() {
 
     let context = session.buildLLMContext()
 
-    // Edge case: covers more than exists, should handle gracefully
-    // min(30, 20) = 20, so suffix(from: 20) = empty, result is just summary
-    TestRunner.assertEqual(context.count, 1, "Summary covering more than exists returns just summary")
+    // Edge case: covers more than exists - defensive behavior returns all messages
+    // This handles cases where summary state got out of sync (e.g., after retry)
+    TestRunner.assertEqual(context.count, 20, "Summary covering more than exists falls back to all messages")
 }
 
 // MARK: - Threshold Logic Tests (without SummarizationManager instance)

@@ -24,10 +24,10 @@ struct ChatView: View {
                 ScrollView {
                     VStack(spacing: 16) {
                         // Display all completed messages
-                        ForEach(session.messages) { message in
+                        ForEach(Array(session.messages.enumerated()), id: \.element.id) { index, message in
                             ChatMessageView(
                                 message: message,
-                                onRetry: message.role == .assistant ? { onRetryMessage?(message.id) } : nil,
+                                onRetry: canRetry(message: message, at: index) ? { onRetryMessage?(message.id) } : nil,
                                 isGenerating: isGenerating,
                                 context: message.context
                             )
@@ -109,6 +109,15 @@ struct ChatView: View {
         } else {
             proxy.scrollTo("bottom", anchor: .bottom)
         }
+    }
+
+    /// Determine if a message can be retried
+    /// Only assistant messages outside the summarized portion can be retried
+    private func canRetry(message: ChatMessage, at index: Int) -> Bool {
+        // Only assistant messages can be retried
+        guard message.role == .assistant else { return false }
+        // Cannot retry messages within summarized portion
+        return index >= session.summaryCoversCount
     }
 }
 
