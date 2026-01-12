@@ -5,7 +5,7 @@ A context-aware LLM writing assistant for macOS. Press a global hotkey anywhere 
 ## Features
 
 - **Global Hotkeys**
-  - `Cmd+Shift+Space` - Quick Mode (with selection) or Chat Mode (without selection)
+  - `Option+Space` - Quick Mode (with selection) or Chat Mode (without selection)
   - `Option+Tab` - Magic Mode: auto-summarize selected text (no-op without selection)
 - **Context-Aware** - Captures app context (name, window title) and selected text
 - **Quick Summarization** - Summarize selected text instantly with one keystroke
@@ -76,17 +76,17 @@ If you prefer cloud-based models:
 
 ## Usage
 
-### Quick Mode / Chat Mode (`Cmd+Shift+Space`)
+### Quick Mode / Chat Mode (`Option+Space`)
 
 The hotkey behavior depends on whether you have text selected:
 
 **With text selected (Quick Mode):**
-1. Press `Cmd+Shift+Space` with text selected
+1. Press `Option+Space` with text selected
 2. Click **Summarize** for instant summary, or type an instruction to transform the text
 3. Press `Cmd+Enter` to insert or `Cmd+C` to copy
 
 **Without selection (Chat Mode):**
-1. Press `Cmd+Shift+Space` without any text selected
+1. Press `Option+Space` without any text selected
 2. A conversational chat interface opens
 3. Type your question or request and press Enter
 4. Continue the conversation with follow-up questions
