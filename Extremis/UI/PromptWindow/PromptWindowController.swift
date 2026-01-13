@@ -241,6 +241,9 @@ final class PromptWindowController: NSWindowController {
         // Keep controller's currentContext as is (don't set to nil)
 
         await SessionManager.shared.startNewSession()
+
+        // Show indicator for the new session
+        viewModel.showNewSessionBadge()
     }
 
     /// Select and load a specific session
@@ -316,6 +319,14 @@ final class PromptViewModel: ObservableObject {
     // Persistence properties
     private(set) var sessionId: UUID?
 
+    // MARK: - New Session Indicator State
+
+    /// Controls visibility of the "New Session" badge in the header
+    @Published var showNewSessionIndicator: Bool = false
+
+    /// Timer for auto-dismissing the indicator
+    private var indicatorDismissTimer: Timer?
+
     private var generationTask: Task<Void, Never>?
     var currentContext: Context?  // Made internal so PromptWindowController can set it
 
@@ -342,6 +353,11 @@ final class PromptViewModel: ObservableObject {
         // Cancel any in-progress generation to prevent stale updates
         generationTask?.cancel()
         generationTask = nil
+
+        // Cancel indicator timer
+        indicatorDismissTimer?.invalidate()
+        indicatorDismissTimer = nil
+        showNewSessionIndicator = false
 
         instructionText = ""
         response = ""
@@ -413,11 +429,17 @@ final class PromptViewModel: ObservableObject {
             // Register with SessionManager immediately
             SessionManager.shared.setCurrentSession(sess, id: sessionId)
             print("📋 PromptViewModel: Created new session \(sessionId!)")
+
+            // Show new session indicator
+            showNewSessionBadge()
         }
     }
 
     /// Set a restored session from persistence
     func setRestoredSession(_ sess: ChatSession, id: UUID?) {
+        // Hide any visible indicator (this is an existing session, not new)
+        hideNewSessionBadge()
+
         session = sess
         sessionId = id
 
@@ -447,6 +469,7 @@ final class PromptViewModel: ObservableObject {
     deinit {
         generationTask?.cancel()
         providerCancellable?.cancel()
+        indicatorDismissTimer?.invalidate()
     }
 
     func updateProviderStatus() {
@@ -459,7 +482,40 @@ final class PromptViewModel: ObservableObject {
         }
     }
 
+    // MARK: - New Session Indicator
+
+    /// Show the new session badge with auto-dismiss
+    func showNewSessionBadge() {
+        // Cancel any existing timer
+        indicatorDismissTimer?.invalidate()
+
+        // Show badge with animation
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            showNewSessionIndicator = true
+        }
+
+        // Schedule auto-dismiss after 2.5 seconds
+        indicatorDismissTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: false) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.hideNewSessionBadge()
+            }
+        }
+    }
+
+    /// Hide the new session badge
+    func hideNewSessionBadge() {
+        indicatorDismissTimer?.invalidate()
+        indicatorDismissTimer = nil
+
+        withAnimation(.easeOut(duration: 0.2)) {
+            showNewSessionIndicator = false
+        }
+    }
+
     func generate(with context: Context) {
+        // Hide new session indicator on user interaction
+        hideNewSessionBadge()
+
         // Determine the user message content and intent
         let trimmedInstruction = instructionText.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasSelection = context.selectedText?.isEmpty == false
@@ -748,6 +804,9 @@ final class PromptViewModel: ObservableObject {
 
     /// Send a chat message and get a response
     func sendChatMessage() {
+        // Hide new session indicator on user interaction
+        hideNewSessionBadge()
+
         let messageText = chatInputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !messageText.isEmpty else { return }
         guard let sess = session else {
@@ -1094,6 +1153,9 @@ struct PromptContainerView: View {
                     }
                     .buttonStyle(.plain)
                     .help(sessionManager.isAnySessionGenerating ? "Generation in progress - wait or cancel to start new session" : "New session")
+
+                    // New session indicator badge
+                    NewSessionBadge(isVisible: $viewModel.showNewSessionIndicator)
 
                     Spacer()
 
