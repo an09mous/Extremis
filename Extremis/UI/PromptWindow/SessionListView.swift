@@ -92,7 +92,7 @@ struct SessionListView: View {
         .frame(width: 180)
         .background(Color(NSColor.windowBackgroundColor))
         .onAppear {
-            loadSessions()
+            loadSessions(showLoading: sessions.isEmpty)
         }
         .onChange(of: sessionManager.sessionListVersion) { _ in
             loadSessions()
@@ -106,8 +106,11 @@ struct SessionListView: View {
         }
     }
 
-    private func loadSessions() {
-        isLoading = true
+    private func loadSessions(showLoading: Bool = false) {
+        // Only show loading indicator on initial load, not on incremental updates
+        if showLoading {
+            isLoading = true
+        }
         errorMessage = nil
 
         Task {
@@ -143,6 +146,25 @@ struct SessionRowView: View {
     let onDelete: () -> Void
 
     @State private var isHovering = false
+
+    // Static formatters to avoid creating new instances on every render
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a"
+        return formatter
+    }()
+
+    private static let weekdayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE"
+        return formatter
+    }()
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter
+    }()
 
     var body: some View {
         Button(action: {
@@ -218,19 +240,13 @@ struct SessionRowView: View {
         let now = Date()
 
         if calendar.isDateInToday(date) {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "h:mm a"
-            return formatter.string(from: date)
+            return Self.timeFormatter.string(from: date)
         } else if calendar.isDateInYesterday(date) {
             return "Yesterday"
         } else if let daysAgo = calendar.dateComponents([.day], from: date, to: now).day, daysAgo < 7 {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "EEEE"
-            return formatter.string(from: date)
+            return Self.weekdayFormatter.string(from: date)
         } else {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "MMM d"
-            return formatter.string(from: date)
+            return Self.dateFormatter.string(from: date)
         }
     }
 }
