@@ -1067,7 +1067,6 @@ struct PromptContainerView: View {
 
     @State private var showContextViewer = false
     @State private var showSidebar = false
-    @State private var sidebarRefreshKey = UUID()
     @State private var contextForViewer: Context?  // Pre-captured for instant display
 
     var body: some View {
@@ -1079,18 +1078,14 @@ struct PromptContainerView: View {
                         sessionManager: SessionManager.shared,
                         onSelectSession: { id in
                             onSelectSession(id)
-                            sidebarRefreshKey = UUID()
                         },
                         onNewSession: {
                             onNewSession()
-                            sidebarRefreshKey = UUID()
                         },
                         onDeleteSession: { id in
                             onDeleteSession(id)
-                            sidebarRefreshKey = UUID()
                         }
                     )
-                    .id(sidebarRefreshKey)
 
                     Divider()
                 }
@@ -1171,6 +1166,7 @@ struct PromptContainerView: View {
                         onRetryMessage: { messageId in viewModel.retryMessage(id: messageId) },
                         onRetryError: { viewModel.retryError() }
                     )
+                    .id(sessionManager.currentSessionId)  // Force view recreation on session switch to reset scroll state
                 } else {
                     // Input view
                     PromptInputView(
