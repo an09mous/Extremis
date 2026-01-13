@@ -629,6 +629,209 @@ func testWorkflow_MultipleSessionsOneGenerating() {
     teardownTracker()
 }
 
+// MARK: - Draft Session State Tracker
+
+/// Simplified version of SessionManager's draft session tracking for testing
+class DraftSessionTracker {
+    private(set) var hasDraftSession: Bool = false
+    private(set) var currentSessionId: UUID? = nil
+    private(set) var sessionMessageCount: Int = 0
+
+    /// Start a new session (creates a draft)
+    func startNewSession() -> UUID {
+        let sessionId = UUID()
+        currentSessionId = sessionId
+        hasDraftSession = true
+        sessionMessageCount = 0
+        return sessionId
+    }
+
+    /// Add a message to the current session
+    func addMessage() {
+        sessionMessageCount += 1
+        // Draft becomes real session once it has content
+        if hasDraftSession && sessionMessageCount > 0 {
+            hasDraftSession = false
+        }
+    }
+
+    /// Load an existing session
+    func loadSession(id: UUID, messageCount: Int) {
+        // Discard any existing draft
+        hasDraftSession = false
+        currentSessionId = id
+        sessionMessageCount = messageCount
+    }
+
+    /// Set current session with existing data
+    func setCurrentSession(id: UUID, messageCount: Int) {
+        currentSessionId = id
+        sessionMessageCount = messageCount
+        hasDraftSession = messageCount == 0
+    }
+
+    /// Clear the current session
+    func clearCurrentSession() {
+        currentSessionId = nil
+        hasDraftSession = false
+        sessionMessageCount = 0
+    }
+
+    func reset() {
+        hasDraftSession = false
+        currentSessionId = nil
+        sessionMessageCount = 0
+    }
+}
+
+// MARK: - Draft Session Tests
+
+var draftTracker: DraftSessionTracker!
+
+func setupDraftTracker() {
+    draftTracker = DraftSessionTracker()
+}
+
+func teardownDraftTracker() {
+    draftTracker = nil
+}
+
+func testDraftSession_InitialState() {
+    TestRunner.setGroup("Draft Session - Initial State")
+    setupDraftTracker()
+
+    TestRunner.assertFalse(draftTracker.hasDraftSession, "No draft initially")
+    TestRunner.assertNil(draftTracker.currentSessionId, "No session ID initially")
+    TestRunner.assertEqual(draftTracker.sessionMessageCount, 0, "No messages initially")
+
+    teardownDraftTracker()
+}
+
+func testDraftSession_AfterStartNewSession() {
+    TestRunner.setGroup("Draft Session - After Start New Session")
+    setupDraftTracker()
+
+    let sessionId = draftTracker.startNewSession()
+
+    TestRunner.assertTrue(draftTracker.hasDraftSession, "Should be draft after starting new session")
+    TestRunner.assertNotNil(draftTracker.currentSessionId, "Should have session ID")
+    TestRunner.assertEqual(draftTracker.currentSessionId, sessionId, "Session ID matches")
+    TestRunner.assertEqual(draftTracker.sessionMessageCount, 0, "No messages yet")
+
+    teardownDraftTracker()
+}
+
+func testDraftSession_AfterFirstMessage() {
+    TestRunner.setGroup("Draft Session - After First Message")
+    setupDraftTracker()
+
+    _ = draftTracker.startNewSession()
+    TestRunner.assertTrue(draftTracker.hasDraftSession, "Draft before message")
+
+    draftTracker.addMessage()
+
+    TestRunner.assertFalse(draftTracker.hasDraftSession, "No longer draft after first message")
+    TestRunner.assertEqual(draftTracker.sessionMessageCount, 1, "One message")
+
+    teardownDraftTracker()
+}
+
+func testDraftSession_AfterLoadSession() {
+    TestRunner.setGroup("Draft Session - After Load Session")
+    setupDraftTracker()
+
+    // Start with a draft
+    _ = draftTracker.startNewSession()
+    TestRunner.assertTrue(draftTracker.hasDraftSession, "Have draft")
+
+    // Load an existing session
+    let existingSessionId = UUID()
+    draftTracker.loadSession(id: existingSessionId, messageCount: 5)
+
+    TestRunner.assertFalse(draftTracker.hasDraftSession, "No draft after loading session")
+    TestRunner.assertEqual(draftTracker.currentSessionId, existingSessionId, "Loaded session is current")
+    TestRunner.assertEqual(draftTracker.sessionMessageCount, 5, "Has existing messages")
+
+    teardownDraftTracker()
+}
+
+func testDraftSession_AfterClearSession() {
+    TestRunner.setGroup("Draft Session - After Clear Session")
+    setupDraftTracker()
+
+    _ = draftTracker.startNewSession()
+    TestRunner.assertTrue(draftTracker.hasDraftSession, "Have draft")
+
+    draftTracker.clearCurrentSession()
+
+    TestRunner.assertFalse(draftTracker.hasDraftSession, "No draft after clear")
+    TestRunner.assertNil(draftTracker.currentSessionId, "No session ID after clear")
+
+    teardownDraftTracker()
+}
+
+func testDraftSession_SetCurrentSessionWithMessages() {
+    TestRunner.setGroup("Draft Session - Set Current Session With Messages")
+    setupDraftTracker()
+
+    let sessionId = UUID()
+    draftTracker.setCurrentSession(id: sessionId, messageCount: 10)
+
+    TestRunner.assertFalse(draftTracker.hasDraftSession, "Not draft when has messages")
+    TestRunner.assertEqual(draftTracker.currentSessionId, sessionId, "Correct session ID")
+
+    teardownDraftTracker()
+}
+
+func testDraftSession_SetCurrentSessionEmpty() {
+    TestRunner.setGroup("Draft Session - Set Current Session Empty")
+    setupDraftTracker()
+
+    let sessionId = UUID()
+    draftTracker.setCurrentSession(id: sessionId, messageCount: 0)
+
+    TestRunner.assertTrue(draftTracker.hasDraftSession, "Draft when no messages")
+    TestRunner.assertEqual(draftTracker.currentSessionId, sessionId, "Correct session ID")
+
+    teardownDraftTracker()
+}
+
+func testDraftSession_LoadSessionDiscardsDraft() {
+    TestRunner.setGroup("Draft Session - Load Session Discards Draft")
+    setupDraftTracker()
+
+    // Create draft
+    let draftId = draftTracker.startNewSession()
+    TestRunner.assertTrue(draftTracker.hasDraftSession, "Have draft")
+
+    // Load different session
+    let existingId = UUID()
+    draftTracker.loadSession(id: existingId, messageCount: 3)
+
+    TestRunner.assertFalse(draftTracker.hasDraftSession, "Draft discarded")
+    TestRunner.assertEqual(draftTracker.currentSessionId, existingId, "Loaded session is current")
+    TestRunner.assertFalse(draftTracker.currentSessionId == draftId, "Not the draft anymore")
+
+    teardownDraftTracker()
+}
+
+func testDraftSession_MultipleNewSessions() {
+    TestRunner.setGroup("Draft Session - Multiple New Sessions")
+    setupDraftTracker()
+
+    // Start first draft
+    let first = draftTracker.startNewSession()
+    TestRunner.assertTrue(draftTracker.hasDraftSession, "First draft")
+
+    // Start second draft (replaces first)
+    let second = draftTracker.startNewSession()
+    TestRunner.assertTrue(draftTracker.hasDraftSession, "Still have draft")
+    TestRunner.assertEqual(draftTracker.currentSessionId, second, "Second session is current")
+    TestRunner.assertFalse(draftTracker.currentSessionId == first, "First session replaced")
+
+    teardownDraftTracker()
+}
+
 // MARK: - Main Entry Point
 
 @main
@@ -671,6 +874,17 @@ struct SessionManagerTestRunner {
         testWorkflow_QuickModeGeneration()
         testWorkflow_ChatModeGenerationWithCancel()
         testWorkflow_MultipleSessionsOneGenerating()
+
+        // Draft Session Tests
+        testDraftSession_InitialState()
+        testDraftSession_AfterStartNewSession()
+        testDraftSession_AfterFirstMessage()
+        testDraftSession_AfterLoadSession()
+        testDraftSession_AfterClearSession()
+        testDraftSession_SetCurrentSessionWithMessages()
+        testDraftSession_SetCurrentSessionEmpty()
+        testDraftSession_LoadSessionDiscardsDraft()
+        testDraftSession_MultipleNewSessions()
 
         TestRunner.printSummary()
 

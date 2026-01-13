@@ -22,6 +22,10 @@ final class SessionManager: ObservableObject {
     /// The ID of the session currently generating (if any)
     @Published private(set) var generatingSessionId: UUID? = nil
 
+    /// Whether the current session is a draft (not yet persisted)
+    /// True when session exists but has no messages (not saved to disk)
+    @Published private(set) var hasDraftSession: Bool = false
+
     // MARK: - Private State
     private var isDirty = false
     private var currentContext: Context?  // Track current context for saving with messages
@@ -66,11 +70,12 @@ final class SessionManager: ObservableObject {
         // Don't set isDirty = true here - empty sessions shouldn't be saved
         // isDirty will be set when messages are added (via observeSession)
         isDirty = false
+        hasDraftSession = true  // Mark as draft until first message is sent
 
         // Observe changes to the session
         observeSession(session)
 
-        print("[SessionManager] Prepared new session \(sessionId) (not saved until first message)")
+        print("[SessionManager] Prepared new session \(sessionId) (draft - not saved until first message)")
     }
 
     /// Restore the last active session on app launch
@@ -96,6 +101,7 @@ final class SessionManager: ObservableObject {
             currentSession = session
             currentSessionId = activeId
             isDirty = false
+            hasDraftSession = false  // Restored sessions are not drafts
 
             // Observe changes
             observeSession(session)
@@ -111,6 +117,7 @@ final class SessionManager: ObservableObject {
         currentSession = session
         currentSessionId = id ?? UUID()
         isDirty = true
+        hasDraftSession = session.messages.isEmpty  // Draft if no messages yet
         observeSession(session)
         scheduleDebouncedSave()  // Schedule save for the new session
     }
@@ -152,8 +159,22 @@ final class SessionManager: ObservableObject {
 
     /// Mark the session as modified
     func markDirty() {
-        guard currentSession != nil else { return }
+        guard let session = currentSession else { return }
         isDirty = true
+
+        // Draft becomes real session once it has content
+        if hasDraftSession && !session.messages.isEmpty {
+            hasDraftSession = false
+            print("[SessionManager] Session transitioned from draft to saved")
+
+            // Save immediately when draft becomes real session
+            // This ensures the sidebar updates with the proper title right away
+            Task {
+                await saveIfDirty()
+            }
+            return  // Don't schedule another debounced save
+        }
+
         scheduleDebouncedSave()
     }
 
@@ -297,6 +318,7 @@ final class SessionManager: ObservableObject {
         currentSession = nil
         currentSessionId = nil
         isDirty = false
+        hasDraftSession = false
         cancellables.removeAll()
 
         // Clear active session in index
@@ -321,7 +343,10 @@ final class SessionManager: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
-        // Save current first
+        // Discard any existing draft (empty sessions are not saved)
+        hasDraftSession = false
+
+        // Save current first (if it has content)
         await saveIfDirty()
 
         guard let persisted = try await storage.loadSession(id: id) else {
@@ -348,6 +373,7 @@ final class SessionManager: ObservableObject {
             currentSession = nil
             currentSessionId = nil
             isDirty = false
+            hasDraftSession = false
             cancellables.removeAll()
         }
 

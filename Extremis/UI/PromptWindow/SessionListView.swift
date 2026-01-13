@@ -36,7 +36,8 @@ struct SessionListView: View {
                 ProgressView()
                     .scaleEffect(0.8)
                 Spacer()
-            } else if sessions.isEmpty {
+            } else if sessions.isEmpty && !sessionManager.hasDraftSession {
+                // Show empty state only if no draft AND no saved sessions
                 Spacer()
                 VStack(spacing: 8) {
                     Image(systemName: "bubble.left.and.bubble.right")
@@ -50,10 +51,25 @@ struct SessionListView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 2) {
+                        // Draft session row (if exists)
+                        if sessionManager.hasDraftSession {
+                            DraftSessionRow(
+                                isActive: true,  // Draft is always the current session
+                                isDisabled: sessionManager.isAnySessionGenerating,
+                                onSelect: { /* Already active, no-op */ }
+                            )
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .top).combined(with: .opacity),
+                                removal: .opacity
+                            ))
+                        }
+
+                        // Persisted sessions
                         ForEach(sessions) { entry in
                             SessionRowView(
                                 entry: entry,
-                                isActive: entry.id == sessionManager.currentSessionId,
+                                // Not active if we have a draft (draft takes precedence)
+                                isActive: !sessionManager.hasDraftSession && entry.id == sessionManager.currentSessionId,
                                 isDisabled: sessionManager.isAnySessionGenerating && entry.id != sessionManager.generatingSessionId,
                                 onSelect: { onSelectSession(entry.id) },
                                 onDelete: { onDeleteSession(entry.id) }
@@ -61,6 +77,7 @@ struct SessionListView: View {
                         }
                     }
                     .padding(.vertical, 4)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.8), value: sessionManager.hasDraftSession)
                 }
             }
 
@@ -83,6 +100,9 @@ struct SessionListView: View {
         .onChange(of: sessionManager.currentSessionId) { _ in
             // Force re-render when active session changes
             // The ForEach already checks isActive, but this ensures update propagates
+        }
+        .onChange(of: sessionManager.hasDraftSession) { _ in
+            // Force re-render when draft state changes
         }
     }
 

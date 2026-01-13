@@ -189,6 +189,15 @@ final class PromptWindowController: NSWindowController {
         if !hasSelectedText {
             viewModel.isChatMode = true
             viewModel.showResponse = true  // Show ResponseView which contains chat UI
+
+            // Sync session from SessionManager if viewModel doesn't have one
+            // This ensures we don't create a duplicate session when the user sends a message
+            if viewModel.session == nil,
+               let existingSession = SessionManager.shared.currentSession {
+                viewModel.setRestoredSession(existingSession, id: SessionManager.shared.currentSessionId)
+                print("📋 PromptWindow: Synced existing session from SessionManager")
+            }
+
             print("📋 PromptWindow: No selection → Chat Mode enabled")
         }
 
@@ -241,9 +250,8 @@ final class PromptWindowController: NSWindowController {
         // Keep controller's currentContext as is (don't set to nil)
 
         await SessionManager.shared.startNewSession()
-
-        // Show indicator for the new session
-        viewModel.showNewSessionBadge()
+        // Badge visibility is now tied to SessionManager.hasDraftSession
+        // which is automatically set to true when startNewSession() creates an empty session
     }
 
     /// Select and load a specific session
@@ -319,14 +327,6 @@ final class PromptViewModel: ObservableObject {
     // Persistence properties
     private(set) var sessionId: UUID?
 
-    // MARK: - New Session Indicator State
-
-    /// Controls visibility of the "New Session" badge in the header
-    @Published var showNewSessionIndicator: Bool = false
-
-    /// Timer for auto-dismissing the indicator
-    private var indicatorDismissTimer: Timer?
-
     private var generationTask: Task<Void, Never>?
     var currentContext: Context?  // Made internal so PromptWindowController can set it
 
@@ -353,11 +353,6 @@ final class PromptViewModel: ObservableObject {
         // Cancel any in-progress generation to prevent stale updates
         generationTask?.cancel()
         generationTask = nil
-
-        // Cancel indicator timer
-        indicatorDismissTimer?.invalidate()
-        indicatorDismissTimer = nil
-        showNewSessionIndicator = false
 
         instructionText = ""
         response = ""
@@ -419,6 +414,8 @@ final class PromptViewModel: ObservableObject {
     }
 
     /// Ensure a session exists, creating one if needed
+    /// Note: Does NOT show the new session badge - this is implicit session creation
+    /// Badge is shown only for explicit user actions (New Session button, Chat Mode start)
     private func ensureSession(context: Context?, instruction: String?) {
         if session == nil {
             // Create a new session
@@ -429,17 +426,11 @@ final class PromptViewModel: ObservableObject {
             // Register with SessionManager immediately
             SessionManager.shared.setCurrentSession(sess, id: sessionId)
             print("📋 PromptViewModel: Created new session \(sessionId!)")
-
-            // Show new session indicator
-            showNewSessionBadge()
         }
     }
 
     /// Set a restored session from persistence
     func setRestoredSession(_ sess: ChatSession, id: UUID?) {
-        // Hide any visible indicator (this is an existing session, not new)
-        hideNewSessionBadge()
-
         session = sess
         sessionId = id
 
@@ -469,7 +460,6 @@ final class PromptViewModel: ObservableObject {
     deinit {
         generationTask?.cancel()
         providerCancellable?.cancel()
-        indicatorDismissTimer?.invalidate()
     }
 
     func updateProviderStatus() {
@@ -482,39 +472,7 @@ final class PromptViewModel: ObservableObject {
         }
     }
 
-    // MARK: - New Session Indicator
-
-    /// Show the new session badge with auto-dismiss
-    func showNewSessionBadge() {
-        // Cancel any existing timer
-        indicatorDismissTimer?.invalidate()
-
-        // Show badge with animation
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-            showNewSessionIndicator = true
-        }
-
-        // Schedule auto-dismiss after 2.5 seconds
-        indicatorDismissTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: false) { [weak self] _ in
-            DispatchQueue.main.async {
-                self?.hideNewSessionBadge()
-            }
-        }
-    }
-
-    /// Hide the new session badge
-    func hideNewSessionBadge() {
-        indicatorDismissTimer?.invalidate()
-        indicatorDismissTimer = nil
-
-        withAnimation(.easeOut(duration: 0.2)) {
-            showNewSessionIndicator = false
-        }
-    }
-
     func generate(with context: Context) {
-        // Hide new session indicator on user interaction
-        hideNewSessionBadge()
 
         // Determine the user message content and intent
         let trimmedInstruction = instructionText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -548,6 +506,10 @@ final class PromptViewModel: ObservableObject {
         if let sess = session {
             let message = ChatMessage.user(userMessageContent, context: context, intent: intent)
             sess.addMessage(message)
+
+            // Explicitly mark dirty to ensure hasDraftSession clears immediately
+            // This is a safety net in case the Combine observation has timing issues
+            SessionManager.shared.markDirty()
         }
 
         // Consume the spawn flag - this message has context attached
@@ -647,6 +609,10 @@ final class PromptViewModel: ObservableObject {
         if let sess = session {
             let message = ChatMessage.user("Summarize this text", context: surroundingContext, intent: .summarize)
             sess.addMessage(message)
+
+            // Explicitly mark dirty to ensure hasDraftSession clears immediately
+            // This is a safety net in case the Combine observation has timing issues
+            SessionManager.shared.markDirty()
         }
 
         // Consume the spawn flag - this message has context attached
@@ -804,16 +770,19 @@ final class PromptViewModel: ObservableObject {
 
     /// Send a chat message and get a response
     func sendChatMessage() {
-        // Hide new session indicator on user interaction
-        hideNewSessionBadge()
-
         let messageText = chatInputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !messageText.isEmpty else { return }
-        guard let sess = session else {
-            // If no session exists, create one first
-            enableChatMode()
-            return
+
+        // If no session exists, create one for the chat
+        if session == nil {
+            let sess = ChatSession(originalContext: currentContext, initialRequest: messageText)
+            session = sess
+            sessionId = UUID()
+            SessionManager.shared.setCurrentSession(sess, id: sessionId)
+            print("💬 Created new session for chat: \(sessionId!)")
         }
+
+        guard let sess = session else { return }
 
         // First message since spawning Extremis gets context attached
         // Follow-up messages within the same spawn don't need context
@@ -1154,8 +1123,9 @@ struct PromptContainerView: View {
                     .buttonStyle(.plain)
                     .help(sessionManager.isAnySessionGenerating ? "Generation in progress - wait or cancel to start new session" : "New session")
 
-                    // New session indicator badge
-                    NewSessionBadge(isVisible: $viewModel.showNewSessionIndicator)
+                    // New session indicator badge - tied to draft session state
+                    // Shows when session exists but has no messages yet
+                    NewSessionBadge(isVisible: .constant(sessionManager.hasDraftSession))
 
                     Spacer()
 
