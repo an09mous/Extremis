@@ -638,7 +638,7 @@ final class PromptViewModel: ObservableObject {
                             self.response = partialContent
                             print("🔧 Generation stopped - saved partial response")
                         }
-                        sess.clearStreamingContent()
+                        // Note: streamingContent already cleared by cancelGeneration()
                         return
                     }
                     chunks.append(chunk)
@@ -658,9 +658,8 @@ final class PromptViewModel: ObservableObject {
 
                 print("🔧 Generation complete - session has \(sess.messages.count) messages")
             } catch is CancellationError {
-                // User cancelled, don't show error
+                // User cancelled - streamingContent already cleared by cancelGeneration()
                 print("🔧 Generation cancelled")
-                sess.clearStreamingContent()
             } catch {
                 print("🔧 Generation error: \(error)")
                 generationError = error.localizedDescription
@@ -752,7 +751,7 @@ final class PromptViewModel: ObservableObject {
                             self.response = partialContent
                             print("📝 Summarization stopped - saved partial response")
                         }
-                        sess.clearStreamingContent()
+                        // Note: streamingContent already cleared by cancelGeneration()
                         return
                     }
                     chunks.append(chunk)
@@ -772,9 +771,8 @@ final class PromptViewModel: ObservableObject {
 
                 print("📝 PromptViewModel: Summarization complete - session has \(sess.messages.count) messages")
             } catch is CancellationError {
-                // User cancelled, don't show error
+                // User cancelled - streamingContent already cleared by cancelGeneration()
                 print("📝 PromptViewModel: Summarization cancelled")
-                sess.clearStreamingContent()
             } catch {
                 print("📝 PromptViewModel: Summarization error: \(error)")
                 generationError = error.localizedDescription
@@ -940,7 +938,7 @@ final class PromptViewModel: ObservableObject {
                             self.response = partialContent
                             print("💬 Generation stopped - saved partial response")
                         }
-                        sess.clearStreamingContent()
+                        // Note: streamingContent already cleared by cancelGeneration()
                         return
                     }
                     chunks.append(chunk)
@@ -957,8 +955,8 @@ final class PromptViewModel: ObservableObject {
 
                 print("💬 Chat response complete")
             } catch is CancellationError {
+                // User cancelled - streamingContent already cleared by cancelGeneration()
                 print("💬 Chat generation cancelled")
-                sess.clearStreamingContent()
             } catch {
                 print("💬 Chat error: \(error)")
                 generationError = error.localizedDescription
@@ -1035,7 +1033,7 @@ final class PromptViewModel: ObservableObject {
                             response = partialContent
                             print("🔄 Retry stopped - saved partial response")
                         }
-                        sess.clearStreamingContent()
+                        // Note: streamingContent already cleared by cancelGeneration()
                         return
                     }
                     chunks.append(chunk)
@@ -1052,6 +1050,7 @@ final class PromptViewModel: ObservableObject {
 
                 print("🔄 Retry complete")
             } catch is CancellationError {
+                // User cancelled - streamingContent already cleared by cancelGeneration()
                 print("🔄 Retry cancelled")
             } catch {
                 print("🔄 Retry error: \(error)")
@@ -1128,7 +1127,7 @@ final class PromptViewModel: ObservableObject {
                             response = partialContent
                             print("🔄 Retry stopped - saved partial response")
                         }
-                        sess.clearStreamingContent()
+                        // Note: streamingContent already cleared by cancelGeneration()
                         return
                     }
                     chunks.append(chunk)
@@ -1145,6 +1144,7 @@ final class PromptViewModel: ObservableObject {
 
                 print("🔄 Retry after error complete")
             } catch is CancellationError {
+                // User cancelled - streamingContent already cleared by cancelGeneration()
                 print("🔄 Retry cancelled")
             } catch {
                 print("🔄 Retry error: \(error)")
