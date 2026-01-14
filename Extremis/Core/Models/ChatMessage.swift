@@ -84,11 +84,49 @@ struct ChatMessage: Identifiable, Codable, Equatable {
 
 // MARK: - Chat Session
 
-/// Manages a multi-turn chat session
+/// Manages a multi-turn chat session with isolated generation state
+///
+/// ## Design Principles
+/// - **Isolation**: Each session owns its generation state (streaming content, task, flags)
+/// - **Extensibility**: Prepared for future concurrent execution across sessions
+/// - **Observability**: All state changes are published for SwiftUI reactivity
+///
+/// ## Generation State Ownership
+/// The session owns:
+/// - `streamingContent`: Current streaming response text
+/// - `isGenerating`: Whether generation is in progress
+/// - `generationTask`: The async task handling generation (for cancellation)
+/// - `error`: Any error from the last generation attempt
+///
+/// This isolation allows:
+/// 1. Clean session switching without state leakage
+/// 2. Future concurrent generation across multiple sessions
+/// 3. Per-session cancellation without affecting others
 @MainActor
 final class ChatSession: ObservableObject {
+
+    // MARK: - Message State
+
     /// All messages in the session
     @Published var messages: [ChatMessage] = []
+
+    // MARK: - Generation State (Per-Session Isolation)
+
+    /// Content currently being streamed from LLM
+    /// This is per-session to enable future concurrent generation
+    @Published var streamingContent: String = ""
+
+    /// Whether this session is currently generating a response
+    @Published var isGenerating: Bool = false
+
+    /// Error from the last generation attempt (if any)
+    @Published var generationError: String?
+
+    /// The async task handling generation - owned by session for clean cancellation
+    /// Not published as it's not needed for UI reactivity
+    var generationTask: Task<Void, Never>?
+
+    // MARK: - Session Metadata
 
     /// Original context when session started (for system prompt)
     let originalContext: Context?
@@ -107,6 +145,8 @@ final class ChatSession: ObservableObject {
     /// Used to calculate which messages are "recent" (not covered by summary)
     var summaryCoversCount: Int = 0
 
+    // MARK: - Initialization
+
     init(
         originalContext: Context? = nil,
         initialRequest: String? = nil,
@@ -119,6 +159,54 @@ final class ChatSession: ObservableObject {
         self.maxMessages = maxMessages
         self.summary = summary
         self.summaryCoversCount = summaryCoversCount
+    }
+
+    deinit {
+        // Cancel any in-flight generation when session is deallocated
+        generationTask?.cancel()
+    }
+
+    // MARK: - Generation Control
+
+    /// Cancel any in-progress generation for this session
+    func cancelGeneration() {
+        generationTask?.cancel()
+        generationTask = nil
+        isGenerating = false
+        streamingContent = ""
+    }
+
+    /// Start a new generation, canceling any existing one
+    /// - Parameter task: The new generation task
+    func startGeneration(task: Task<Void, Never>) {
+        // Cancel any existing generation first
+        generationTask?.cancel()
+
+        // Set new state
+        generationTask = task
+        isGenerating = true
+        generationError = nil
+        streamingContent = ""
+    }
+
+    /// Mark generation as complete
+    /// - Parameter error: Optional error message if generation failed
+    func completeGeneration(error: String? = nil) {
+        generationTask = nil
+        isGenerating = false
+        generationError = error
+        // Note: streamingContent is cleared by the caller after saving to messages
+    }
+
+    /// Update streaming content during generation
+    /// - Parameter content: The accumulated streamed content
+    func updateStreamingContent(_ content: String) {
+        streamingContent = content
+    }
+
+    /// Clear streaming content (called after content is saved to messages)
+    func clearStreamingContent() {
+        streamingContent = ""
     }
     
     /// Initialize with an existing assistant response
