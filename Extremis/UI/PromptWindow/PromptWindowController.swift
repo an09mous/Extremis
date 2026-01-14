@@ -301,11 +301,24 @@ final class PromptWindowController: NSWindowController {
 
 // MARK: - Prompt View Model
 
+/// View model for the prompt window that delegates generation state to the active session
+///
+/// ## Architecture
+/// Generation state (isGenerating, streamingContent, generationTask) is owned by `ChatSession`
+/// to enable per-session isolation. This ViewModel acts as a facade, providing:
+/// - Computed properties that delegate to the current session
+/// - Backward compatibility for pre-session states (initial prompt entry)
+/// - Coordination between UI events and session state
+///
+/// ## Design Rationale
+/// By delegating to session:
+/// - Each session owns its generation lifecycle
+/// - Session switching doesn't leak state
+/// - Future concurrent generation is architecturally possible
 @MainActor
 final class PromptViewModel: ObservableObject {
     @Published var instructionText: String = ""
     @Published var response: String = ""
-    @Published var isGenerating: Bool = false
     @Published var error: String?
     @Published var contextInfo: String?
     @Published var showResponse: Bool = false
@@ -321,13 +334,11 @@ final class PromptViewModel: ObservableObject {
     // Chat mode properties
     @Published var session: ChatSession?
     @Published var chatInputText: String = ""
-    @Published var streamingContent: String = ""
     @Published var isChatMode: Bool = false
 
     // Persistence properties
     private(set) var sessionId: UUID?
 
-    private var generationTask: Task<Void, Never>?
     var currentContext: Context?  // Made internal so PromptWindowController can set it
 
     /// Tracks whether the next message is the first since Extremis was spawned
@@ -337,6 +348,33 @@ final class PromptViewModel: ObservableObject {
 
     /// Cancellable for provider change subscription
     private var providerCancellable: AnyCancellable?
+
+    /// Cancellable for session state observation
+    private var sessionCancellables = Set<AnyCancellable>()
+
+    // MARK: - Delegated Properties (Per-Session Isolation)
+
+    /// Whether the current session is generating - delegates to session
+    /// Returns false if no session exists (safe default for UI)
+    var isGenerating: Bool {
+        get { session?.isGenerating ?? false }
+        set {
+            session?.isGenerating = newValue
+            // Trigger objectWillChange to update UI
+            objectWillChange.send()
+        }
+    }
+
+    /// Streaming content from the current session - delegates to session
+    /// Returns empty string if no session exists (safe default for UI)
+    var streamingContent: String {
+        get { session?.streamingContent ?? "" }
+        set {
+            session?.streamingContent = newValue
+            // Trigger objectWillChange to update UI
+            objectWillChange.send()
+        }
+    }
 
     init() {
         // Subscribe to provider changes
@@ -350,13 +388,11 @@ final class PromptViewModel: ObservableObject {
     }
 
     func reset() {
-        // Cancel any in-progress generation to prevent stale updates
-        generationTask?.cancel()
-        generationTask = nil
+        // Cancel any in-progress generation via session
+        session?.cancelGeneration()
 
         instructionText = ""
         response = ""
-        isGenerating = false
         error = nil
         showResponse = false
         currentContext = nil
@@ -368,21 +404,19 @@ final class PromptViewModel: ObservableObject {
         session = nil
         sessionId = nil
         chatInputText = ""
-        streamingContent = ""
         isChatMode = false
         isFirstMessageSinceSpawn = true
+        sessionCancellables.removeAll()
     }
 
     /// Prepare for new input without losing session state
     /// Called when hotkey is triggered to show prompt
     func prepareForNewInput() {
-        // Cancel any in-progress generation
-        generationTask?.cancel()
-        generationTask = nil
+        // Cancel any in-progress generation via session
+        session?.cancelGeneration()
 
         // Clear input-related state but preserve session
         instructionText = ""
-        isGenerating = false
         error = nil
         showResponse = false  // Show input view, not response
         hasContext = false
@@ -390,7 +424,6 @@ final class PromptViewModel: ObservableObject {
         selectedText = nil
         isSummarizing = false
         chatInputText = ""
-        streamingContent = ""
         isChatMode = false  // Reset to simple mode - chat mode enables on follow-up
 
         // Mark that the next message should have context attached
@@ -409,8 +442,39 @@ final class PromptViewModel: ObservableObject {
         hasSelection = false
         selectedText = nil
         chatInputText = ""
-        streamingContent = ""
         // Keep: session, sessionId, response, isChatMode, showResponse
+    }
+
+    /// Observe session state changes to trigger UI updates
+    private func observeSessionState(_ session: ChatSession) {
+        sessionCancellables.removeAll()
+
+        // Forward session's isGenerating changes to trigger UI updates
+        session.$isGenerating
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &sessionCancellables)
+
+        // Forward session's streamingContent changes to trigger UI updates
+        session.$streamingContent
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &sessionCancellables)
+
+        // Forward session's generationError changes
+        session.$generationError
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] errorMsg in
+                if let error = errorMsg {
+                    self?.error = error
+                }
+                self?.objectWillChange.send()
+            }
+            .store(in: &sessionCancellables)
     }
 
     /// Ensure a session exists, creating one if needed
@@ -423,6 +487,9 @@ final class PromptViewModel: ObservableObject {
             session = sess
             sessionId = UUID()
 
+            // Observe session state changes for UI reactivity
+            observeSessionState(sess)
+
             // Register with SessionManager immediately
             SessionManager.shared.setCurrentSession(sess, id: sessionId)
             print("📋 PromptViewModel: Created new session \(sessionId!)")
@@ -433,6 +500,9 @@ final class PromptViewModel: ObservableObject {
     func setRestoredSession(_ sess: ChatSession, id: UUID?) {
         session = sess
         sessionId = id
+
+        // Observe session state changes for UI reactivity
+        observeSessionState(sess)
 
         // If there are messages, enable chat mode
         if !sess.messages.isEmpty {
@@ -458,7 +528,8 @@ final class PromptViewModel: ObservableObject {
     }
 
     deinit {
-        generationTask?.cancel()
+        // Note: Session cleanup happens automatically via ChatSession's deinit
+        // which cancels any in-flight generation task
         providerCancellable?.cancel()
     }
 
@@ -516,15 +587,19 @@ final class PromptViewModel: ObservableObject {
         isFirstMessageSinceSpawn = false
 
         currentContext = context
-        isGenerating = true
         error = nil
         showResponse = true
         response = ""
 
-        // Capture session ID for generation tracking
+        // Capture session and session ID for generation tracking
+        guard let sess = session else {
+            error = "No session available"
+            return
+        }
         let capturedSessionId = sessionId
 
-        generationTask = Task {
+        // Create and start the generation task via session
+        let task = Task {
             // Register active generation to block session switching
             if let sid = capturedSessionId {
                 SessionManager.shared.registerActiveGeneration(sessionId: sid)
@@ -535,16 +610,12 @@ final class PromptViewModel: ObservableObject {
                 if let sid = capturedSessionId {
                     SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
                 }
-                isGenerating = false
+                sess.completeGeneration()
             }
 
             do {
                 guard let provider = LLMProviderRegistry.shared.activeProvider else {
                     throw LLMProviderError.notConfigured(provider: .openai)
-                }
-
-                guard let sess = self.session else {
-                    throw LLMProviderError.unknown("No session available")
                 }
 
                 // Use chat streaming with session messages (context is embedded in user message)
@@ -561,37 +632,44 @@ final class PromptViewModel: ObservableObject {
                         let partialContent = chunks.joined()
                         if !partialContent.isEmpty {
                             sess.addAssistantMessage(partialContent)
-                            response = partialContent
+                            self.response = partialContent
                             print("🔧 Generation stopped - saved partial response")
                         }
+                        sess.clearStreamingContent()
                         return
                     }
                     chunks.append(chunk)
-                    response = chunks.joined()  // Update UI incrementally
+                    sess.updateStreamingContent(chunks.joined())
+                    self.response = chunks.joined()  // Update UI incrementally
                 }
 
                 // Add assistant response to session
-                if !response.isEmpty {
-                    sess.addAssistantMessage(response)
+                let finalContent = chunks.joined()
+                if !finalContent.isEmpty {
+                    sess.addAssistantMessage(finalContent)
+                    self.response = finalContent
                     // Note: Don't auto-enable chat mode here
                     // User will transition to chat mode when they submit a follow-up
                 }
+                sess.clearStreamingContent()
 
                 print("🔧 Generation complete - session has \(sess.messages.count) messages")
             } catch is CancellationError {
                 // User cancelled, don't show error
                 print("🔧 Generation cancelled")
+                sess.clearStreamingContent()
             } catch {
                 print("🔧 Generation error: \(error)")
-                self.error = error.localizedDescription
+                sess.completeGeneration(error: error.localizedDescription)
             }
         }
+
+        // Start generation via session (handles cancellation of any previous task)
+        sess.startGeneration(task: task)
     }
 
     func cancelGeneration() {
-        generationTask?.cancel()
-        generationTask = nil
-        isGenerating = false
+        session?.cancelGeneration()
     }
 
     // MARK: - Summarization
@@ -619,15 +697,20 @@ final class PromptViewModel: ObservableObject {
         isFirstMessageSinceSpawn = false
 
         isSummarizing = true
-        isGenerating = true
         error = nil
         showResponse = true
         response = ""
 
-        // Capture session ID for generation tracking
+        // Capture session and session ID for generation tracking
+        guard let sess = session else {
+            error = "No session available"
+            isSummarizing = false
+            return
+        }
         let capturedSessionId = sessionId
 
-        generationTask = Task {
+        // Create and start the generation task via session
+        let task = Task {
             // Register active generation to block session switching
             if let sid = capturedSessionId {
                 SessionManager.shared.registerActiveGeneration(sessionId: sid)
@@ -638,17 +721,13 @@ final class PromptViewModel: ObservableObject {
                 if let sid = capturedSessionId {
                     SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
                 }
-                isGenerating = false
-                isSummarizing = false
+                sess.completeGeneration()
+                self.isSummarizing = false
             }
 
             do {
                 guard let provider = LLMProviderRegistry.shared.activeProvider else {
                     throw LLMProviderError.notConfigured(provider: .openai)
-                }
-
-                guard let sess = self.session else {
-                    throw LLMProviderError.unknown("No session available")
                 }
 
                 // Use chat streaming with session messages (intent injection handles summarization rules)
@@ -664,31 +743,40 @@ final class PromptViewModel: ObservableObject {
                         let partialContent = chunks.joined()
                         if !partialContent.isEmpty {
                             sess.addAssistantMessage(partialContent)
-                            response = partialContent
+                            self.response = partialContent
                             print("📝 Summarization stopped - saved partial response")
                         }
+                        sess.clearStreamingContent()
                         return
                     }
                     chunks.append(chunk)
-                    response = chunks.joined()  // Update UI incrementally
+                    sess.updateStreamingContent(chunks.joined())
+                    self.response = chunks.joined()  // Update UI incrementally
                 }
 
                 // Add assistant response to session
-                if !response.isEmpty {
-                    sess.addAssistantMessage(response)
+                let finalContent = chunks.joined()
+                if !finalContent.isEmpty {
+                    sess.addAssistantMessage(finalContent)
+                    self.response = finalContent
                     // Note: Don't auto-enable chat mode here
                     // User will transition to chat mode when they submit a follow-up
                 }
+                sess.clearStreamingContent()
 
                 print("📝 PromptViewModel: Summarization complete - session has \(sess.messages.count) messages")
             } catch is CancellationError {
                 // User cancelled, don't show error
                 print("📝 PromptViewModel: Summarization cancelled")
+                sess.clearStreamingContent()
             } catch {
                 print("📝 PromptViewModel: Summarization error: \(error)")
-                self.error = error.localizedDescription
+                sess.completeGeneration(error: error.localizedDescription)
             }
         }
+
+        // Start generation via session (handles cancellation of any previous task)
+        sess.startGeneration(task: task)
     }
 
     /// Summarize using current context (selected text or combined preceding/succeeding)
@@ -737,10 +825,10 @@ final class PromptViewModel: ObservableObject {
         guard !response.isEmpty else { return }
 
         // If session already exists (from initial generation), just enable chat mode
-        if session != nil {
+        if let sess = session {
             isChatMode = true
-            streamingContent = ""
-            print("💬 Chat mode enabled (session already exists with \(session?.messages.count ?? 0) messages)")
+            sess.clearStreamingContent()
+            print("💬 Chat mode enabled (session already exists with \(sess.messages.count) messages)")
             return
         }
 
@@ -760,7 +848,9 @@ final class PromptViewModel: ObservableObject {
         sessionId = UUID()
         isChatMode = true
         // Note: Don't clear chatInputText here - it contains the follow-up message
-        streamingContent = ""
+
+        // Observe session state changes for UI reactivity
+        observeSessionState(sess)
 
         // Register with SessionManager for persistence
         SessionManager.shared.setCurrentSession(sess, id: sessionId)
@@ -778,6 +868,10 @@ final class PromptViewModel: ObservableObject {
             let sess = ChatSession(originalContext: currentContext, initialRequest: messageText)
             session = sess
             sessionId = UUID()
+
+            // Observe session state changes for UI reactivity
+            observeSessionState(sess)
+
             SessionManager.shared.setCurrentSession(sess, id: sessionId)
             print("💬 Created new session for chat: \(sessionId!)")
         }
@@ -796,14 +890,13 @@ final class PromptViewModel: ObservableObject {
         }
         sess.addMessage(message)
         chatInputText = ""
-        streamingContent = ""
-        isGenerating = true
         error = nil
 
         // Capture session ID for generation tracking
         let capturedSessionId = sessionId
 
-        generationTask = Task {
+        // Create and start the generation task via session
+        let task = Task {
             // Register active generation to block session switching
             if let sid = capturedSessionId {
                 SessionManager.shared.registerActiveGeneration(sessionId: sid)
@@ -814,7 +907,7 @@ final class PromptViewModel: ObservableObject {
                 if let sid = capturedSessionId {
                     SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
                 }
-                isGenerating = false
+                sess.completeGeneration()
             }
 
             do {
@@ -835,32 +928,36 @@ final class PromptViewModel: ObservableObject {
                         let partialContent = chunks.joined()
                         if !partialContent.isEmpty {
                             sess.addAssistantMessage(partialContent)
-                            response = partialContent
+                            self.response = partialContent
                             print("💬 Generation stopped - saved partial response")
                         }
-                        streamingContent = ""
+                        sess.clearStreamingContent()
                         return
                     }
                     chunks.append(chunk)
-                    streamingContent = chunks.joined()  // Update UI incrementally
+                    sess.updateStreamingContent(chunks.joined())
                 }
 
                 // Add completed response to session
                 let finalContent = chunks.joined()
                 if !finalContent.isEmpty {
                     sess.addAssistantMessage(finalContent)
-                    response = finalContent
+                    self.response = finalContent
                 }
-                streamingContent = ""
+                sess.clearStreamingContent()
 
                 print("💬 Chat response complete")
             } catch is CancellationError {
                 print("💬 Chat generation cancelled")
+                sess.clearStreamingContent()
             } catch {
                 print("💬 Chat error: \(error)")
-                self.error = error.localizedDescription
+                sess.completeGeneration(error: error.localizedDescription)
             }
         }
+
+        // Start generation via session (handles cancellation of any previous task)
+        sess.startGeneration(task: task)
     }
 
     /// Retry/regenerate a specific assistant message
@@ -871,7 +968,7 @@ final class PromptViewModel: ObservableObject {
             return
         }
 
-        guard !isGenerating else {
+        guard !sess.isGenerating else {
             print("🔄 Retry blocked: Already generating")
             return
         }
@@ -885,16 +982,13 @@ final class PromptViewModel: ObservableObject {
 
         print("🔄 Retrying with user message: \(precedingUserMessage.content.prefix(50))...")
 
-        // Clear streaming content and regenerate
-        // Note: We do NOT re-add the user message - it's still in sess.messages
-        streamingContent = ""
-        isGenerating = true
+        // Clear error state (session handles streaming content reset)
         error = nil
 
         // Capture session ID for generation tracking
         let capturedSessionId = sessionId
 
-        generationTask = Task {
+        let task = Task {
             // Register active generation to block session switching
             if let sid = capturedSessionId {
                 SessionManager.shared.registerActiveGeneration(sessionId: sid)
@@ -905,7 +999,7 @@ final class PromptViewModel: ObservableObject {
                 if let sid = capturedSessionId {
                     SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
                 }
-                isGenerating = false
+                sess.completeGeneration()
             }
 
             do {
@@ -929,11 +1023,11 @@ final class PromptViewModel: ObservableObject {
                             response = partialContent
                             print("🔄 Retry stopped - saved partial response")
                         }
-                        streamingContent = ""
+                        sess.clearStreamingContent()
                         return
                     }
                     chunks.append(chunk)
-                    streamingContent = chunks.joined()  // Update UI incrementally
+                    sess.updateStreamingContent(chunks.joined())  // Update UI incrementally
                 }
 
                 // Add completed response to session
@@ -942,16 +1036,20 @@ final class PromptViewModel: ObservableObject {
                     sess.addAssistantMessage(finalContent)
                     response = finalContent
                 }
-                streamingContent = ""
+                sess.clearStreamingContent()
 
                 print("🔄 Retry complete")
             } catch is CancellationError {
                 print("🔄 Retry cancelled")
             } catch {
                 print("🔄 Retry error: \(error)")
+                sess.completeGeneration(error: error.localizedDescription)
                 self.error = error.localizedDescription
             }
         }
+
+        // Start generation with the task (handles state setup)
+        sess.startGeneration(task: task)
     }
 
     /// Retry after an error - finds the last user message and regenerates
@@ -961,7 +1059,7 @@ final class PromptViewModel: ObservableObject {
             return
         }
 
-        guard !isGenerating else {
+        guard !sess.isGenerating else {
             print("🔄 Retry error blocked: Already generating")
             return
         }
@@ -974,15 +1072,13 @@ final class PromptViewModel: ObservableObject {
 
         print("🔄 Retrying after error with user message: \(lastUserMessage.content.prefix(50))...")
 
-        // Clear the error and regenerate
+        // Clear the error (session handles streaming content reset)
         error = nil
-        streamingContent = ""
-        isGenerating = true
 
         // Capture session ID for generation tracking
         let capturedSessionId = sessionId
 
-        generationTask = Task {
+        let task = Task {
             // Register active generation to block session switching
             if let sid = capturedSessionId {
                 SessionManager.shared.registerActiveGeneration(sessionId: sid)
@@ -993,7 +1089,7 @@ final class PromptViewModel: ObservableObject {
                 if let sid = capturedSessionId {
                     SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
                 }
-                isGenerating = false
+                sess.completeGeneration()
             }
 
             do {
@@ -1017,11 +1113,11 @@ final class PromptViewModel: ObservableObject {
                             response = partialContent
                             print("🔄 Retry stopped - saved partial response")
                         }
-                        streamingContent = ""
+                        sess.clearStreamingContent()
                         return
                     }
                     chunks.append(chunk)
-                    streamingContent = chunks.joined()  // Update UI incrementally
+                    sess.updateStreamingContent(chunks.joined())  // Update UI incrementally
                 }
 
                 // Add completed response to session
@@ -1030,16 +1126,20 @@ final class PromptViewModel: ObservableObject {
                     sess.addAssistantMessage(finalContent)
                     response = finalContent
                 }
-                streamingContent = ""
+                sess.clearStreamingContent()
 
                 print("🔄 Retry after error complete")
             } catch is CancellationError {
                 print("🔄 Retry cancelled")
             } catch {
                 print("🔄 Retry error: \(error)")
+                sess.completeGeneration(error: error.localizedDescription)
                 self.error = error.localizedDescription
             }
         }
+
+        // Start generation with the task (handles state setup)
+        sess.startGeneration(task: task)
     }
 
     /// Get the content to use for Insert/Copy (latest assistant message)
