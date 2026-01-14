@@ -605,12 +605,15 @@ final class PromptViewModel: ObservableObject {
                 SessionManager.shared.registerActiveGeneration(sessionId: sid)
             }
 
+            // Track error for deferred completion
+            var generationError: String?
+
             defer {
                 // Always unregister when generation ends (success, error, or cancellation)
                 if let sid = capturedSessionId {
                     SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
                 }
-                sess.completeGeneration()
+                sess.completeGeneration(error: generationError)
             }
 
             do {
@@ -660,7 +663,7 @@ final class PromptViewModel: ObservableObject {
                 sess.clearStreamingContent()
             } catch {
                 print("🔧 Generation error: \(error)")
-                sess.completeGeneration(error: error.localizedDescription)
+                generationError = error.localizedDescription
             }
         }
 
@@ -716,12 +719,15 @@ final class PromptViewModel: ObservableObject {
                 SessionManager.shared.registerActiveGeneration(sessionId: sid)
             }
 
+            // Track error for deferred completion
+            var generationError: String?
+
             defer {
                 // Always unregister when generation ends (success, error, or cancellation)
                 if let sid = capturedSessionId {
                     SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
                 }
-                sess.completeGeneration()
+                sess.completeGeneration(error: generationError)
                 self.isSummarizing = false
             }
 
@@ -771,7 +777,7 @@ final class PromptViewModel: ObservableObject {
                 sess.clearStreamingContent()
             } catch {
                 print("📝 PromptViewModel: Summarization error: \(error)")
-                sess.completeGeneration(error: error.localizedDescription)
+                generationError = error.localizedDescription
             }
         }
 
@@ -902,12 +908,15 @@ final class PromptViewModel: ObservableObject {
                 SessionManager.shared.registerActiveGeneration(sessionId: sid)
             }
 
+            // Track error for deferred completion
+            var generationError: String?
+
             defer {
                 // Always unregister when generation ends (success, error, or cancellation)
                 if let sid = capturedSessionId {
                     SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
                 }
-                sess.completeGeneration()
+                sess.completeGeneration(error: generationError)
             }
 
             do {
@@ -952,7 +961,7 @@ final class PromptViewModel: ObservableObject {
                 sess.clearStreamingContent()
             } catch {
                 print("💬 Chat error: \(error)")
-                sess.completeGeneration(error: error.localizedDescription)
+                generationError = error.localizedDescription
             }
         }
 
@@ -994,12 +1003,15 @@ final class PromptViewModel: ObservableObject {
                 SessionManager.shared.registerActiveGeneration(sessionId: sid)
             }
 
+            // Track error for deferred completion
+            var generationError: String?
+
             defer {
                 // Always unregister when generation ends (success, error, or cancellation)
                 if let sid = capturedSessionId {
                     SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
                 }
-                sess.completeGeneration()
+                sess.completeGeneration(error: generationError)
             }
 
             do {
@@ -1043,7 +1055,7 @@ final class PromptViewModel: ObservableObject {
                 print("🔄 Retry cancelled")
             } catch {
                 print("🔄 Retry error: \(error)")
-                sess.completeGeneration(error: error.localizedDescription)
+                generationError = error.localizedDescription
                 self.error = error.localizedDescription
             }
         }
@@ -1084,12 +1096,15 @@ final class PromptViewModel: ObservableObject {
                 SessionManager.shared.registerActiveGeneration(sessionId: sid)
             }
 
+            // Track error for deferred completion
+            var generationError: String?
+
             defer {
                 // Always unregister when generation ends (success, error, or cancellation)
                 if let sid = capturedSessionId {
                     SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
                 }
-                sess.completeGeneration()
+                sess.completeGeneration(error: generationError)
             }
 
             do {
@@ -1133,7 +1148,7 @@ final class PromptViewModel: ObservableObject {
                 print("🔄 Retry cancelled")
             } catch {
                 print("🔄 Retry error: \(error)")
-                sess.completeGeneration(error: error.localizedDescription)
+                generationError = error.localizedDescription
                 self.error = error.localizedDescription
             }
         }
