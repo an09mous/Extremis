@@ -3,7 +3,6 @@
 
 import Foundation
 import AppKit
-import ApplicationServices
 
 /// Selection detection utility for determining user intent
 /// Used to detect text selection for Quick Mode vs Chat Mode routing
@@ -19,21 +18,18 @@ enum SelectionDetector {
         let selectedText: String?
         /// Source application info
         let source: ContextSource?
-        /// The focused AXUIElement (for later operations)
-        let focusedElement: AXUIElement?
 
         static let empty = SelectionResult(
             hasSelection: false,
             selectedText: nil,
-            source: nil,
-            focusedElement: nil
+            source: nil
         )
     }
 
     // MARK: - Public API
 
-    /// Detect if user has text selected using clipboard-based approach
-    /// This is more reliable than AX API for Electron apps
+    /// Detect if user has text selected using clipboard-based approach (Cmd+C)
+    /// This is reliable across all apps including Electron apps (VS Code, Slack, etc.)
     /// - Parameter verbose: If false, suppresses all logging (for no-op scenarios like Magic Mode without selection)
     /// - Returns: SelectionResult containing selection state and text
     static func detectSelection(verbose: Bool = true) -> SelectionResult {
@@ -51,69 +47,8 @@ enum SelectionDetector {
             bundleIdentifier: app.bundleIdentifier ?? "unknown"
         )
 
-        // First try AX API (fast path)
-        if let axResult = tryAXSelection(app: app, source: source, verbose: verbose) {
-            return axResult
-        }
-
-        // Fallback to clipboard-based detection (reliable for all apps)
-        if verbose { print("[SelectionDetector] AX API failed, trying clipboard-based detection...") }
+        // Use clipboard-based detection (reliable for all apps)
         return detectSelectionViaClipboard(source: source, verbose: verbose)
-    }
-
-    /// Try to detect selection via Accessibility API (fast but unreliable for some apps)
-    private static func tryAXSelection(app: NSRunningApplication, source: ContextSource, verbose: Bool) -> SelectionResult? {
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
-
-        // Get focused element with retry logic
-        var focusedElementRef: CFTypeRef?
-        var focusResult: AXError = .failure
-
-        // Retry a few times if we get no value - can happen during hotkey transition
-        for attempt in 1...3 {
-            focusResult = AXUIElementCopyAttributeValue(
-                appElement,
-                kAXFocusedUIElementAttribute as CFString,
-                &focusedElementRef
-            )
-
-            if focusResult == .success {
-                break
-            }
-
-            if attempt < 3 {
-                Thread.sleep(forTimeInterval: 0.02) // 20ms retry delay
-            }
-        }
-
-        guard focusResult == .success, let focusedElement = focusedElementRef else {
-            if verbose { print("[SelectionDetector] AX: Could not get focused element: \(focusResult.rawValue)") }
-            return nil
-        }
-
-        // Get selected text
-        var selectedTextRef: CFTypeRef?
-        let textResult = AXUIElementCopyAttributeValue(
-            focusedElement as! AXUIElement,
-            kAXSelectedTextAttribute as CFString,
-            &selectedTextRef
-        )
-
-        // Check if we have non-empty selected text
-        if textResult == .success,
-           let text = selectedTextRef as? String,
-           !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            if verbose { print("[SelectionDetector] AX: ✅ Found selection: \(text.prefix(50))...") }
-            return SelectionResult(
-                hasSelection: true,
-                selectedText: text,
-                source: source,
-                focusedElement: (focusedElement as! AXUIElement)
-            )
-        }
-
-        if verbose { print("[SelectionDetector] AX: No selection via focused element") }
-        return nil
     }
 
     /// Detect selection by using clipboard (Cmd+C) - reliable for all apps
@@ -122,8 +57,6 @@ enum SelectionDetector {
     /// Note: This method includes heuristics to detect IDE "copy line" behavior where
     /// Cmd+C with no selection copies the entire current line (VS Code, JetBrains, etc.)
     private static func detectSelectionViaClipboard(source: ContextSource, verbose: Bool) -> SelectionResult {
-        if verbose { print("[SelectionDetector] Clipboard: Starting clipboard-based detection...") }
-
         let pasteboard = NSPasteboard.general
 
         // Save current clipboard state
@@ -134,7 +67,6 @@ enum SelectionDetector {
                 savedData.append((type, data))
             }
         }
-        if verbose { print("[SelectionDetector] Clipboard: Saved \(savedData.count) clipboard items") }
 
         // Clear clipboard
         pasteboard.clearContents()
@@ -142,8 +74,9 @@ enum SelectionDetector {
         // Send Cmd+C to copy selection
         sendCopy()
 
-        // Small delay for clipboard to update
-        Thread.sleep(forTimeInterval: 0.05) // 50ms
+        // Delay for clipboard to update
+        // Browsers (especially Chromium-based) need more time to process Cmd+C
+        Thread.sleep(forTimeInterval: 0.03) // 30ms
 
         // Check if clipboard now has text
         let copiedText = pasteboard.string(forType: .string)
@@ -154,17 +87,10 @@ enum SelectionDetector {
         if hasNonEmptyText, let text = copiedText {
             // Check for IDE "copy line" behavior using heuristics
             if isIDECopyLineBehavior(text) {
-                if verbose {
-                    print("[SelectionDetector] Clipboard: ⚠️ Detected IDE 'copy line' behavior (single line + trailing newline)")
-                    print("[SelectionDetector] Clipboard: ❌ Treating as no selection")
-                }
                 hasSelection = false
             } else {
-                if verbose { print("[SelectionDetector] Clipboard: ✅ Found selection: \(text.prefix(50))...") }
                 hasSelection = true
             }
-        } else {
-            if verbose { print("[SelectionDetector] Clipboard: ❌ No selection found") }
         }
 
         // Restore original clipboard
@@ -174,13 +100,11 @@ enum SelectionDetector {
                 pasteboard.setData(data, forType: type)
             }
         }
-        if verbose { print("[SelectionDetector] Clipboard: Restored original clipboard") }
 
         return SelectionResult(
             hasSelection: hasSelection,
             selectedText: hasSelection ? copiedText : nil,
-            source: source,
-            focusedElement: nil
+            source: source
         )
     }
 
@@ -237,7 +161,7 @@ enum SelectionDetector {
         return true
     }
 
-    /// Send Cmd+C keystroke
+    /// Send Cmd+C keystroke to frontmost application
     private static func sendCopy() {
         let src = CGEventSource(stateID: .combinedSessionState)
 
@@ -247,8 +171,8 @@ enum SelectionDetector {
             keyDown.post(tap: .cghidEventTap)
         }
 
-        // Small delay
-        Thread.sleep(forTimeInterval: 0.01)
+        // Delay between key down and key up
+        Thread.sleep(forTimeInterval: 0.005) // 5ms
 
         // Key up
         if let keyUp = CGEvent(keyboardEventSource: src, virtualKey: 0x08, keyDown: false) {

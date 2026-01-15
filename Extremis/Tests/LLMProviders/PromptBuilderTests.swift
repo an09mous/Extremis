@@ -191,16 +191,11 @@ enum ContextMetadata: Codable, Equatable {
 struct Context: Codable, Equatable {
     let source: ContextSource
     let selectedText: String?
-    let precedingText: String?
-    let succeedingText: String?
     var metadata: ContextMetadata
 
-    init(source: ContextSource, selectedText: String?, precedingText: String?,
-         succeedingText: String?, metadata: ContextMetadata = .generic(GenericMetadata())) {
+    init(source: ContextSource, selectedText: String?, metadata: ContextMetadata = .generic(GenericMetadata())) {
         self.source = source
         self.selectedText = selectedText
-        self.precedingText = precedingText
-        self.succeedingText = succeedingText
         self.metadata = metadata
     }
 }
@@ -564,9 +559,7 @@ struct ChatMessageIntentTests {
     static func testUserMessageWithContext() {
         let context = Context(
             source: ContextSource(applicationName: "Notes", bundleIdentifier: "com.apple.Notes"),
-            selectedText: "Selected text",
-            precedingText: nil,
-            succeedingText: nil
+            selectedText: "Selected text"
         )
         let message = ChatMessage.user("Transform this", context: context)
         TestRunner.assertEqual(message.role, .user, "ChatMessage.user with context: role")
@@ -577,9 +570,7 @@ struct ChatMessageIntentTests {
     static func testUserMessageWithContextAndIntent() {
         let context = Context(
             source: ContextSource(applicationName: "Safari", bundleIdentifier: "com.apple.Safari"),
-            selectedText: "Text to summarize",
-            precedingText: nil,
-            succeedingText: nil
+            selectedText: "Text to summarize"
         )
         let message = ChatMessage.user("Summarize", context: context, intent: .summarize)
         TestRunner.assertEqual(message.intent, .summarize, "ChatMessage.user with intent: intent correct")
@@ -630,9 +621,7 @@ struct PromptBuilderIntentTests {
     func testFormatUserMessageWithContext_WithContext() {
         let context = Context(
             source: ContextSource(applicationName: "Notes", bundleIdentifier: "com.apple.Notes"),
-            selectedText: nil,
-            precedingText: nil,
-            succeedingText: nil
+            selectedText: nil
         )
         let result = builder.formatUserMessageWithContext("Hello", context: context, intent: .chat)
         TestRunner.assertTrue(result.contains("[Context]"), "formatUserMessage: has context block")
@@ -644,9 +633,7 @@ struct PromptBuilderIntentTests {
     func testFormatUserMessageWithContext_ChatIntent() {
         let context = Context(
             source: ContextSource(applicationName: "Notes", bundleIdentifier: "com.apple.Notes"),
-            selectedText: nil,
-            precedingText: nil,
-            succeedingText: nil
+            selectedText: nil
         )
         let result = builder.formatUserMessageWithContext("What is this?", context: context, intent: .chat)
         TestRunner.assertTrue(result.contains("[User Message]"), "formatUserMessage chat: has [User Message]")
@@ -656,9 +643,7 @@ struct PromptBuilderIntentTests {
     func testFormatUserMessageWithContext_TransformIntent() {
         let context = Context(
             source: ContextSource(applicationName: "Notes", bundleIdentifier: "com.apple.Notes"),
-            selectedText: "Text to transform",
-            precedingText: nil,
-            succeedingText: nil
+            selectedText: "Text to transform"
         )
         let result = builder.formatUserMessageWithContext("Make formal", context: context, intent: .selectionTransform)
         TestRunner.assertTrue(result.contains("[Instruction]"), "formatUserMessage transform: has [Instruction]")
@@ -672,9 +657,7 @@ struct PromptBuilderIntentTests {
     func testFormatUserMessageWithContext_SummarizeIntent() {
         let context = Context(
             source: ContextSource(applicationName: "Safari", bundleIdentifier: "com.apple.Safari"),
-            selectedText: "Long article content here",
-            precedingText: nil,
-            succeedingText: nil
+            selectedText: "Long article content here"
         )
         let result = builder.formatUserMessageWithContext("Summarize", context: context, intent: .summarize)
         TestRunner.assertTrue(result.contains("[Request]"), "formatUserMessage summarize: has [Request]")
@@ -686,9 +669,7 @@ struct PromptBuilderIntentTests {
     func testFormatUserMessageWithContext_FollowUpIntent() {
         let context = Context(
             source: ContextSource(applicationName: "Notes", bundleIdentifier: "com.apple.Notes"),
-            selectedText: nil,
-            precedingText: nil,
-            succeedingText: nil
+            selectedText: nil
         )
         let result = builder.formatUserMessageWithContext("What else?", context: context, intent: .followUp)
         TestRunner.assertTrue(result.contains("[User Message]"), "formatUserMessage followUp: has [User Message]")
@@ -698,9 +679,7 @@ struct PromptBuilderIntentTests {
     func testFormatUserMessageWithContext_NilIntent() {
         let context = Context(
             source: ContextSource(applicationName: "Notes", bundleIdentifier: "com.apple.Notes"),
-            selectedText: nil,
-            precedingText: nil,
-            succeedingText: nil
+            selectedText: nil
         )
         let result = builder.formatUserMessageWithContext("Hello", context: context, intent: nil)
         TestRunner.assertTrue(result.contains("[User Message]"), "formatUserMessage nil intent: defaults to chat")
@@ -758,9 +737,7 @@ struct FormatChatMessagesTests {
     func testUserMessageWithContext() {
         let context = Context(
             source: ContextSource(applicationName: "Notes", bundleIdentifier: "com.apple.Notes"),
-            selectedText: "Selected",
-            precedingText: nil,
-            succeedingText: nil
+            selectedText: "Selected"
         )
         let messages = [ChatMessage.user("Transform", context: context, intent: .selectionTransform)]
         let result = builder.formatChatMessages(messages: messages)
@@ -815,9 +792,7 @@ struct ContextFormattingTests {
                 bundleIdentifier: "com.apple.Notes",
                 windowTitle: "My Document"
             ),
-            selectedText: nil,
-            precedingText: nil,
-            succeedingText: nil
+            selectedText: nil
         )
         let result = builder.formatUserMessageWithContext("Hello", context: context, intent: .chat)
         TestRunner.assertTrue(result.contains("Window: My Document"), "Context: window title included")
@@ -830,9 +805,7 @@ struct ContextFormattingTests {
                 bundleIdentifier: "com.apple.Safari",
                 url: URL(string: "https://example.com/page")
             ),
-            selectedText: nil,
-            precedingText: nil,
-            succeedingText: nil
+            selectedText: nil
         )
         let result = builder.formatUserMessageWithContext("Hello", context: context, intent: .chat)
         TestRunner.assertTrue(result.contains("URL: https://example.com/page"), "Context: URL included")
@@ -841,9 +814,7 @@ struct ContextFormattingTests {
     func testContextWithSelectedText() {
         let context = Context(
             source: ContextSource(applicationName: "Notes", bundleIdentifier: "com.apple.Notes"),
-            selectedText: "This is selected",
-            precedingText: nil,
-            succeedingText: nil
+            selectedText: "This is selected"
         )
         let result = builder.formatUserMessageWithContext("Hello", context: context, intent: .chat)
         TestRunner.assertTrue(result.contains("Selected Text:"), "Context: selected text label")
@@ -859,9 +830,7 @@ struct ContextFormattingTests {
                 windowTitle: "GitHub - Pull Request",
                 url: URL(string: "https://github.com/org/repo/pull/123")
             ),
-            selectedText: "Code to review",
-            precedingText: nil,
-            succeedingText: nil
+            selectedText: "Code to review"
         )
         let result = builder.formatUserMessageWithContext("Review", context: context, intent: .chat)
         TestRunner.assertTrue(result.contains("Application: Safari"), "Context all: app")
@@ -881,8 +850,6 @@ struct ContextFormattingTests {
         let context = Context(
             source: ContextSource(applicationName: "Slack", bundleIdentifier: "com.tinyspeck.slackmacgap"),
             selectedText: nil,
-            precedingText: nil,
-            succeedingText: nil,
             metadata: .slack(slackMeta)
         )
         let result = builder.formatUserMessageWithContext("Reply", context: context, intent: .chat)
@@ -904,8 +871,6 @@ struct ContextFormattingTests {
         let context = Context(
             source: ContextSource(applicationName: "Gmail", bundleIdentifier: "com.google.Chrome"),
             selectedText: nil,
-            precedingText: nil,
-            succeedingText: nil,
             metadata: .gmail(gmailMeta)
         )
         let result = builder.formatUserMessageWithContext("Reply", context: context, intent: .chat)
@@ -977,9 +942,7 @@ struct EdgeCaseTests {
     func testEmptySelectedText() {
         let context = Context(
             source: ContextSource(applicationName: "Notes", bundleIdentifier: "com.apple.Notes"),
-            selectedText: "",
-            precedingText: nil,
-            succeedingText: nil
+            selectedText: ""
         )
         let result = builder.formatUserMessageWithContext("Hello", context: context, intent: .chat)
         TestRunner.assertFalse(result.contains("Selected Text:"), "Edge: empty selected text not shown")
@@ -1003,9 +966,7 @@ struct TemplateForIntentTests {
         let builder = PromptBuilder()
         let context = Context(
             source: ContextSource(applicationName: "Test", bundleIdentifier: "test"),
-            selectedText: nil,
-            precedingText: nil,
-            succeedingText: nil
+            selectedText: nil
         )
         let result = builder.formatUserMessageWithContext("test", context: context, intent: .chat)
         TestRunner.assertTrue(result.contains("[User Message]"), "templateForIntent: chat -> intentChat")
@@ -1015,9 +976,7 @@ struct TemplateForIntentTests {
         let builder = PromptBuilder()
         let context = Context(
             source: ContextSource(applicationName: "Test", bundleIdentifier: "test"),
-            selectedText: nil,
-            precedingText: nil,
-            succeedingText: nil
+            selectedText: nil
         )
         let result = builder.formatUserMessageWithContext("test", context: context, intent: .followUp)
         TestRunner.assertTrue(result.contains("[User Message]"), "templateForIntent: followUp -> intentChat")
@@ -1027,9 +986,7 @@ struct TemplateForIntentTests {
         let builder = PromptBuilder()
         let context = Context(
             source: ContextSource(applicationName: "Test", bundleIdentifier: "test"),
-            selectedText: nil,
-            precedingText: nil,
-            succeedingText: nil
+            selectedText: nil
         )
         let result = builder.formatUserMessageWithContext("test", context: context, intent: nil)
         TestRunner.assertTrue(result.contains("[User Message]"), "templateForIntent: nil -> intentChat")
@@ -1039,9 +996,7 @@ struct TemplateForIntentTests {
         let builder = PromptBuilder()
         let context = Context(
             source: ContextSource(applicationName: "Test", bundleIdentifier: "test"),
-            selectedText: "text",
-            precedingText: nil,
-            succeedingText: nil
+            selectedText: "text"
         )
         let result = builder.formatUserMessageWithContext("transform", context: context, intent: .selectionTransform)
         TestRunner.assertTrue(result.contains("[Instruction]"), "templateForIntent: selectionTransform -> intentInstruct")
@@ -1051,9 +1006,7 @@ struct TemplateForIntentTests {
         let builder = PromptBuilder()
         let context = Context(
             source: ContextSource(applicationName: "Test", bundleIdentifier: "test"),
-            selectedText: "text",
-            precedingText: nil,
-            succeedingText: nil
+            selectedText: "text"
         )
         let result = builder.formatUserMessageWithContext("summarize", context: context, intent: .summarize)
         TestRunner.assertTrue(result.contains("[Request]"), "templateForIntent: summarize -> intentSummarize")

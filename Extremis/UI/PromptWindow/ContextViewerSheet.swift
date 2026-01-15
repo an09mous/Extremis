@@ -58,14 +58,6 @@ struct ContextViewerSheet: View {
                         textSection(title: "Selected Text", content: selectedText, sectionId: "selected")
                     }
 
-                    if let precedingText = context.precedingText, !precedingText.isEmpty {
-                        textSection(title: "Preceding Text", content: precedingText, sectionId: "preceding")
-                    }
-
-                    if let succeedingText = context.succeedingText, !succeedingText.isEmpty {
-                        textSection(title: "Succeeding Text", content: succeedingText, sectionId: "succeeding")
-                    }
-
                     metadataSection
                 }
                 .padding()
@@ -472,8 +464,6 @@ struct ContextViewerSheet_Previews: PreviewProvider {
                     url: nil
                 ),
                 selectedText: "func calculateTotal() -> Double {\n    return items.reduce(0) { $0 + $1.price }\n}",
-                precedingText: "// MARK: - Shopping Cart\n\nclass ShoppingCart {\n    var items: [CartItem] = []\n    ",
-                succeedingText: "\n\n    func addItem(_ item: CartItem) {\n        items.append(item)\n    }\n}",
                 metadata: .generic(GenericMetadata(focusedElementRole: "AXTextArea", focusedElementLabel: "Editor"))
             ),
             onDismiss: {}

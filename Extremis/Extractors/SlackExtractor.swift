@@ -82,8 +82,6 @@ final class SlackExtractor: ContextExtractor {
         return Context(
             source: source,
             selectedText: selectedText,
-            precedingText: nil,
-            succeedingText: nil,
             metadata: .slack(metadata)
         )
     }
