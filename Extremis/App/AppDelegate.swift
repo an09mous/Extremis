@@ -428,8 +428,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let context = Context(
             source: source,
             selectedText: text,
-            precedingText: nil,
-            succeedingText: nil,
             metadata: .generic(GenericMetadata())
         )
 
@@ -459,9 +457,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
             let context = Context(
                 source: source,
-                selectedText: selectedText,
-                precedingText: nil,
-                succeedingText: nil
+                selectedText: selectedText
             )
             currentContext = context
             logCapturedContext(context)
@@ -478,9 +474,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
             let context = Context(
                 source: source,
-                selectedText: nil,
-                precedingText: nil,
-                succeedingText: nil
+                selectedText: nil
             )
             currentContext = context
             logCapturedContext(context)
@@ -507,14 +501,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         print("\n📝 SELECTED TEXT:")
         if let selected = context.selectedText, !selected.isEmpty {
             print("    \"\(selected.prefix(200))\(selected.count > 200 ? "..." : "")\"")
-        } else {
-            print("    (none)")
-        }
-
-        // Preceding Text
-        print("\n📄 PRECEDING TEXT:")
-        if let preceding = context.precedingText, !preceding.isEmpty {
-            print("    \"\(preceding.prefix(200))\(preceding.count > 200 ? "..." : "")\"")
         } else {
             print("    (none)")
         }

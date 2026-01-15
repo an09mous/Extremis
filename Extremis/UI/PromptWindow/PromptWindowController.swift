@@ -162,25 +162,10 @@ final class PromptWindowController: NSWindowController {
         viewModel.contextInfo = contextInfo
 
         // Set context state for Summarize button visibility
-        // Show Summarize if there's selected text OR preceding/succeeding text
         let hasSelectedText = context.selectedText?.isEmpty == false
-        let hasPrecedingText = context.precedingText?.isEmpty == false
-        let hasSucceedingText = context.succeedingText?.isEmpty == false
-        viewModel.hasContext = hasSelectedText || hasPrecedingText || hasSucceedingText
+        viewModel.hasContext = hasSelectedText
         viewModel.hasSelection = hasSelectedText
-
-        // Store text for summarization - prefer selected text, otherwise combine preceding/succeeding
-        if hasSelectedText {
-            viewModel.selectedText = context.selectedText
-        } else if hasPrecedingText || hasSucceedingText {
-            // Combine preceding and succeeding text for summarization
-            let combined = [context.precedingText, context.succeedingText]
-                .compactMap { $0 }
-                .joined(separator: "\n")
-            viewModel.selectedText = combined.isEmpty ? nil : combined
-        } else {
-            viewModel.selectedText = nil
-        }
+        viewModel.selectedText = context.selectedText
 
         print("📋 PromptWindow: Context info = \(contextInfo)")
 
@@ -783,27 +768,10 @@ final class PromptViewModel: ObservableObject {
         sess.startGeneration(task: task)
     }
 
-    /// Summarize using current context (selected text or combined preceding/succeeding)
+    /// Summarize using current context (selected text)
     func summarizeSelection() {
         // Determine what text to summarize
-        let textToSummarize: String
-
-        if let selected = selectedText, !selected.isEmpty {
-            // Use selected text if available
-            textToSummarize = selected
-        } else if let context = currentContext {
-            // Combine preceding + succeeding text if no selection
-            let combined = [
-                context.precedingText ?? "",
-                context.succeedingText ?? ""
-            ].filter { !$0.isEmpty }.joined(separator: "\n")
-
-            if combined.isEmpty {
-                error = "No text to summarize"
-                return
-            }
-            textToSummarize = combined
-        } else {
+        guard let textToSummarize = selectedText, !textToSummarize.isEmpty else {
             error = "No text selected to summarize"
             return
         }

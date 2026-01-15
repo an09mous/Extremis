@@ -43,8 +43,6 @@ final class GenericExtractor: ContextExtractor {
         return Context(
             source: source,
             selectedText: selectedText,
-            precedingText: nil,
-            succeedingText: nil,
             metadata: .generic(GenericMetadata(
                 focusedElementRole: focusedInfo.role,
                 focusedElementLabel: focusedInfo.label
