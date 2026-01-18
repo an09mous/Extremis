@@ -5,7 +5,8 @@ import Foundation
 import Combine
 
 /// Preferences store implementation using UserDefaults
-final class UserDefaultsHelper: PreferencesStore {
+@MainActor
+final class UserDefaultsHelper: @preconcurrency PreferencesStore {
     
     // MARK: - Keys
     

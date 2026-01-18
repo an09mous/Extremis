@@ -12,6 +12,48 @@ struct Generation: Codable, Equatable {
     }
 }
 
+// MARK: - Tool-Enabled Generation
+
+/// Response from LLM that may include tool calls
+struct ToolEnabledGeneration {
+    /// Text content from the response (may be empty if only tool calls)
+    let content: String?
+
+    /// Tool calls requested by the LLM
+    let toolCalls: [LLMToolCall]
+
+    /// Whether this response is complete (no more tool calls needed)
+    var isComplete: Bool {
+        toolCalls.isEmpty
+    }
+
+    /// Create a text-only response
+    static func text(_ content: String) -> ToolEnabledGeneration {
+        ToolEnabledGeneration(content: content, toolCalls: [])
+    }
+
+    /// Create a response with tool calls
+    static func withTools(content: String?, toolCalls: [LLMToolCall]) -> ToolEnabledGeneration {
+        ToolEnabledGeneration(content: content, toolCalls: toolCalls)
+    }
+}
+
+/// Raw tool call from LLM response (before resolution to ConnectorTool)
+struct LLMToolCall: Identifiable, Equatable {
+    /// Call ID from the LLM (used for matching results)
+    let id: String
+
+    /// Tool name (disambiguated name from our schema)
+    let name: String
+
+    /// Arguments as JSON-compatible dictionary
+    let arguments: [String: Any]
+
+    static func == (lhs: LLMToolCall, rhs: LLMToolCall) -> Bool {
+        lhs.id == rhs.id && lhs.name == rhs.name
+    }
+}
+
 // MARK: - LLM Provider Type
 
 /// Supported LLM providers
@@ -43,6 +85,7 @@ enum LLMProviderType: String, Codable, CaseIterable, Identifiable {
 
     /// Available models for this provider
     /// Cloud providers load from models.json, Ollama uses dynamic API discovery
+    @MainActor
     var availableModels: [LLMModel] {
         switch self {
         case .ollama:
@@ -55,11 +98,13 @@ enum LLMProviderType: String, Codable, CaseIterable, Identifiable {
     }
 
     /// Default model for this provider
+    @MainActor
     var defaultModel: LLMModel {
         availableModels.first!
     }
 
     /// Model name used for API calls (default)
+    @MainActor
     var defaultModelId: String {
         defaultModel.id
     }

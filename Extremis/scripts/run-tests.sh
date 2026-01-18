@@ -168,6 +168,16 @@ else
 fi
 echo ""
 
+# 8. Tool Models Tests (ToolCall, ToolResult, ToolExecutionRound, etc.)
+run_test_suite "Tool Models Tests" \
+    "$PROJECT_DIR/Tests/Connectors/ToolModelsTests.swift" \
+    "Foundation"
+
+# 9. Tool Schema Converter Tests (provider-specific schema conversion)
+run_test_suite "Tool Schema Converter Tests" \
+    "$PROJECT_DIR/Tests/Connectors/ToolSchemaConverterTests.swift" \
+    "Foundation"
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------

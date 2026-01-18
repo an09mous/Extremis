@@ -3,7 +3,7 @@
 
 import AppKit
 import SwiftUI
-import Combine
+@preconcurrency import Combine
 
 /// Controller for the floating prompt window
 final class PromptWindowController: NSWindowController {
@@ -515,7 +515,9 @@ final class PromptViewModel: ObservableObject {
     deinit {
         // Note: Session cleanup happens automatically via ChatSession's deinit
         // which cancels any in-flight generation task
-        providerCancellable?.cancel()
+        MainActor.assumeIsolated {
+            providerCancellable?.cancel()
+        }
     }
 
     func updateProviderStatus() {

@@ -4,6 +4,7 @@
 import Foundation
 
 /// Ollama local LLM provider implementation
+@MainActor
 final class OllamaProvider: LLMProvider {
 
     // MARK: - Properties
@@ -195,6 +196,29 @@ final class OllamaProvider: LLMProvider {
         }
     }
 
+    // MARK: - Tool Support
+
+    func generateChatWithTools(
+        messages: [ChatMessage],
+        tools: [ConnectorTool],
+        toolRounds: [ToolExecutionRound]
+    ) async throws -> ToolEnabledGeneration {
+        guard serverConnected else {
+            throw LLMProviderError.notConfigured(provider: .ollama)
+        }
+
+        let request = try buildToolRequest(messages: messages, tools: tools, toolRounds: toolRounds)
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw LLMProviderError.invalidResponse
+        }
+
+        try handleStatusCode(httpResponse.statusCode, data: data)
+
+        return try parseToolResponse(data)
+    }
+
     // MARK: - Connection & Model Discovery
 
     /// Check if Ollama server is running
@@ -358,6 +382,99 @@ final class OllamaProvider: LLMProvider {
             let message = String(data: data, encoding: .utf8)
             throw LLMProviderError.serverError(statusCode: code, message: message)
         }
+    }
+
+    // MARK: - Tool Request Building
+
+    /// Build a request with tools (OpenAI-compatible format)
+    private func buildToolRequest(
+        messages: [ChatMessage],
+        tools: [ConnectorTool],
+        toolRounds: [ToolExecutionRound]
+    ) throws -> URLRequest {
+        var request = URLRequest(url: URL(string: "\(baseURL)/v1/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        // Format chat messages - cast to [String: Any] for tool result compatibility
+        var formattedMessages: [[String: Any]] = PromptBuilder.shared.formatChatMessages(messages: messages).map { $0 as [String: Any] }
+
+        // Append all tool execution rounds to build complete conversation history
+        // OpenAI-compatible format requires: user message -> assistant message with tool_calls -> tool messages (for each round)
+        for round in toolRounds {
+            // Add assistant message with tool_calls
+            let toolCallsFormatted: [[String: Any]] = round.toolCalls.map { call in
+                [
+                    "id": call.id,
+                    "type": "function",
+                    "function": [
+                        "name": call.name,
+                        "arguments": (try? JSONSerialization.data(withJSONObject: call.arguments))
+                            .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+                    ] as [String: Any]
+                ]
+            }
+            formattedMessages.append([
+                "role": "assistant",
+                "tool_calls": toolCallsFormatted
+            ])
+
+            // Append tool results as tool role messages
+            for result in round.results {
+                formattedMessages.append(ToolSchemaConverter.formatOpenAIToolResult(callID: result.callID, result: result))
+            }
+        }
+
+        var body: [String: Any] = [
+            "model": currentModel.id,
+            "messages": formattedMessages,
+            "stream": false
+        ]
+
+        // Add tools if available
+        if !tools.isEmpty {
+            body["tools"] = ToolSchemaConverter.toOpenAI(tools: tools)
+        }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// Parse a tool-enabled response (OpenAI-compatible format)
+    private func parseToolResponse(_ data: Data) throws -> ToolEnabledGeneration {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let firstChoice = choices.first,
+              let message = firstChoice["message"] as? [String: Any] else {
+            throw LLMProviderError.invalidResponse
+        }
+
+        // Extract text content
+        let content = message["content"] as? String
+
+        // Extract tool calls
+        var toolCalls: [LLMToolCall] = []
+        if let rawToolCalls = message["tool_calls"] as? [[String: Any]] {
+            for call in rawToolCalls {
+                guard let id = call["id"] as? String,
+                      let function = call["function"] as? [String: Any],
+                      let name = function["name"] as? String else {
+                    continue
+                }
+
+                // Parse arguments JSON string
+                var arguments: [String: Any] = [:]
+                if let argsString = function["arguments"] as? String,
+                   let argsData = argsString.data(using: .utf8),
+                   let argsDict = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any] {
+                    arguments = argsDict
+                }
+
+                toolCalls.append(LLMToolCall(id: id, name: name, arguments: arguments))
+            }
+        }
+
+        return ToolEnabledGeneration(content: content, toolCalls: toolCalls)
     }
 }
 

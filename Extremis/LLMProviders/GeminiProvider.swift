@@ -4,6 +4,7 @@
 import Foundation
 
 /// Google Gemini provider implementation
+@MainActor
 final class GeminiProvider: LLMProvider {
 
     // MARK: - Properties
@@ -178,6 +179,29 @@ final class GeminiProvider: LLMProvider {
                 }
             }
         }
+    }
+
+    // MARK: - Tool Support
+
+    func generateChatWithTools(
+        messages: [ChatMessage],
+        tools: [ConnectorTool],
+        toolRounds: [ToolExecutionRound]
+    ) async throws -> ToolEnabledGeneration {
+        guard let apiKey = apiKey else {
+            throw LLMProviderError.notConfigured(provider: .gemini)
+        }
+
+        let request = try buildToolRequest(apiKey: apiKey, messages: messages, tools: tools, toolRounds: toolRounds)
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw LLMProviderError.invalidResponse
+        }
+
+        try handleStatusCode(httpResponse.statusCode, data: data)
+
+        return try parseToolResponse(data)
     }
 
     // MARK: - Private Methods
@@ -392,6 +416,101 @@ final class GeminiProvider: LLMProvider {
             let message = String(data: data, encoding: .utf8)
             throw LLMProviderError.serverError(statusCode: code, message: message)
         }
+    }
+
+    // MARK: - Tool Request Building
+
+    /// Build a request with tools
+    private func buildToolRequest(
+        apiKey: String,
+        messages: [ChatMessage],
+        tools: [ConnectorTool],
+        toolRounds: [ToolExecutionRound]
+    ) throws -> URLRequest {
+        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(currentModel.id):generateContent?key=\(apiKey)"
+        var request = URLRequest(url: URL(string: urlString)!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        // Format messages for Gemini
+        var contents = formatMessagesForGemini(messages: messages)
+
+        // Append all tool execution rounds to build complete conversation history
+        // Gemini requires: user content -> model content with functionCall -> function content with functionResponse (for each round)
+        for round in toolRounds {
+            // Add model message with functionCall parts
+            let functionCallParts: [[String: Any]] = round.toolCalls.map { call in
+                [
+                    "functionCall": [
+                        "name": call.name,
+                        "args": call.arguments
+                    ] as [String: Any]
+                ]
+            }
+            contents.append([
+                "role": "model",
+                "parts": functionCallParts
+            ])
+
+            // Add function response parts (all in one content object)
+            let functionResponseParts: [[String: Any]] = round.results.map { result in
+                [
+                    "functionResponse": [
+                        "name": result.toolName,
+                        "response": [
+                            "result": result.content?.contentForLLM ?? (result.error?.message ?? "No result")
+                        ] as [String: Any]
+                    ] as [String: Any]
+                ]
+            }
+            contents.append([
+                "role": "function",
+                "parts": functionResponseParts
+            ])
+        }
+
+        var body: [String: Any] = [
+            "contents": contents,
+            "generationConfig": [
+                "maxOutputTokens": 4096
+            ]
+        ]
+
+        // Add tools if available
+        if !tools.isEmpty {
+            body["tools"] = ToolSchemaConverter.toGemini(tools: tools)
+        }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// Parse a tool-enabled response
+    private func parseToolResponse(_ data: Data) throws -> ToolEnabledGeneration {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let candidates = json["candidates"] as? [[String: Any]],
+              let firstCandidate = candidates.first,
+              let content = firstCandidate["content"] as? [String: Any],
+              let parts = content["parts"] as? [[String: Any]] else {
+            throw LLMProviderError.invalidResponse
+        }
+
+        // Extract text content and function calls
+        var textContent: String?
+        var toolCalls: [LLMToolCall] = []
+
+        for part in parts {
+            if let text = part["text"] as? String {
+                textContent = (textContent ?? "") + text
+            } else if let functionCall = part["functionCall"] as? [String: Any],
+                      let name = functionCall["name"] as? String {
+                let args = functionCall["args"] as? [String: Any] ?? [:]
+                // Gemini doesn't provide call IDs, generate one
+                toolCalls.append(LLMToolCall(id: UUID().uuidString, name: name, arguments: args))
+            }
+        }
+
+        return ToolEnabledGeneration(content: textContent, toolCalls: toolCalls)
     }
 
     /// Stream JSON objects from Gemini's pretty-printed response

@@ -42,6 +42,7 @@ enum PromptTemplateError: Error, LocalizedError {
 }
 
 /// Loads and caches prompt templates from the app bundle
+@MainActor
 final class PromptTemplateLoader {
     
     // MARK: - Singleton
@@ -52,10 +53,7 @@ final class PromptTemplateLoader {
     
     /// Cache for loaded templates
     private var templateCache: [PromptTemplate: String] = [:]
-    
-    /// Lock for thread-safe cache access
-    private let cacheLock = NSLock()
-    
+
     /// Bundle to load resources from
     private let bundle: Bundle
     
@@ -72,14 +70,11 @@ final class PromptTemplateLoader {
     /// - Returns: The template content as a string
     /// - Throws: PromptTemplateError if template cannot be loaded
     func load(_ template: PromptTemplate) throws -> String {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
-        
         // Check cache first
         if let cached = templateCache[template] {
             return cached
         }
-        
+
         // Load from bundle
         let content = try loadFromBundle(template)
         templateCache[template] = content
@@ -96,8 +91,6 @@ final class PromptTemplateLoader {
     
     /// Clear the template cache
     func clearCache() {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
         templateCache.removeAll()
     }
     

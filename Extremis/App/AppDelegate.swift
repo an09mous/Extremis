@@ -6,6 +6,7 @@ import SwiftUI
 import ObjectiveC
 import Carbon.HIToolbox
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: - Properties
@@ -48,6 +49,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Check Ollama connection asynchronously and rebuild menu when done
         checkOllamaAndRefreshMenu()
 
+        // Connect to enabled connectors in background
+        connectEnabledConnectors()
+
         // Restore last session on launch
         restoreSessionOnLaunch()
 
@@ -80,6 +84,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 await MainActor.run {
                     setupMenuBar()
                 }
+            }
+        }
+    }
+
+    /// Connect to all enabled connectors in background (non-blocking)
+    private func connectEnabledConnectors() {
+        Task { @MainActor in
+            await ConnectorRegistry.shared.connectAllEnabled()
+            let connectedCount = ConnectorRegistry.shared.connectedConnectors.count
+            let toolCount = ConnectorRegistry.shared.availableTools.count
+            if connectedCount > 0 {
+                print("🔌 Connected to \(connectedCount) connector(s) with \(toolCount) tool(s)")
             }
         }
     }

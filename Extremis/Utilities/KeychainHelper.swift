@@ -7,7 +7,8 @@ import Security
 
 /// Secure storage implementation using macOS Keychain
 /// Stores all API keys in a single keychain entry as JSON to require only ONE keychain access prompt
-final class KeychainHelper: SecureStorage {
+@MainActor
+final class KeychainHelper: @preconcurrency SecureStorage {
 
     // MARK: - Properties
 
@@ -22,9 +23,6 @@ final class KeychainHelper: SecureStorage {
 
     /// Flag to track if keys have been loaded from keychain
     private var isLoaded: Bool = false
-
-    /// Thread-safe lock for cache access
-    private let cacheLock = NSLock()
 
     /// Shared instance
     static let shared = KeychainHelper()
@@ -50,9 +48,6 @@ final class KeychainHelper: SecureStorage {
 
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
 
         isLoaded = true
 
@@ -111,33 +106,21 @@ final class KeychainHelper: SecureStorage {
     // MARK: - SecureStorage Protocol
 
     func store(key: String, value: String) throws {
-        cacheLock.lock()
         apiKeys[key] = value
-        cacheLock.unlock()
-
         try saveToKeychain()
     }
 
     func retrieve(key: String) throws -> String? {
-        cacheLock.lock()
-        let value = apiKeys[key]
-        cacheLock.unlock()
-        return value
+        return apiKeys[key]
     }
 
     func delete(key: String) throws {
-        cacheLock.lock()
         apiKeys.removeValue(forKey: key)
-        cacheLock.unlock()
-
         try saveToKeychain()
     }
 
     func exists(key: String) -> Bool {
-        cacheLock.lock()
-        let exists = apiKeys[key] != nil && !apiKeys[key]!.isEmpty
-        cacheLock.unlock()
-        return exists
+        return apiKeys[key] != nil && !apiKeys[key]!.isEmpty
     }
 
     // MARK: - Convenience Methods

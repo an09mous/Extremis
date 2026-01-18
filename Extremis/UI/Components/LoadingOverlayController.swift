@@ -5,6 +5,7 @@ import AppKit
 import SwiftUI
 
 /// Controller for displaying a floating loading overlay during generation
+@MainActor
 final class LoadingOverlayController {
     
     // MARK: - Singleton

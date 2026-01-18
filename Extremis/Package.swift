@@ -1,4 +1,4 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.0
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -15,11 +15,15 @@ let package = Package(
             targets: ["Extremis"]
         )
     ],
-    dependencies: [],
+    dependencies: [
+        .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.10.0")
+    ],
     targets: [
         .executableTarget(
             name: "Extremis",
-            dependencies: [],
+            dependencies: [
+                .product(name: "MCP", package: "swift-sdk")
+            ],
             path: ".",
             exclude: [
                 "Package.swift",
@@ -32,6 +36,7 @@ let package = Package(
             ],
             sources: [
                 "App",
+                "Connectors",
                 "Core",
                 "Extractors",
                 "LLMProviders",

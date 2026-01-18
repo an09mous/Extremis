@@ -4,6 +4,7 @@
 import Foundation
 
 /// OpenAI ChatGPT provider implementation
+@MainActor
 final class OpenAIProvider: LLMProvider {
 
     // MARK: - Properties
@@ -184,6 +185,29 @@ final class OpenAIProvider: LLMProvider {
         }
     }
 
+    // MARK: - Tool Support
+
+    func generateChatWithTools(
+        messages: [ChatMessage],
+        tools: [ConnectorTool],
+        toolRounds: [ToolExecutionRound]
+    ) async throws -> ToolEnabledGeneration {
+        guard let apiKey = apiKey else {
+            throw LLMProviderError.notConfigured(provider: .openai)
+        }
+
+        let request = try buildToolRequest(apiKey: apiKey, messages: messages, tools: tools, toolRounds: toolRounds)
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw LLMProviderError.invalidResponse
+        }
+
+        try handleStatusCode(httpResponse.statusCode, data: data)
+
+        return try parseToolResponse(data)
+    }
+
     // MARK: - Private Methods
 
     /// Build a non-streaming request
@@ -304,6 +328,101 @@ final class OpenAIProvider: LLMProvider {
             return seconds
         }
         return nil
+    }
+
+    // MARK: - Tool Request Building
+
+    /// Build a request with tools
+    private func buildToolRequest(
+        apiKey: String,
+        messages: [ChatMessage],
+        tools: [ConnectorTool],
+        toolRounds: [ToolExecutionRound]
+    ) throws -> URLRequest {
+        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        // Format chat messages - cast to [String: Any] for tool result compatibility
+        var formattedMessages: [[String: Any]] = PromptBuilder.shared.formatChatMessages(messages: messages).map { $0 as [String: Any] }
+
+        // Append all tool execution rounds to build complete conversation history
+        // OpenAI requires: user message -> assistant message with tool_calls -> tool messages (for each round)
+        for round in toolRounds {
+            // Add assistant message with tool_calls
+            let toolCallsFormatted: [[String: Any]] = round.toolCalls.map { call in
+                [
+                    "id": call.id,
+                    "type": "function",
+                    "function": [
+                        "name": call.name,
+                        "arguments": (try? JSONSerialization.data(withJSONObject: call.arguments))
+                            .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+                    ] as [String: Any]
+                ]
+            }
+            formattedMessages.append([
+                "role": "assistant",
+                "tool_calls": toolCallsFormatted
+            ])
+
+            // Append tool results as tool role messages
+            for result in round.results {
+                formattedMessages.append(ToolSchemaConverter.formatOpenAIToolResult(callID: result.callID, result: result))
+            }
+        }
+
+        var body: [String: Any] = [
+            "model": currentModel.id,
+            "messages": formattedMessages,
+            "max_tokens": 4096
+        ]
+
+        // Add tools if available
+        if !tools.isEmpty {
+            body["tools"] = ToolSchemaConverter.toOpenAI(tools: tools)
+        }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// Parse a tool-enabled response
+    private func parseToolResponse(_ data: Data) throws -> ToolEnabledGeneration {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let firstChoice = choices.first,
+              let message = firstChoice["message"] as? [String: Any] else {
+            throw LLMProviderError.invalidResponse
+        }
+
+        // Extract text content
+        let content = message["content"] as? String
+
+        // Extract tool calls
+        var toolCalls: [LLMToolCall] = []
+        if let rawToolCalls = message["tool_calls"] as? [[String: Any]] {
+            for call in rawToolCalls {
+                guard let id = call["id"] as? String,
+                      let function = call["function"] as? [String: Any],
+                      let name = function["name"] as? String else {
+                    continue
+                }
+
+                // Parse arguments JSON string
+                var arguments: [String: Any] = [:]
+                if let argsString = function["arguments"] as? String,
+                   let argsData = argsString.data(using: .utf8),
+                   let argsDict = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any] {
+                    arguments = argsDict
+                }
+
+                toolCalls.append(LLMToolCall(id: id, name: name, arguments: arguments))
+            }
+        }
+
+        return ToolEnabledGeneration(content: content, toolCalls: toolCalls)
     }
 }
 

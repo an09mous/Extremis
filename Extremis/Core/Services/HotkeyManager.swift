@@ -12,6 +12,7 @@ enum HotkeyIdentifier: UInt32, CaseIterable {
 }
 
 /// Manages global hotkey registration and handling
+@MainActor
 final class HotkeyManager {
 
     // MARK: - Types
@@ -45,7 +46,11 @@ final class HotkeyManager {
     private init() {}
 
     deinit {
-        unregisterAll()
+        // Singletons are rarely deallocated, but for cleanup safety
+        // use assumeIsolated since deinit is nonisolated
+        MainActor.assumeIsolated {
+            unregisterAll()
+        }
     }
 
     // MARK: - Public Methods

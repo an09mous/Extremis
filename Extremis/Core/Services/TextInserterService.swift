@@ -6,6 +6,7 @@ import AppKit
 import ApplicationServices
 
 /// Service for inserting text back into the source application
+@MainActor
 final class TextInserterService: TextInserter {
     
     // MARK: - Properties

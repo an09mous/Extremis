@@ -167,3 +167,10 @@ Latest completed feature: `specs/008-prompting-improvements/` (Prompting Improve
 - SwiftUI + AppKit hybrid (NSPanel, NSHostingView)
 - Carbon (global hotkeys), ApplicationServices (Accessibility APIs)
 - UserDefaults (preferences), Keychain (API keys), Application Support (sessions)
+
+## Active Technologies
+- Swift 5.9+ + Foundation, SwiftUI, AppKit, MCP Swift SDK (modelcontextprotocol/swift-sdk 0.10.0+) (010-mcp-support)
+- JSON file (`~/Library/Application Support/Extremis/mcp-servers.json`) + existing Keychain for secrets (010-mcp-support)
+
+## Recent Changes
+- 010-mcp-support: Added Swift 5.9+ + Foundation, SwiftUI, AppKit, MCP Swift SDK (modelcontextprotocol/swift-sdk 0.10.0+)

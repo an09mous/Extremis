@@ -4,6 +4,7 @@
 import Foundation
 
 /// Anthropic Claude provider implementation
+@MainActor
 final class AnthropicProvider: LLMProvider {
 
     // MARK: - Properties
@@ -181,6 +182,29 @@ final class AnthropicProvider: LLMProvider {
         }
     }
 
+    // MARK: - Tool Support
+
+    func generateChatWithTools(
+        messages: [ChatMessage],
+        tools: [ConnectorTool],
+        toolRounds: [ToolExecutionRound]
+    ) async throws -> ToolEnabledGeneration {
+        guard let apiKey = apiKey else {
+            throw LLMProviderError.notConfigured(provider: .anthropic)
+        }
+
+        let request = try buildToolRequest(apiKey: apiKey, messages: messages, tools: tools, toolRounds: toolRounds)
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw LLMProviderError.invalidResponse
+        }
+
+        try handleStatusCode(httpResponse.statusCode, data: data)
+
+        return try parseToolResponse(data)
+    }
+
     // MARK: - Private Methods
 
     /// Build a non-streaming request
@@ -312,6 +336,111 @@ final class AnthropicProvider: LLMProvider {
             let message = String(data: data, encoding: .utf8)
             throw LLMProviderError.serverError(statusCode: code, message: message)
         }
+    }
+
+    // MARK: - Tool Request Building
+
+    /// Build a request with tools
+    private func buildToolRequest(
+        apiKey: String,
+        messages: [ChatMessage],
+        tools: [ConnectorTool],
+        toolRounds: [ToolExecutionRound]
+    ) throws -> URLRequest {
+        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        request.httpMethod = "POST"
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        // Use formatChatMessages() which handles context formatting
+        let allMessages = PromptBuilder.shared.formatChatMessages(messages: messages)
+
+        // Extract system prompt for Anthropic's separate system parameter
+        let systemPrompt = allMessages.first { $0["role"] == "system" }?["content"] ?? ""
+
+        // Build messages array - filter system messages
+        var anthropicMessages: [[String: Any]] = allMessages.filter { $0["role"] != "system" }
+
+        // Append all tool execution rounds to build complete conversation history
+        // Anthropic requires: user message -> assistant message with tool_use -> user message with tool_result (for each round)
+        for round in toolRounds {
+            // Build assistant message with tool_use content blocks
+            let toolUseBlocks: [[String: Any]] = round.toolCalls.map { call in
+                [
+                    "type": "tool_use",
+                    "id": call.id,
+                    "name": call.name,
+                    "input": call.arguments
+                ]
+            }
+            anthropicMessages.append([
+                "role": "assistant",
+                "content": toolUseBlocks
+            ])
+
+            // Build user message with tool_result content blocks (multiple results in one message)
+            let toolResultBlocks: [[String: Any]] = round.results.map { result in
+                [
+                    "type": "tool_result",
+                    "tool_use_id": result.callID,
+                    "content": result.content?.contentForLLM ?? (result.error?.message ?? "No result"),
+                    "is_error": result.isError
+                ] as [String: Any]
+            }
+            anthropicMessages.append([
+                "role": "user",
+                "content": toolResultBlocks
+            ])
+        }
+
+        var body: [String: Any] = [
+            "model": currentModel.id,
+            "max_tokens": 4096,
+            "system": systemPrompt,
+            "messages": anthropicMessages
+        ]
+
+        // Add tools if available
+        if !tools.isEmpty {
+            body["tools"] = ToolSchemaConverter.toAnthropic(tools: tools)
+        }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// Parse a tool-enabled response
+    private func parseToolResponse(_ data: Data) throws -> ToolEnabledGeneration {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let content = json["content"] as? [[String: Any]] else {
+            throw LLMProviderError.invalidResponse
+        }
+
+        // Extract text content and tool use blocks
+        var textContent: String?
+        var toolCalls: [LLMToolCall] = []
+
+        for block in content {
+            guard let type = block["type"] as? String else { continue }
+
+            switch type {
+            case "text":
+                if let text = block["text"] as? String {
+                    textContent = text
+                }
+            case "tool_use":
+                if let id = block["id"] as? String,
+                   let name = block["name"] as? String,
+                   let input = block["input"] as? [String: Any] {
+                    toolCalls.append(LLMToolCall(id: id, name: name, arguments: input))
+                }
+            default:
+                continue
+            }
+        }
+
+        return ToolEnabledGeneration(content: textContent, toolCalls: toolCalls)
     }
 }
 
