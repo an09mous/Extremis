@@ -160,10 +160,60 @@ Latest completed feature: `specs/008-prompting-improvements/` (Prompting Improve
 
 - **Documentation**: Always update `README.md` and `Extremis/docs/` when adding new features or modifying existing functionality. Keep documentation in sync with code changes.
 - **Prompt Templates**: Never hardcode LLM prompts in Swift - always use `.hbs` template files in `Resources/PromptTemplates/`
-- **Testing**: All new tests MUST be added to `Extremis/scripts/run-tests.sh`
+- **Testing**: All new code MUST include unit tests. See Testing section below for details.
+
+## Testing Guidelines
+
+**IMPORTANT**: Always add unit tests when writing new code.
+
+### Test Structure
+All tests are standalone Swift files in `Extremis/Tests/` organized by module:
+- `Tests/Core/` - Core model and service tests
+- `Tests/LLMProviders/` - Provider and prompt builder tests
+- `Tests/Utilities/` - Utility class tests
+- `Tests/Connectors/` - MCP connector and tool tests
+
+### Adding New Tests
+
+1. **Create a test file** in the appropriate `Tests/` subdirectory
+2. **Use the test framework pattern** - see existing tests for the `TestRunner` struct with `assertEqual`, `assertTrue`, `assertNil`, etc.
+3. **Add to run script** - All new test files MUST be added to `Extremis/scripts/run-tests.sh`
+4. **Run all tests** before committing: `cd Extremis && ./scripts/run-tests.sh`
+
+### Test File Template
+```swift
+import Foundation
+
+struct TestRunner {
+    static var passedCount = 0
+    static var failedCount = 0
+    // ... (copy from existing test file)
+}
+
+func testMyFeature() {
+    TestRunner.suite("My Feature Tests")
+    TestRunner.assertEqual(actual, expected, "Test description")
+}
+
+@main
+struct MyFeatureTests {
+    static func main() {
+        testMyFeature()
+        TestRunner.printSummary()
+        if TestRunner.failedCount > 0 { exit(1) }
+    }
+}
+```
+
+### When to Write Tests
+- New models/structs with logic
+- New services with business logic
+- State management code
+- Data transformation/conversion
+- Error handling paths
 
 ## Tech Stack
-- Swift 5.9+ with Swift Concurrency
+- Swift 6.0 with Swift Concurrency
 - SwiftUI + AppKit hybrid (NSPanel, NSHostingView)
 - Carbon (global hotkeys), ApplicationServices (Accessibility APIs)
 - UserDefaults (preferences), Keychain (API keys), Application Support (sessions)

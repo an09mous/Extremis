@@ -2,10 +2,11 @@
 // Local LLM integration via Ollama using OpenAI-compatible API
 
 import Foundation
+import Combine
 
 /// Ollama local LLM provider implementation
 @MainActor
-final class OllamaProvider: LLMProvider {
+final class OllamaProvider: LLMProvider, ObservableObject {
 
     // MARK: - Properties
 
@@ -13,9 +14,9 @@ final class OllamaProvider: LLMProvider {
     var displayName: String { "\(providerType.displayName) (\(currentModel.name))" }
 
     private let session: URLSession
-    private(set) var currentModel: LLMModel
+    @Published private(set) var currentModel: LLMModel
     private var baseURL: String
-    private var serverConnected: Bool = false
+    @Published private(set) var serverConnected: Bool = false
 
     /// Cached list of available models from Ollama server
     private(set) var availableModelsFromServer: [LLMModel] = []
@@ -244,6 +245,10 @@ final class OllamaProvider: LLMProvider {
             print("⚠️ Ollama server not available: \(error.localizedDescription)")
         }
         serverConnected = false
+        // Clear the "Loading..." placeholder when server is unavailable
+        if currentModel.id == "pending" {
+            currentModel = LLMModel(id: "unavailable", name: "Unavailable", description: "Server not running")
+        }
         return false
     }
 

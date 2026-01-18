@@ -148,6 +148,7 @@ if swiftc -parse-as-library -o "$OUTPUT_DIR/SummarizationManagerTests" \
     "$PROJECT_DIR/Core/Models/Persistence/PersistedSession.swift" \
     "$PROJECT_DIR/Core/Models/Persistence/SessionSummary.swift" \
     "$PROJECT_DIR/Core/Models/Context.swift" \
+    "$PROJECT_DIR/Connectors/Models/ToolCallRecord.swift" \
     2>&1; then
     echo "✅ Compiled SummarizationManager Tests"
     echo ""
@@ -176,6 +177,16 @@ run_test_suite "Tool Models Tests" \
 # 9. Tool Schema Converter Tests (provider-specific schema conversion)
 run_test_suite "Tool Schema Converter Tests" \
     "$PROJECT_DIR/Tests/Connectors/ToolSchemaConverterTests.swift" \
+    "Foundation"
+
+# 10. Tool Enabled Chat Service Tests (tool execution loop and state management)
+run_test_suite "Tool Enabled Chat Service Tests" \
+    "$PROJECT_DIR/Tests/Connectors/ToolEnabledChatServiceTests.swift" \
+    "Foundation"
+
+# 11. Tool Persistence Tests (ToolCallRecord, ToolResultRecord, ToolExecutionRoundRecord)
+run_test_suite "Tool Persistence Tests" \
+    "$PROJECT_DIR/Tests/Connectors/ToolPersistenceTests.swift" \
     "Foundation"
 
 # ------------------------------------------------------------------------------

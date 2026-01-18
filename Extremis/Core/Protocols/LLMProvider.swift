@@ -121,6 +121,9 @@ enum LLMProviderError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .notConfigured(let provider):
+            if provider == .ollama {
+                return "Ollama server is not running. Please start Ollama and try again."
+            }
             return "\(provider.rawValue) is not configured. Please add your API key in Preferences."
         case .invalidAPIKey:
             return "Invalid API key. Please check your API key in Preferences."

@@ -27,6 +27,10 @@ struct ResponseView: View {
     var onRetryMessage: ((UUID) -> Void)?
     var onRetryError: (() -> Void)?
 
+    // Tool execution state
+    var activeToolCalls: [ChatToolCall] = []
+    var isExecutingTools: Bool = false
+
     @State private var showCopiedToast = false
 
     // Auto-scroll tracking for quick mode
@@ -60,6 +64,8 @@ struct ResponseView: View {
         self.onEnableChat = nil
         self.onRetryMessage = nil
         self.onRetryError = nil
+        self.activeToolCalls = []
+        self.isExecutingTools = false
     }
 
     // Full initializer with chat support
@@ -80,7 +86,9 @@ struct ResponseView: View {
         onSendChat: @escaping () -> Void,
         onEnableChat: @escaping () -> Void,
         onRetryMessage: ((UUID) -> Void)? = nil,
-        onRetryError: (() -> Void)? = nil
+        onRetryError: (() -> Void)? = nil,
+        activeToolCalls: [ChatToolCall] = [],
+        isExecutingTools: Bool = false
     ) {
         self.response = response
         self.isGenerating = isGenerating
@@ -99,6 +107,8 @@ struct ResponseView: View {
         self.onEnableChat = onEnableChat
         self.onRetryMessage = onRetryMessage
         self.onRetryError = onRetryError
+        self.activeToolCalls = activeToolCalls
+        self.isExecutingTools = isExecutingTools
     }
 
     var body: some View {
@@ -115,6 +125,8 @@ struct ResponseView: View {
                     streamingContent: streamingContent,
                     isGenerating: isGenerating,
                     error: error,
+                    activeToolCalls: activeToolCalls,
+                    isExecutingTools: isExecutingTools,
                     onRetryMessage: onRetryMessage,
                     onRetryError: onRetryError
                 )

@@ -17,6 +17,7 @@ struct ChatMessageView: View {
     @State private var isHovering = false
     @State private var showCopied = false
     @State private var showContextSheet = false
+    @State private var showToolHistory = false
 
     private var isUser: Bool {
         message.role == .user
@@ -32,6 +33,10 @@ struct ChatMessageView: View {
 
     private var hasContext: Bool {
         context != nil
+    }
+
+    private var hasToolHistory: Bool {
+        message.hasToolExecutions
     }
 
     private var bubbleColor: Color {
@@ -73,6 +78,28 @@ struct ChatMessageView: View {
                             .help("View captured context")
                         }
                     }
+
+                    // Tool history indicator (wrench) for assistant messages with tool executions
+                    if isAssistant && hasToolHistory {
+                        Button(action: { withAnimation(.easeInOut(duration: 0.15)) { showToolHistory.toggle() } }) {
+                            HStack(spacing: 2) {
+                                Image(systemName: "wrench.and.screwdriver")
+                                    .font(.caption2)
+                                    .foregroundColor(.orange)
+                                Text("\(message.toolCallCount)")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.orange)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .help("View tool execution history")
+                    }
+                }
+
+                // Tool execution history (expandable)
+                if isAssistant && hasToolHistory && showToolHistory {
+                    PersistedToolHistoryView(toolRounds: message.toolRounds ?? [])
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                 }
 
                 // Message content
@@ -140,6 +167,133 @@ struct ChatMessageView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             showCopied = false
         }
+    }
+}
+
+// MARK: - Persisted Tool History View
+
+/// View showing persisted tool execution history from a completed message
+struct PersistedToolHistoryView: View {
+    let toolRounds: [ToolExecutionRoundRecord]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(toolRounds.enumerated()), id: \.offset) { index, round in
+                VStack(alignment: .leading, spacing: 4) {
+                    if toolRounds.count > 1 {
+                        Text("Round \(index + 1)")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(.secondary)
+                            .padding(.top, index > 0 ? 4 : 0)
+                    }
+
+                    ForEach(round.toolCalls) { call in
+                        PersistedToolCallRow(
+                            call: call,
+                            result: round.results.first { $0.callID == call.id }
+                        )
+                    }
+                }
+            }
+        }
+        .padding(8)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        .cornerRadius(8)
+    }
+}
+
+/// Row showing a single persisted tool call with its result
+struct PersistedToolCallRow: View {
+    let call: ToolCallRecord
+    let result: ToolResultRecord?
+
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            // Header
+            HStack(spacing: 6) {
+                // Status icon
+                if let result = result {
+                    Image(systemName: result.isSuccess ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(result.isSuccess ? .green : .red)
+                } else {
+                    Image(systemName: "questionmark.circle")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+
+                // Tool name
+                Text(call.toolName)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundColor(.primary)
+
+                // Connector badge
+                Text(call.connectorID)
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 3)
+                    .padding(.vertical, 1)
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(3)
+
+                Spacer()
+
+                // Duration
+                if let result = result {
+                    Text(result.durationString)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+
+                // Expand button
+                Button(action: { withAnimation(.easeInOut(duration: 0.1)) { isExpanded.toggle() } }) {
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.1)) { isExpanded.toggle() }
+            }
+
+            // Expanded details
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 2) {
+                    // Arguments
+                    if !call.argumentsDisplay.isEmpty {
+                        HStack(alignment: .top, spacing: 4) {
+                            Text("Args:")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(.secondary)
+                            Text(call.argumentsDisplay)
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundColor(.primary.opacity(0.8))
+                                .lineLimit(3)
+                        }
+                    }
+
+                    // Result
+                    if let result = result {
+                        HStack(alignment: .top, spacing: 4) {
+                            Text(result.isSuccess ? "Result:" : "Error:")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(result.isSuccess ? .secondary : .red)
+                            Text(result.displaySummary)
+                                .font(.system(size: 9))
+                                .foregroundColor(result.isSuccess ? .primary.opacity(0.8) : .red.opacity(0.8))
+                                .lineLimit(4)
+                        }
+                    }
+                }
+                .padding(.leading, 16)
+                .transition(.opacity)
+            }
+        }
+        .padding(.vertical, 2)
     }
 }
 

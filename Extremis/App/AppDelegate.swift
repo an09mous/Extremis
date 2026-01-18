@@ -46,45 +46,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         setupHotkey()
         checkPermissions()
 
-        // Check Ollama connection asynchronously and rebuild menu when done
-        checkOllamaAndRefreshMenu()
+        // Startup tasks in background - Ollama check must complete before session restore
+        // to ensure provider status is correct when PromptWindowViewModel initializes
+        Task { @MainActor in
+            // Check Ollama connection first
+            await checkOllamaConnection()
 
-        // Connect to enabled connectors in background
-        connectEnabledConnectors()
+            // Connect to enabled connectors in background (non-blocking)
+            connectEnabledConnectors()
 
-        // Restore last session on launch
-        restoreSessionOnLaunch()
+            // Restore last session after provider is ready
+            await restoreSessionOnLaunch()
+        }
 
         print("✅ Extremis launched successfully")
     }
 
     /// Restore the last active session on app launch
-    private func restoreSessionOnLaunch() {
-        Task { @MainActor in
-            await sessionManager.restoreLastSession()
+    private func restoreSessionOnLaunch() async {
+        await sessionManager.restoreLastSession()
 
-            // If there's a restored session, make it available to the prompt window
-            if let session = sessionManager.currentSession {
-                promptWindowController.setSession(session, id: sessionManager.currentSessionId)
-                print("📚 Restored session with \(session.messages.count) messages")
-            }
+        // If there's a restored session, make it available to the prompt window
+        if let session = sessionManager.currentSession {
+            promptWindowController.setSession(session, id: sessionManager.currentSessionId)
+            print("📚 Restored session with \(session.messages.count) messages")
         }
     }
 
-    /// Check Ollama connection and refresh the menu bar
-    private func checkOllamaAndRefreshMenu() {
-        Task {
-            if let ollamaProvider = LLMProviderRegistry.shared.provider(for: .ollama) as? OllamaProvider {
-                // Load saved URL if available
-                if let savedURL = UserDefaults.standard.string(forKey: "ollama_base_url"), !savedURL.isEmpty {
-                    ollamaProvider.updateBaseURL(savedURL)
-                }
-                let _ = await ollamaProvider.checkConnection()
-                // Rebuild menu on main thread after connection check
-                await MainActor.run {
-                    setupMenuBar()
-                }
+    /// Check Ollama connection and refresh the menu bar (awaitable)
+    private func checkOllamaConnection() async {
+        if let ollamaProvider = LLMProviderRegistry.shared.provider(for: .ollama) as? OllamaProvider {
+            // Load saved URL if available
+            if let savedURL = UserDefaults.standard.string(forKey: "ollama_base_url"), !savedURL.isEmpty {
+                ollamaProvider.updateBaseURL(savedURL)
             }
+            let _ = await ollamaProvider.checkConnection()
+            // Rebuild menu after connection check
+            setupMenuBar()
         }
     }
 

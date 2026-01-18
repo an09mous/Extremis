@@ -9,6 +9,10 @@ struct ChatView: View {
     let streamingContent: String
     let isGenerating: Bool
     let error: String?
+    /// Active tool calls currently being executed
+    let activeToolCalls: [ChatToolCall]
+    /// Whether tools are currently executing
+    let isExecutingTools: Bool
     /// Callback to retry/regenerate a specific assistant message by its ID
     var onRetryMessage: ((UUID) -> Void)?
     /// Callback to retry after an error (retries the last user message)
@@ -32,6 +36,12 @@ struct ChatView: View {
                                 context: message.context
                             )
                             .id(message.id)
+                        }
+
+                        // Display active tool calls if any
+                        if !activeToolCalls.isEmpty {
+                            ToolCallsGroupView(toolCalls: activeToolCalls)
+                                .id("tool-calls")
                         }
 
                         // Display streaming message if generating
@@ -87,6 +97,9 @@ struct ChatView: View {
                     }
                 }
                 .onChange(of: error) { _ in
+                    scrollToBottomAfterLayout(proxy: proxy)
+                }
+                .onChange(of: activeToolCalls.count) { _ in
                     scrollToBottomAfterLayout(proxy: proxy)
                 }
             }
@@ -218,6 +231,8 @@ struct ChatView_Previews: PreviewProvider {
                 streamingContent: "Here's an improved version...",
                 isGenerating: true,
                 error: nil,
+                activeToolCalls: [],
+                isExecutingTools: false,
                 onRetryMessage: { messageId in print("Retry message: \(messageId)") }
             )
             .frame(height: 300)

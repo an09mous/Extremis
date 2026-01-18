@@ -135,13 +135,24 @@ final class ToolEnabledChatService {
                         for try await chunk in provider.generateChatStream(messages: messages) {
                             continuation.yield(.contentChunk(chunk))
                         }
+                        // No tools used, emit empty completion
+                        continuation.yield(.generationComplete(toolRounds: []))
                         continuation.finish()
                         return
                     }
 
+                    // Extract historical tool rounds from persisted messages
+                    // This ensures LLM has context of previous tool executions in the conversation
+                    let historicalToolRounds = self.extractHistoricalToolRounds(from: messages)
+                    if !historicalToolRounds.isEmpty {
+                        print("🔧 Found \(historicalToolRounds.count) historical tool rounds from previous messages")
+                    }
+
                     // Tool execution loop
-                    // Track complete history of tool rounds for proper conversation context
-                    var toolRounds: [ToolExecutionRound] = []
+                    // Start with historical rounds for proper conversation context
+                    var toolRounds: [ToolExecutionRound] = historicalToolRounds
+                    // Track resolved tool calls for persistence (only NEW rounds from this generation)
+                    var resolvedToolRounds: [(toolCalls: [ToolCall], results: [ToolResult])] = []
                     var rounds = 0
 
                     while rounds < self.maxToolRounds {
@@ -193,7 +204,19 @@ final class ToolEnabledChatService {
                             toolCalls: generation.toolCalls,
                             results: results
                         ))
+
+                        // Track resolved calls for persistence
+                        resolvedToolRounds.append((toolCalls: toolCalls, results: results))
+
+                        // Emit round completed event for persistence tracking
+                        continuation.yield(.toolRoundCompleted(toolCalls: toolCalls, results: results))
                     }
+
+                    // Convert to persistence records and emit completion
+                    let roundRecords = resolvedToolRounds.map { round in
+                        ToolExecutionRoundRecord.from(toolCalls: round.toolCalls, results: round.results)
+                    }
+                    continuation.yield(.generationComplete(toolRounds: roundRecords))
 
                     continuation.finish()
                 } catch {
@@ -261,6 +284,27 @@ final class ToolEnabledChatService {
 
         return batchResult.results
     }
+
+    /// Extract historical tool rounds from persisted messages
+    /// This reconstructs ToolExecutionRound from messages that have toolRounds
+    private func extractHistoricalToolRounds(from messages: [ChatMessage]) -> [ToolExecutionRound] {
+        var allRounds: [ToolExecutionRound] = []
+
+        for message in messages {
+            // Only assistant messages can have tool rounds
+            guard message.role == .assistant,
+                  let toolRounds = message.toolRounds,
+                  !toolRounds.isEmpty else {
+                continue
+            }
+
+            // Convert persisted records to ToolExecutionRound
+            let rounds = toolRounds.toToolExecutionRounds()
+            allRounds.append(contentsOf: rounds)
+        }
+
+        return allRounds
+    }
 }
 
 // MARK: - Generation Events
@@ -275,4 +319,11 @@ enum ToolEnabledGenerationEvent {
 
     /// A tool call's state was updated
     case toolCallUpdated(String, ToolCallState, String?, TimeInterval?)
+
+    /// A tool execution round completed (for persistence)
+    /// Contains the resolved ToolCalls and their results
+    case toolRoundCompleted(toolCalls: [ToolCall], results: [ToolResult])
+
+    /// Generation completed - provides all tool rounds for persistence
+    case generationComplete(toolRounds: [ToolExecutionRoundRecord])
 }
