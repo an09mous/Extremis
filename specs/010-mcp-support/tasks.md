@@ -76,13 +76,13 @@
 
 ### Implementation for User Story 2
 
-- [ ] T017 [US2] Create `Extremis/Connectors/CustomMCPConnector.swift` implementing Connector protocol with config, state, tools properties
-- [ ] T018 [US2] Create `Extremis/UI/Preferences/ConnectorsTab.swift` SwiftUI view with "Custom MCP Servers" section and "+ Add New" button
-- [ ] T019 [US2] Create `Extremis/UI/Preferences/AddEditMCPServerSheet.swift` SwiftUI sheet for name, type (stdio/http), command/URL, args, env vars, API keys sections
-- [ ] T020 [US2] Implement add server flow in ConnectorsTab: show sheet > save to ConnectorConfigStorage > save secrets to Keychain via ConnectorSecretsStorage
-- [ ] T021 [US2] Implement edit server flow in ConnectorsTab: load existing config > show sheet > save changes
-- [ ] T022 [US2] Implement delete server flow in ConnectorsTab: confirm dialog > remove from config > delete secrets from Keychain
-- [ ] T023 [US2] Add ConnectorsTab to PreferencesView tab list in `Extremis/UI/Preferences/PreferencesView.swift`
+- [x] T017 [US2] Create `Extremis/Connectors/CustomMCPConnector.swift` implementing Connector protocol with config, state, tools properties
+- [x] T018 [US2] Create `Extremis/UI/Preferences/ConnectorsTab.swift` SwiftUI view with "Custom MCP Servers" section and "+ Add New" button
+- [x] T019 [US2] Create `Extremis/UI/Preferences/AddEditMCPServerSheet.swift` SwiftUI sheet for name, type (stdio/http), command/URL, args, env vars, API keys sections
+- [x] T020 [US2] Implement add server flow in ConnectorsTab: show sheet > save to ConnectorConfigStorage > save secrets to Keychain via ConnectorSecretsStorage
+- [x] T021 [US2] Implement edit server flow in ConnectorsTab: load existing config > show sheet > save changes
+- [x] T022 [US2] Implement delete server flow in ConnectorsTab: confirm dialog > remove from config > delete secrets from Keychain
+- [x] T023 [US2] Add ConnectorsTab to PreferencesView tab list in `Extremis/UI/Preferences/PreferencesView.swift`
 - [ ] T024 [US2] Add unit test `Extremis/Tests/Connectors/ConnectorConfigStorageTests.swift` for CRUD operations
 
 **Checkpoint**: User Story 2 complete - users can add/edit/delete custom MCP servers
@@ -97,14 +97,14 @@
 
 ### Implementation for User Story 3
 
-- [ ] T025 [US3] Create `Extremis/Connectors/Services/ConnectorRegistry.swift` singleton managing CustomMCPConnector instances (like LLMProviderRegistry)
-- [ ] T026 [US3] Implement CustomMCPConnector.connect() using StdioTransport or HTTPTransport based on config type
-- [ ] T027 [US3] Implement tool discovery in CustomMCPConnector: after MCP initialize handshake, call tools/list and populate tools array
-- [ ] T028 [US3] Add auto-connect on app startup: in AppDelegate.swift applicationDidFinishLaunching, call ConnectorRegistry.shared.connectAllEnabled()
-- [ ] T029 [US3] Implement auto-reconnect with retry logic in ConnectorRegistry: max 3 retries with exponential backoff (1s, 2s, 4s)
-- [ ] T030 [US3] Add connection status indicators to ConnectorsTab: 🟢 Connected, 🟡 Connecting, ⚪ Disconnected, 🔴 Error
-- [ ] T031 [US3] Display discovered tools list for each connected server in ConnectorsTab (collapsible section)
-- [ ] T032 [US3] Handle connection errors: show error message in UI, log details, allow manual retry via "Reconnect" button
+- [x] T025 [US3] Create `Extremis/Connectors/Services/ConnectorRegistry.swift` singleton managing CustomMCPConnector instances (like LLMProviderRegistry)
+- [x] T026 [US3] Implement CustomMCPConnector.connect() using StdioTransport or HTTPTransport based on config type
+- [x] T027 [US3] Implement tool discovery in CustomMCPConnector: after MCP initialize handshake, call tools/list and populate tools array
+- [x] T028 [US3] Add auto-connect on app startup: in AppDelegate.swift applicationDidFinishLaunching, call ConnectorRegistry.shared.connectAllEnabled()
+- [x] T029 [US3] Implement auto-reconnect with retry logic in ConnectorRegistry: max 3 retries with exponential backoff (1s, 2s, 4s)
+- [x] T030 [US3] Add connection status indicators to ConnectorsTab: 🟢 Connected, 🟡 Connecting, ⚪ Disconnected, 🔴 Error
+- [x] T031 [US3] Display discovered tools list for each connected server in ConnectorsTab (collapsible section)
+- [x] T032 [US3] Handle connection errors: show error message in UI, log details, allow manual retry via "Reconnect" button
 
 **Checkpoint**: User Story 3 complete - connectors establish connections and discover tools
 
@@ -118,32 +118,32 @@
 
 ### Schema Conversion
 
-- [ ] T033 [P] [US4] Create `Extremis/Connectors/Conversion/ToolSchemaConverter.swift` with methods to convert ConnectorTool to OpenAI function format and Anthropic tool format
-- [ ] T034 [P] [US4] Add unit test `Extremis/Tests/Connectors/ToolSchemaConverterTests.swift` for OpenAI and Anthropic format conversion
+- [x] T033 [P] [US4] Create `Extremis/Connectors/Conversion/ToolSchemaConverter.swift` with methods to convert ConnectorTool to OpenAI function format and Anthropic tool format
+- [x] T034 [P] [US4] Add unit test `Extremis/Tests/Connectors/ToolSchemaConverterTests.swift` for OpenAI and Anthropic format conversion
 
 ### Tool Execution
 
-- [ ] T035 [US4] Create `Extremis/Connectors/Services/ToolExecutor.swift` with execute(toolCalls:) method supporting parallel execution via TaskGroup
-- [ ] T036 [US4] Implement tool routing in ToolExecutor: map tool name to connector, call connector.executeTool()
-- [ ] T037 [US4] Implement 30-second timeout for tool execution with proper cancellation
+- [x] T035 [US4] Create `Extremis/Connectors/Services/ToolExecutor.swift` with execute(toolCalls:) method supporting parallel execution via TaskGroup
+- [x] T036 [US4] Implement tool routing in ToolExecutor: map tool name to connector, call connector.executeTool()
+- [x] T037 [US4] Implement 30-second timeout for tool execution with proper cancellation
 - [ ] T038 [US4] Add unit test `Extremis/Tests/Connectors/ToolExecutorTests.swift` for parallel execution and timeout handling
 
 ### LLM Provider Integration
 
-- [ ] T039 [US4] Extend `Extremis/Core/Protocols/LLMProvider.swift` with generateChatWithTools(messages:tools:) method
-- [ ] T040 [US4] Create `Extremis/Connectors/Models/GenerationWithToolCalls.swift` with content, toolCalls array, isComplete flag, stopReason
-- [ ] T041 [US4] Update `Extremis/LLMProviders/OpenAIProvider.swift` to implement generateChatWithTools with function calling
-- [ ] T042 [US4] Update `Extremis/LLMProviders/AnthropicProvider.swift` to implement generateChatWithTools with tool use
-- [ ] T043 [US4] Update `Extremis/LLMProviders/PromptBuilder.swift` to include tool definitions when tools are available
+- [x] T039 [US4] Extend `Extremis/Core/Protocols/LLMProvider.swift` with generateChatWithTools(messages:tools:) method
+- [x] T040 [US4] Create `Extremis/Connectors/Models/GenerationWithToolCalls.swift` with content, toolCalls array, isComplete flag, stopReason
+- [x] T041 [US4] Update `Extremis/LLMProviders/OpenAIProvider.swift` to implement generateChatWithTools with function calling
+- [x] T042 [US4] Update `Extremis/LLMProviders/AnthropicProvider.swift` to implement generateChatWithTools with tool use
+- [x] T043 [US4] Update `Extremis/LLMProviders/PromptBuilder.swift` to include tool definitions when tools are available
 
 ### Chat Integration
 
-- [ ] T044 [US4] Create `Extremis/Connectors/Models/ChatToolCall.swift` with ChatToolCall struct, ChatToolCallState enum
-- [ ] T045 [US4] Create `Extremis/Connectors/Models/ChatToolResult.swift` with ChatToolResult struct
-- [ ] T046 [US4] Extend ChatMessage in `Extremis/Core/Models/ChatMessage.swift` with optional toolCalls and toolResult properties
-- [ ] T047 [US4] Create `Extremis/UI/PromptWindow/ToolIndicatorView.swift` SwiftUI view showing "Using tool: [connector]: [name]..." during execution
-- [ ] T048 [US4] Update `Extremis/UI/PromptWindow/ChatMessageView.swift` to display ToolIndicatorView for messages with tool calls
-- [ ] T049 [US4] Implement tool execution loop in chat: detect tool calls from LLM > execute tools > inject results > continue generation
+- [x] T044 [US4] Create `Extremis/Connectors/Models/ChatToolCall.swift` with ChatToolCall struct, ChatToolCallState enum
+- [x] T045 [US4] Create `Extremis/Connectors/Models/ChatToolResult.swift` with ChatToolResult struct
+- [x] T046 [US4] Extend ChatMessage in `Extremis/Core/Models/ChatMessage.swift` with optional toolCalls and toolResult properties
+- [x] T047 [US4] Create `Extremis/UI/PromptWindow/ToolIndicatorView.swift` SwiftUI view showing "Using tool: [connector]: [name]..." during execution
+- [x] T048 [US4] Update `Extremis/UI/PromptWindow/ChatMessageView.swift` to display ToolIndicatorView for messages with tool calls
+- [x] T049 [US4] Implement tool execution loop in chat: detect tool calls from LLM > execute tools > inject results > continue generation
 
 **Checkpoint**: User Story 4 complete - LLM can use connector tools in conversations
 
@@ -157,11 +157,11 @@
 
 ### Implementation for User Story 5
 
-- [ ] T050 [US5] Update ConnectorRegistry to manage multiple CustomMCPConnector instances concurrently
-- [ ] T051 [US5] Implement tool name disambiguation in ConnectorTool.name property using underscore prefix format (e.g., `myserver_read_file`)
-- [ ] T052 [US5] Update ToolExecutor to aggregate tools from all connected connectors for LLM tool definitions
-- [ ] T053 [US5] Update ConnectorsTab to list all custom servers with individual enable/disable toggles and status indicators
-- [ ] T054 [US5] Handle connector failures independently: one connector error doesn't affect others
+- [x] T050 [US5] Update ConnectorRegistry to manage multiple CustomMCPConnector instances concurrently
+- [x] T051 [US5] Implement tool name disambiguation in ConnectorTool.name property using underscore prefix format (e.g., `myserver_read_file`)
+- [x] T052 [US5] Update ToolExecutor to aggregate tools from all connected connectors for LLM tool definitions
+- [x] T053 [US5] Update ConnectorsTab to list all custom servers with individual enable/disable toggles and status indicators
+- [x] T054 [US5] Handle connector failures independently: one connector error doesn't affect others
 
 **Checkpoint**: User Story 5 complete - multiple connectors work simultaneously
 
@@ -175,11 +175,11 @@
 
 ### Implementation for User Story 6
 
-- [ ] T055 [US6] Add enabled toggle to each connector row in ConnectorsTab
-- [ ] T056 [US6] Implement enable flow: update config > call ConnectorRegistry.connect(connectorID:)
-- [ ] T057 [US6] Implement disable flow: update config > call ConnectorRegistry.disconnect(connectorID:)
-- [ ] T058 [US6] Preserve config when disabled: server still appears in list with preserved settings
-- [ ] T059 [US6] Update ToolExecutor to only provide tools from enabled AND connected connectors
+- [x] T055 [US6] Add enabled toggle to each connector row in ConnectorsTab
+- [x] T056 [US6] Implement enable flow: update config > call ConnectorRegistry.connect(connectorID:)
+- [x] T057 [US6] Implement disable flow: update config > call ConnectorRegistry.disconnect(connectorID:)
+- [x] T058 [US6] Preserve config when disabled: server still appears in list with preserved settings
+- [x] T059 [US6] Update ToolExecutor to only provide tools from enabled AND connected connectors
 
 **Checkpoint**: User Story 6 complete - connectors can be enabled/disabled independently
 
@@ -189,13 +189,13 @@
 
 **Purpose**: Quality improvements, documentation, and integration testing
 
-- [ ] T060 [P] Add error logging throughout Connectors module using existing logging patterns
+- [x] T060 [P] Add error logging throughout Connectors module using existing logging patterns
 - [ ] T061 [P] Update `Extremis/CLAUDE.md` with Connectors module documentation (patterns, key files)
 - [ ] T062 [P] Update `Extremis/README.md` with Connectors feature description and configuration instructions
-- [ ] T063 Create `Extremis/Resources/PromptTemplates/tool_context.hbs` for tool-aware system prompt additions (if needed)
-- [ ] T064 Manual QA: Test all connector flows per quickstart.md scenarios
-- [ ] T065 Run full test suite via `./scripts/run-tests.sh` and verify all pass
-- [ ] T066 Build release and verify no warnings: `swift build -c release`
+- [x] T063 Create `Extremis/Resources/PromptTemplates/tool_context.hbs` for tool-aware system prompt additions (if needed) - N/A, not needed
+- [x] T064 Manual QA: Test all connector flows per quickstart.md scenarios
+- [x] T065 Run full test suite via `./scripts/run-tests.sh` and verify all pass
+- [x] T066 Build release and verify no warnings: `swift build -c release`
 
 ---
 
@@ -302,28 +302,24 @@ Execute in strict order: Phase 1 → Phase 2 → US2 → US3 → US4 → US5 →
 
 ## Summary
 
-| Phase | Tasks | Description |
-|-------|-------|-------------|
-| Setup | T001-T003 | Directory structure, dependencies, base protocol |
-| Foundational | T004-T016 | Models, secrets, transport, config persistence |
-| US2: Add Server | T017-T024 | Add/edit/delete custom MCP servers |
-| US3: Connect | T025-T032 | Connection lifecycle, tool discovery |
-| US4: Use Tools | T033-T049 | Schema conversion, execution, LLM integration |
-| US5: Multiple | T050-T054 | Multiple concurrent connectors |
-| US6: Enable/Disable | T055-T059 | Toggle connectors without deletion |
-| Polish | T060-T066 | Documentation, QA, testing |
+| Phase | Tasks | Status |
+|-------|-------|--------|
+| Setup | T001-T003 | ✅ Complete (3/3) |
+| Foundational | T004-T016 | ✅ Complete (13/13) |
+| US2: Add Server | T017-T024 | ✅ Complete (7/8) - missing T024 unit test |
+| US3: Connect | T025-T032 | ✅ Complete (8/8) |
+| US4: Use Tools | T033-T049 | ✅ Complete (16/17) - missing T038 unit test |
+| US5: Multiple | T050-T054 | ✅ Complete (5/5) |
+| US6: Enable/Disable | T055-T059 | ✅ Complete (5/5) |
+| Polish | T060-T066 | 🔄 In Progress (5/7) - missing T061, T062 docs |
 
 **Total**: 66 tasks
-- Setup: 3 tasks
-- Foundational: 13 tasks
-- US2: 8 tasks
-- US3: 8 tasks
-- US4: 17 tasks
-- US5: 5 tasks
-- US6: 5 tasks
-- Polish: 7 tasks
-
-**Parallel Opportunities**: ~30% of tasks can run in parallel within their phases.
+- **Completed**: 62 tasks ✅
+- **Remaining**: 4 tasks
+  - T024: Unit test for ConnectorConfigStorage CRUD
+  - T038: Unit test for ToolExecutor parallel execution
+  - T061: Update CLAUDE.md with Connectors docs
+  - T062: Update README.md with Connectors feature
 
 ---
 

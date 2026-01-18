@@ -65,6 +65,30 @@ protocol LLMProvider: AnyObject {
         tools: [ConnectorTool],
         toolRounds: [ToolExecutionRound]
     ) async throws -> ToolEnabledGeneration
+
+    /// Generate a chat response with tool support (streaming)
+    /// Streams text content while also returning tool calls at the end
+    /// - Parameters:
+    ///   - messages: Array of chat messages in the conversation
+    ///   - tools: Available tools for the LLM to use
+    ///   - toolRounds: History of tool execution rounds (each round pairs tool calls with their results)
+    /// - Returns: Stream of events (text chunks and/or tool calls)
+    func generateChatWithToolsStream(
+        messages: [ChatMessage],
+        tools: [ConnectorTool],
+        toolRounds: [ToolExecutionRound]
+    ) -> AsyncThrowingStream<ToolStreamEvent, Error>
+}
+
+// MARK: - Tool Stream Event
+
+/// Events emitted during tool-enabled streaming generation
+enum ToolStreamEvent {
+    /// Text content chunk from LLM
+    case textChunk(String)
+
+    /// LLM is done streaming, provides final tool calls (may be empty)
+    case complete(toolCalls: [LLMToolCall])
 }
 
 // MARK: - Tool Execution Round

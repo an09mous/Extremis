@@ -138,13 +138,28 @@ struct ResponseView: View {
                         VStack(alignment: .leading, spacing: 12) {
                             if let errorMessage = error {
                                 ErrorBanner(message: errorMessage, onRetry: onRetryError)
-                            } else if response.isEmpty && isGenerating {
+                            } else if response.isEmpty && isGenerating && activeToolCalls.isEmpty {
                                 GeneratingPlaceholder()
                             } else {
-                                Text(response)
-                                    .font(.body)
-                                    .textSelection(.enabled)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                // Display tool calls if any (same as chat mode)
+                                if !activeToolCalls.isEmpty {
+                                    ToolCallsGroupView(toolCalls: activeToolCalls)
+                                }
+
+                                // Display response text if available
+                                if !response.isEmpty {
+                                    Text(response)
+                                        .font(.body)
+                                        .textSelection(.enabled)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                } else if isGenerating && !activeToolCalls.isEmpty {
+                                    // Tools are running but no response yet
+                                    HStack(spacing: 8) {
+                                        LoadingIndicator(style: .dots)
+                                        Text("Processing tool results...")
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
                             }
 
                             // Bottom anchor for auto-scroll
@@ -175,6 +190,12 @@ struct ResponseView: View {
                             }
                         }
                         // Delay scroll slightly to ensure layout is complete
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                            proxy.scrollTo("quickModeBottom", anchor: .bottom)
+                        }
+                    }
+                    .onChange(of: activeToolCalls.count) { _ in
+                        // Auto-scroll when tool calls appear or change
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                             proxy.scrollTo("quickModeBottom", anchor: .bottom)
                         }

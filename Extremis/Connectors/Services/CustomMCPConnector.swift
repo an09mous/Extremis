@@ -29,8 +29,11 @@ final class CustomMCPConnector: Connector, ObservableObject {
     /// The MCP client from SDK
     private var client: Client?
 
-    /// The transport for the subprocess
-    private var transport: ProcessTransport?
+    /// The transport for the subprocess (stdio)
+    private var processTransport: ProcessTransport?
+
+    /// The transport for HTTP connections
+    private var httpTransport: HTTPTransport?
 
     /// Secrets storage for API keys
     private let secretsStorage: ConnectorSecretsStorage
@@ -94,43 +97,24 @@ final class CustomMCPConnector: Connector, ObservableObject {
         tools = []
 
         do {
-            // Build environment with secrets
-            let environment = try buildEnvironment()
-
-            // Create transport configuration based on transport type
-            let transportConfig: ProcessTransport.Configuration
-            switch config.transport {
-            case .stdio(let stdioConfig):
-                transportConfig = ProcessTransport.Configuration(
-                    command: stdioConfig.command,
-                    args: stdioConfig.args,
-                    environment: environment
-                )
-            case .http:
-                // HTTP transport not yet supported with SDK
-                throw ConnectorError.connectionFailed("HTTP transport not yet supported")
-            }
-
-            // Create transport
-            connectorLogger.debug("[\(name)] Creating process transport...")
-            print("[MCP:\(name)] Creating process transport...")
-            let newTransport = ProcessTransport(
-                config: transportConfig,
-                logger: Logger(label: "mcp.transport.\(name)")
-            )
-            transport = newTransport
-
             // Create MCP client
             let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
             let newClient = Client(name: "Extremis", version: appVersion)
             client = newClient
 
-            // Connect (this also initializes the MCP protocol)
-            connectorLogger.debug("[\(name)] Connecting to MCP server...")
-            print("[MCP:\(name)] Connecting to MCP server...")
-
-            let initResult = try await withTimeout(ConnectorConstants.connectionTimeout) {
-                try await newClient.connect(transport: newTransport)
+            // Connect based on transport type
+            let initResult: Initialize.Result
+            switch config.transport {
+            case .stdio(let stdioConfig):
+                initResult = try await connectStdio(
+                    client: newClient,
+                    stdioConfig: stdioConfig
+                )
+            case .http(let httpConfig):
+                initResult = try await connectHTTP(
+                    client: newClient,
+                    httpConfig: httpConfig
+                )
             }
             print("[MCP:\(name)] MCP protocol initialized")
 
@@ -176,7 +160,8 @@ final class CustomMCPConnector: Connector, ObservableObject {
             print("[MCP:\(name)] Error type: \(type(of: error)), details: \(error)")
             state = .error(errorMessage)
             client = nil
-            transport = nil
+            processTransport = nil
+            httpTransport = nil
             throw error
         }
     }
@@ -189,7 +174,8 @@ final class CustomMCPConnector: Connector, ObservableObject {
         }
 
         client = nil
-        transport = nil
+        processTransport = nil
+        httpTransport = nil
         tools = []
         state = .disconnected
 
@@ -247,6 +233,79 @@ final class CustomMCPConnector: Connector, ObservableObject {
                 error: ToolError(message: error.localizedDescription),
                 duration: duration
             )
+        }
+    }
+
+    // MARK: - Transport Connection Helpers
+
+    /// Connect using STDIO transport (subprocess)
+    private func connectStdio(
+        client: Client,
+        stdioConfig: StdioConfig
+    ) async throws -> Initialize.Result {
+        // Build environment with secrets
+        let environment = try buildEnvironment()
+
+        // Create transport configuration
+        let transportConfig = ProcessTransport.Configuration(
+            command: stdioConfig.command,
+            args: stdioConfig.args,
+            environment: environment
+        )
+
+        // Create process transport
+        connectorLogger.debug("[\(name)] Creating process transport...")
+        print("[MCP:\(name)] Creating process transport...")
+        let newTransport = ProcessTransport(
+            config: transportConfig,
+            logger: Logger(label: "mcp.transport.\(name)")
+        )
+        processTransport = newTransport
+
+        // Connect to MCP server
+        connectorLogger.debug("[\(name)] Connecting to MCP server (stdio)...")
+        print("[MCP:\(name)] Connecting to MCP server (stdio)...")
+
+        return try await withTimeout(ConnectorConstants.connectionTimeout) {
+            try await client.connect(transport: newTransport)
+        }
+    }
+
+    /// Connect using HTTP transport (remote server)
+    private func connectHTTP(
+        client: Client,
+        httpConfig: HTTPConfig
+    ) async throws -> Initialize.Result {
+        // Build headers with secrets (e.g., Authorization header)
+        var headers = httpConfig.headers
+
+        // Merge secret headers from Keychain
+        if let secrets = try? secretsStorage.loadSecrets(forCustomServer: config.id) {
+            headers = secrets.mergeWithHeaders(headers)
+        }
+
+        // Create HTTP transport configuration
+        let transportConfig = HTTPTransport.Configuration(
+            url: httpConfig.url,
+            headers: headers,
+            streaming: true  // Enable SSE for server-to-client messages
+        )
+
+        // Create HTTP transport
+        connectorLogger.debug("[\(name)] Creating HTTP transport...")
+        print("[MCP:\(name)] Creating HTTP transport to \(httpConfig.url.absoluteString)...")
+        let newTransport = HTTPTransport(
+            config: transportConfig,
+            logger: Logger(label: "mcp.transport.\(name)")
+        )
+        httpTransport = newTransport
+
+        // Connect to MCP server
+        connectorLogger.debug("[\(name)] Connecting to MCP server (http)...")
+        print("[MCP:\(name)] Connecting to MCP server (http)...")
+
+        return try await withTimeout(ConnectorConstants.connectionTimeout) {
+            try await client.connect(transport: newTransport)
         }
     }
 
