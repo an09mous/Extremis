@@ -138,11 +138,12 @@ enum ConnectorError: LocalizedError, Equatable {
 
 /// Constants for connector operations
 enum ConnectorConstants {
-    /// Connection timeout in seconds
-    static let connectionTimeout: TimeInterval = 5.0
+    /// Connection timeout in seconds (includes MCP handshake)
+    static let connectionTimeout: TimeInterval = 10.0
 
     /// Tool execution timeout in seconds
-    static let toolExecutionTimeout: TimeInterval = 30.0
+    /// Some tools (e.g., web scraping with headless browsers) can take longer
+    static let toolExecutionTimeout: TimeInterval = 60.0
 
     /// Maximum retry attempts for auto-reconnect
     static let maxReconnectAttempts = 3

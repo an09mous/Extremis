@@ -157,6 +157,7 @@ final class ToolEnabledChatService {
 
                     while rounds < self.maxToolRounds {
                         rounds += 1
+                        print("🔧 Tool round \(rounds) starting...")
 
                         // Call LLM with tools using streaming API
                         var streamedToolCalls: [LLMToolCall] = []
@@ -176,6 +177,7 @@ final class ToolEnabledChatService {
 
                         // If no tool calls, we're done
                         if streamedToolCalls.isEmpty {
+                            print("🔧 Round \(rounds): No tool calls, generation complete")
                             break
                         }
 
@@ -214,7 +216,10 @@ final class ToolEnabledChatService {
 
                         // Emit round completed event for persistence tracking
                         continuation.yield(.toolRoundCompleted(toolCalls: toolCalls, results: results))
+                        print("🔧 Round \(rounds) complete: executed \(results.count) tools")
                     }
+
+                    print("🔧 Generation finished after \(rounds) round(s), \(resolvedToolRounds.count) new tool rounds")
 
                     // Convert to persistence records and emit completion
                     let roundRecords = resolvedToolRounds.map { round in

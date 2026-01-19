@@ -2,6 +2,48 @@ import Foundation
 import MCP
 import Logging
 
+/// Helper class to manage mutable state for readability handler callbacks
+/// This is needed because readabilityHandler is callback-based and needs thread-safe state
+private final class ReadState: @unchecked Sendable {
+    private let logger: Logger
+    private let continuation: AsyncThrowingStream<Data, Swift.Error>.Continuation
+    private var buffer = Data()
+    private let lock = NSLock()
+
+    init(logger: Logger, continuation: AsyncThrowingStream<Data, Swift.Error>.Continuation) {
+        self.logger = logger
+        self.continuation = continuation
+    }
+
+    func processData(_ data: Data) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        buffer.append(data)
+
+        // Process complete lines (newline-delimited)
+        while let newlineIndex = buffer.firstIndex(of: UInt8(ascii: "\n")) {
+            let lineData = buffer[buffer.startIndex..<newlineIndex]
+            buffer = Data(buffer[buffer.index(after: newlineIndex)...])
+
+            if lineData.isEmpty { continue }
+
+            // Only yield lines that look like JSON (start with '{' or '[')
+            // Some MCP servers incorrectly print status messages to stdout
+            if let firstByte = lineData.first,
+               firstByte == UInt8(ascii: "{") || firstByte == UInt8(ascii: "[") {
+                logger.trace("Received message (\(lineData.count) bytes)")
+                continuation.yield(Data(lineData))
+            } else {
+                // Log non-JSON lines as debug (likely server status messages)
+                if let line = String(data: lineData, encoding: .utf8) {
+                    logger.debug("Ignoring non-JSON stdout: \(line)")
+                }
+            }
+        }
+    }
+}
+
 /// Transport implementation for MCP servers running as subprocesses.
 ///
 /// This transport spawns an MCP server as a subprocess and communicates with it
@@ -39,7 +81,6 @@ public actor ProcessTransport: Transport {
     private let messageStream: AsyncThrowingStream<Data, Swift.Error>
     private let messageContinuation: AsyncThrowingStream<Data, Swift.Error>.Continuation
 
-    private var readTask: Task<Void, Never>?
     private var stderrTask: Task<Void, Never>?
 
     // MARK: - Initialization
@@ -55,8 +96,8 @@ public actor ProcessTransport: Transport {
     }
 
     deinit {
-        readTask?.cancel()
         stderrTask?.cancel()
+        stdoutPipe?.fileHandleForReading.readabilityHandler = nil
         process?.terminate()
     }
 
@@ -70,9 +111,18 @@ public actor ProcessTransport: Transport {
 
         logger.info("Spawning subprocess: \(config.command) \(config.args.joined(separator: " "))")
 
+        // Resolve command path (supports both absolute paths and commands in PATH)
+        guard let resolvedPath = resolveCommandPath(config.command) else {
+            let errorMessage = "Command not found: '\(config.command)'. Make sure it's installed and in your PATH."
+            logger.error("\(errorMessage)")
+            throw MCPError.internalError(errorMessage)
+        }
+
+        logger.debug("Resolved command path: \(resolvedPath)")
+
         // Create process
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: config.command)
+        process.executableURL = URL(fileURLWithPath: resolvedPath)
         process.arguments = config.args
 
         // Merge current environment with config environment
@@ -80,6 +130,15 @@ public actor ProcessTransport: Transport {
         for (key, value) in config.environment {
             environment[key] = value
         }
+
+        // Force unbuffered stdout for Node.js processes
+        // Without this, Node.js buffers output when stdout is not a TTY
+        environment["NODE_OPTIONS"] = (environment["NODE_OPTIONS"] ?? "") + " --no-warnings"
+        environment["FORCE_COLOR"] = "0"  // Disable color codes
+
+        // Python unbuffered mode
+        environment["PYTHONUNBUFFERED"] = "1"
+
         process.environment = environment
 
         // Create pipes
@@ -118,10 +177,9 @@ public actor ProcessTransport: Transport {
 
         isConnectedFlag = true
 
-        // Start reading stdout in background
-        readTask = Task { [weak self] in
-            await self?.readLoop()
-        }
+        // Set up stdout reading using readabilityHandler
+        // This works better than async byte iteration for Node.js processes
+        setupStdoutHandler()
 
         // Start reading stderr for logging
         stderrTask = Task { [weak self] in
@@ -137,8 +195,10 @@ public actor ProcessTransport: Transport {
         logger.info("Disconnecting process transport...")
         isConnectedFlag = false
 
-        // Cancel read tasks
-        readTask?.cancel()
+        // Clean up stdout handler
+        cleanupStdoutHandler()
+
+        // Cancel stderr task
         stderrTask?.cancel()
 
         // Finish the message stream
@@ -176,6 +236,8 @@ public actor ProcessTransport: Transport {
 
         do {
             try fileHandle.write(contentsOf: messageWithNewline)
+            // Note: synchronize() doesn't work on pipes (returns ENOTSUP)
+            // The write is unbuffered for pipes, so no explicit flush is needed
             logger.trace("Sent message (\(data.count) bytes)")
         } catch {
             logger.error("Failed to write to stdin: \(error.localizedDescription)")
@@ -189,44 +251,88 @@ public actor ProcessTransport: Transport {
 
     // MARK: - Private Methods
 
-    private func readLoop() async {
-        guard let stdoutPipe = stdoutPipe else { return }
+    /// Resolve a command to its full path by searching PATH
+    /// - Parameter command: The command name (e.g., "node") or absolute path
+    /// - Returns: Full path to the executable, or nil if not found
+    private func resolveCommandPath(_ command: String) -> String? {
+        // If it's already an absolute path, use it directly
+        if command.hasPrefix("/") {
+            return FileManager.default.fileExists(atPath: command) ? command : nil
+        }
 
-        let fileHandle = stdoutPipe.fileHandleForReading
-        logger.debug("Read loop started")
+        // Common paths to search (in addition to PATH env var)
+        // These cover typical installation locations for tools like node, python, etc.
+        let commonPaths = [
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin",
+            "/opt/homebrew/bin",  // Apple Silicon Homebrew
+            "/opt/local/bin",     // MacPorts
+            NSHomeDirectory() + "/.nvm/current/bin",  // NVM (Node Version Manager)
+            NSHomeDirectory() + "/.volta/bin",        // Volta (Node version manager)
+            NSHomeDirectory() + "/.local/bin",        // pipx, cargo, etc.
+        ]
 
-        var buffer = Data()
+        // Get PATH from environment
+        let pathEnv = ProcessInfo.processInfo.environment["PATH"] ?? ""
+        let pathDirs = pathEnv.split(separator: ":").map(String.init)
 
-        do {
-            for try await byte in fileHandle.bytes {
-                if Task.isCancelled || !isConnectedFlag {
-                    break
-                }
-
-                buffer.append(byte)
-
-                // Process complete lines (newline-delimited JSON)
-                if byte == UInt8(ascii: "\n") {
-                    if !buffer.isEmpty {
-                        // Remove the trailing newline for the message
-                        let messageData = buffer.dropLast()
-                        if !messageData.isEmpty {
-                            logger.trace("Received message (\(messageData.count) bytes)")
-                            messageContinuation.yield(Data(messageData))
-                        }
-                        buffer = Data()
-                    }
-                }
-            }
-            logger.debug("Read loop: end of stream")
-        } catch {
-            if !Task.isCancelled && isConnectedFlag {
-                logger.error("Read error: \(error.localizedDescription)")
+        // Combine PATH directories with common paths (PATH takes priority)
+        var searchPaths = pathDirs
+        for path in commonPaths {
+            if !searchPaths.contains(path) {
+                searchPaths.append(path)
             }
         }
 
-        messageContinuation.finish()
-        logger.debug("Read loop ended")
+        // Search for the command in all paths
+        for dir in searchPaths {
+            let fullPath = (dir as NSString).appendingPathComponent(command)
+            if FileManager.default.isExecutableFile(atPath: fullPath) {
+                return fullPath
+            }
+        }
+
+        return nil
+    }
+
+    /// Set up stdout reading using readabilityHandler (callback-based)
+    /// This works better than async byte iteration for Node.js processes which buffer stdout
+    private func setupStdoutHandler() {
+        guard let stdoutPipe = stdoutPipe else { return }
+
+        let fileHandle = stdoutPipe.fileHandleForReading
+        logger.debug("Setting up stdout readability handler")
+
+        // Use a class to hold mutable state for the callback
+        let state = ReadState(logger: logger, continuation: messageContinuation)
+
+        fileHandle.readabilityHandler = { [weak self] handle in
+            guard let self = self else {
+                handle.readabilityHandler = nil
+                return
+            }
+
+            let data = handle.availableData
+
+            // Check if we got EOF
+            if data.isEmpty {
+                self.logger.debug("Stdout: EOF received")
+                handle.readabilityHandler = nil
+                self.messageContinuation.finish()
+                return
+            }
+
+            // Process the received data
+            state.processData(data)
+        }
+    }
+
+    /// Clean up stdout handler
+    private func cleanupStdoutHandler() {
+        stdoutPipe?.fileHandleForReading.readabilityHandler = nil
     }
 
     private func readStderrLoop() async {

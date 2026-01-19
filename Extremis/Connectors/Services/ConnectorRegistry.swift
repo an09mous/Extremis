@@ -186,6 +186,13 @@ final class ConnectorRegistry: ObservableObject {
             return
         }
 
+        // If connector is being disabled, cancel any pending retries
+        if !config.enabled {
+            retryTasks[config.id.uuidString]?.cancel()
+            retryTasks.removeValue(forKey: config.id.uuidString)
+            retryAttempts.removeValue(forKey: config.id.uuidString)
+        }
+
         await connector.updateConfig(config)
         connectionStates[config.id.uuidString] = connector.state
         refreshAvailableTools()
@@ -241,6 +248,14 @@ final class ConnectorRegistry: ObservableObject {
     private func scheduleRetry(for connectorID: String) {
         guard let connector = connectors[connectorID] else { return }
 
+        // Don't retry if connector is disabled
+        guard connector.isEnabled else {
+            print("[ConnectorRegistry] Skipping retry for \(connector.name): connector is disabled")
+            retryAttempts.removeValue(forKey: connectorID)
+            retryTasks.removeValue(forKey: connectorID)
+            return
+        }
+
         let attempts = (retryAttempts[connectorID] ?? 0) + 1
         retryAttempts[connectorID] = attempts
 
@@ -259,6 +274,13 @@ final class ConnectorRegistry: ObservableObject {
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
 
             guard !Task.isCancelled else { return }
+
+            // Re-check if connector is still enabled after the delay
+            guard let currentConnector = self.connectors[connectorID],
+                  currentConnector.isEnabled else {
+                print("[ConnectorRegistry] Retry cancelled for \(connectorName): connector disabled")
+                return
+            }
 
             do {
                 try await self.connect(connectorID: connectorID)

@@ -157,7 +157,6 @@ final class CustomMCPConnector: Connector, ObservableObject {
             let errorMessage = error.localizedDescription
             connectorLogger.error("[\(name)] ✗ Connection failed: \(errorMessage)")
             print("[MCP:\(name)] ✗ Connection failed: \(errorMessage)")
-            print("[MCP:\(name)] Error type: \(type(of: error)), details: \(error)")
             state = .error(errorMessage)
             client = nil
             processTransport = nil
@@ -262,7 +261,7 @@ final class CustomMCPConnector: Connector, ObservableObject {
         )
         processTransport = newTransport
 
-        // Connect to MCP server
+        // Connect to MCP server (MCP protocol handshake)
         connectorLogger.debug("[\(name)] Connecting to MCP server (stdio)...")
         print("[MCP:\(name)] Connecting to MCP server (stdio)...")
 
@@ -461,23 +460,31 @@ final class CustomMCPConnector: Connector, ObservableObject {
         }
     }
 
-    /// Execute with timeout
-    private func withTimeout<T: Sendable>(
+    /// Execute with timeout using async let racing
+    nonisolated private func withTimeout<T: Sendable>(
         _ timeout: TimeInterval,
         operation: @Sendable @escaping () async throws -> T
     ) async throws -> T {
         try await withThrowingTaskGroup(of: T.self) { group in
+            // Add the main operation
             group.addTask {
                 try await operation()
             }
 
+            // Add the timeout
             group.addTask {
                 try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
                 throw ConnectorError.connectionTimeout
             }
 
-            let result = try await group.next()!
+            // Get the first result (either success or timeout)
+            guard let result = try await group.next() else {
+                throw ConnectorError.connectionTimeout
+            }
+
+            // Cancel remaining tasks
             group.cancelAll()
+
             return result
         }
     }
