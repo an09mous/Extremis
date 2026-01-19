@@ -242,29 +242,25 @@ final class OpenAIProvider: LLMProvider {
                     }
 
                     // Parse SSE stream - OpenAI format
-                    var currentLine = ""
+                    // Use bytes.lines for proper UTF-8 decoding
                     var toolCallsAccumulator: [String: (name: String, arguments: String)] = [:]
 
-                    for try await byte in bytes {
-                        let char = Character(UnicodeScalar(byte))
+                    for try await line in bytes.lines {
+                        if Task.isCancelled {
+                            continuation.finish()
+                            return
+                        }
 
-                        if char == "\n" {
-                            if !currentLine.isEmpty {
-                                if let result = self.parseToolStreamSSELine(
-                                    currentLine,
-                                    toolCallsAccumulator: &toolCallsAccumulator
-                                ) {
-                                    switch result {
-                                    case .text(let text):
-                                        continuation.yield(.textChunk(text))
-                                    case .done:
-                                        break
-                                    }
-                                }
-                                currentLine = ""
+                        if let result = self.parseToolStreamSSELine(
+                            line,
+                            toolCallsAccumulator: &toolCallsAccumulator
+                        ) {
+                            switch result {
+                            case .text(let text):
+                                continuation.yield(.textChunk(text))
+                            case .done:
+                                break
                             }
-                        } else {
-                            currentLine.append(char)
                         }
                     }
 
