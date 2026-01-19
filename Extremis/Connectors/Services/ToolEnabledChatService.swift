@@ -126,6 +126,9 @@ final class ToolEnabledChatService {
     ) -> AsyncThrowingStream<ToolEnabledGenerationEvent, Error> {
         AsyncThrowingStream { continuation in
             Task {
+                // Track resolved tool calls for persistence - declared outside do block for catch access
+                var resolvedToolRounds: [(toolCalls: [ToolCall], results: [ToolResult])] = []
+
                 do {
                     // Get available tools
                     let availableTools = self.connectorRegistry.toolDefinitions
@@ -151,8 +154,6 @@ final class ToolEnabledChatService {
                     // Tool execution loop
                     // Start with historical rounds for proper conversation context
                     var toolRounds: [ToolExecutionRound] = historicalToolRounds
-                    // Track resolved tool calls for persistence (only NEW rounds from this generation)
-                    var resolvedToolRounds: [(toolCalls: [ToolCall], results: [ToolResult])] = []
                     var rounds = 0
 
                     while rounds < self.maxToolRounds {
@@ -196,12 +197,22 @@ final class ToolEnabledChatService {
                         continuation.yield(.toolCallsStarted(chatToolCalls))
                         onToolCallsStarted(chatToolCalls)
 
+                        // Track results for this round incrementally
+                        var currentRoundToolCalls: [ToolCall] = []
+                        var currentRoundResults: [ToolResult] = []
+
                         // Execute tools with progress updates
                         let results = await self.executeToolsWithUpdates(
                             toolCalls: toolCalls,
                             onToolCallUpdated: { id, state, summary, duration in
                                 continuation.yield(.toolCallUpdated(id, state, summary, duration))
                                 onToolCallUpdated(id, state, summary, duration)
+                            },
+                            onToolResultReady: { toolCall, result in
+                                // Emit each result as it completes (for incremental persistence)
+                                currentRoundToolCalls.append(toolCall)
+                                currentRoundResults.append(result)
+                                continuation.yield(.toolResultReady(toolCall: toolCall, result: result))
                             }
                         )
 
@@ -229,6 +240,14 @@ final class ToolEnabledChatService {
 
                     continuation.finish()
                 } catch {
+                    // Emit partial results before finishing with error
+                    // This ensures any completed tool rounds are persisted
+                    if !resolvedToolRounds.isEmpty {
+                        let partialRecords = resolvedToolRounds.map { round in
+                            ToolExecutionRoundRecord.from(toolCalls: round.toolCalls, results: round.results)
+                        }
+                        continuation.yield(.generationInterrupted(error: error, partialToolRounds: partialRecords))
+                    }
                     continuation.finish(throwing: error)
                 }
             }
@@ -265,20 +284,40 @@ final class ToolEnabledChatService {
     }
 
     /// Execute tools with progress updates
+    /// Reports each tool result as it completes (not waiting for all)
     private func executeToolsWithUpdates(
         toolCalls: [ToolCall],
-        onToolCallUpdated: @escaping (String, ToolCallState, String?, TimeInterval?) -> Void
+        onToolCallUpdated: @escaping (String, ToolCallState, String?, TimeInterval?) -> Void,
+        onToolResultReady: ((ToolCall, ToolResult) -> Void)? = nil
     ) async -> [ToolResult] {
         // Mark all as executing
         for call in toolCalls {
             onToolCallUpdated(call.id, .executing, nil, nil)
         }
 
-        // Execute in parallel
-        let batchResult = await toolExecutor.executeBatch(toolCalls)
+        // Execute sequentially to report each result immediately
+        var results: [ToolResult] = []
+        results.reserveCapacity(toolCalls.count)
 
-        // Update UI with results
-        for result in batchResult.results {
+        for call in toolCalls {
+            // Check for cancellation before each tool
+            if Task.isCancelled {
+                // Mark remaining tools as cancelled
+                let cancelledResult = ToolResult.failure(
+                    callID: call.id,
+                    toolName: call.toolName,
+                    error: ToolError(message: "Execution cancelled"),
+                    duration: 0
+                )
+                results.append(cancelledResult)
+                onToolCallUpdated(call.id, .failed, "Cancelled", 0)
+                continue
+            }
+
+            let result = await toolExecutor.execute(call)
+            results.append(result)
+
+            // Update UI immediately for this tool
             let state: ToolCallState = result.isSuccess ? .completed : .failed
             let summary = result.isSuccess ? result.content?.displaySummary : nil
             let errorMsg = result.error?.message
@@ -289,9 +328,12 @@ final class ToolEnabledChatService {
                 summary ?? errorMsg,
                 result.duration
             )
+
+            // Notify about this result immediately (for incremental persistence)
+            onToolResultReady?(call, result)
         }
 
-        return batchResult.results
+        return results
     }
 
     /// Extract historical tool rounds from persisted messages
@@ -329,10 +371,17 @@ enum ToolEnabledGenerationEvent {
     /// A tool call's state was updated
     case toolCallUpdated(String, ToolCallState, String?, TimeInterval?)
 
+    /// A single tool result is ready (for incremental persistence)
+    /// Emitted as soon as each tool completes, before the round is fully done
+    case toolResultReady(toolCall: ToolCall, result: ToolResult)
+
     /// A tool execution round completed (for persistence)
     /// Contains the resolved ToolCalls and their results
     case toolRoundCompleted(toolCalls: [ToolCall], results: [ToolResult])
 
     /// Generation completed - provides all tool rounds for persistence
     case generationComplete(toolRounds: [ToolExecutionRoundRecord])
+
+    /// Generation was interrupted - provides partial tool rounds that completed
+    case generationInterrupted(error: Error, partialToolRounds: [ToolExecutionRoundRecord])
 }

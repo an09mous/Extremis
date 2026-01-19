@@ -971,6 +971,10 @@ final class PromptViewModel: ObservableObject {
             completionHandler?()
         }
 
+        // Declare outside do block so catch blocks can access them
+        var chunks: [String] = []
+        var completedToolRounds: [ToolExecutionRoundRecord] = []
+
         do {
             // Clear any previous tool calls
             activeToolCalls = []
@@ -1002,11 +1006,6 @@ final class PromptViewModel: ObservableObject {
                     }
                 }
             )
-
-            // Use array buffer to avoid O(n²) string concatenation
-            var chunks: [String] = []
-            // Track tool rounds for persistence
-            var completedToolRounds: [ToolExecutionRoundRecord] = []
 
             for try await event in stream {
                 if Task.isCancelled {
@@ -1047,14 +1046,30 @@ final class PromptViewModel: ObservableObject {
                         isExecutingTools = false
                     }
 
-                case .toolRoundCompleted:
-                    // Handled via generationComplete - no action needed here
-                    break
+                case .toolResultReady(let toolCall, let result):
+                    // Individual tool result - useful for incremental tracking
+                    // The round completion event will handle batch persistence
+                    let status = result.isSuccess ? "✅" : "❌"
+                    print("🔧 Tool result ready: \(status) \(toolCall.toolName)")
+
+                case .toolRoundCompleted(let calls, let results):
+                    // A complete round is done - add to completedToolRounds immediately
+                    // This ensures partial persistence even if generation is interrupted later
+                    let roundRecord = ToolExecutionRoundRecord.from(toolCalls: calls, results: results)
+                    completedToolRounds.append(roundRecord)
+                    print("🔧 Tool round completed: \(calls.count) calls, total rounds: \(completedToolRounds.count)")
 
                 case .generationComplete(let toolRounds):
-                    // Store for persistence
+                    // Final confirmation - use the authoritative list from the service
                     completedToolRounds = toolRounds
                     print("🔧 Generation complete event received with \(toolRounds.count) tool rounds")
+
+                case .generationInterrupted(let error, let partialRounds):
+                    // Generation was interrupted but we have partial results
+                    completedToolRounds = partialRounds
+                    print("🔧 Generation interrupted with \(partialRounds.count) completed tool rounds")
+                    // The error will be thrown and handled in the catch block
+                    _ = error  // Silence unused warning - error is re-thrown
                 }
             }
 
@@ -1079,9 +1094,28 @@ final class PromptViewModel: ObservableObject {
 
             print("🔧 Generation complete - session has \(sess.messages.count) messages")
         } catch is CancellationError {
-            // User cancelled
+            // User cancelled - still save any completed tool rounds
+            if !completedToolRounds.isEmpty {
+                let partialContent = chunks.joined()
+                if !partialContent.isEmpty {
+                    sess.addAssistantMessage(partialContent, toolRounds: completedToolRounds)
+                    self.response = partialContent
+                    print("🔧 Generation cancelled - saved \(completedToolRounds.count) completed tool rounds")
+                }
+            }
             print("🔧 Generation cancelled")
         } catch {
+            // Error during generation - still save any completed tool rounds
+            if !completedToolRounds.isEmpty {
+                let partialContent = chunks.joined()
+                // Save partial results even on error so user can see what was completed
+                sess.addAssistantMessage(
+                    partialContent.isEmpty ? "[Generation interrupted - tool results below]" : partialContent,
+                    toolRounds: completedToolRounds
+                )
+                self.response = partialContent
+                print("🔧 Generation error - saved \(completedToolRounds.count) completed tool rounds")
+            }
             print("🔧 Generation error: \(error)")
             generationError = error.localizedDescription
             self.error = error.localizedDescription
