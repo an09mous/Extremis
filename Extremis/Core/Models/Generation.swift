@@ -39,7 +39,9 @@ struct ToolEnabledGeneration {
 }
 
 /// Raw tool call from LLM response (before resolution to ConnectorTool)
-struct LLMToolCall: Identifiable, Equatable {
+/// Note: @unchecked Sendable because arguments is [String: Any] which isn't Sendable,
+/// but in practice we only pass JSON-serializable types which are safe
+struct LLMToolCall: Identifiable, Equatable, @unchecked Sendable {
     /// Call ID from the LLM (used for matching results)
     let id: String
 

@@ -208,6 +208,85 @@ final class OpenAIProvider: LLMProvider {
         return try parseToolResponse(data)
     }
 
+    func generateChatWithToolsStream(
+        messages: [ChatMessage],
+        tools: [ConnectorTool],
+        toolRounds: [ToolExecutionRound]
+    ) -> AsyncThrowingStream<ToolStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    guard let apiKey = self.apiKey else {
+                        throw LLMProviderError.notConfigured(provider: .openai)
+                    }
+
+                    let request = try self.buildToolStreamRequest(
+                        apiKey: apiKey,
+                        messages: messages,
+                        tools: tools,
+                        toolRounds: toolRounds
+                    )
+
+                    let (bytes, response) = try await self.session.bytes(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        throw LLMProviderError.invalidResponse
+                    }
+
+                    if httpResponse.statusCode != 200 {
+                        var errorData = Data()
+                        for try await byte in bytes {
+                            errorData.append(byte)
+                        }
+                        try self.handleStatusCode(httpResponse.statusCode, data: errorData)
+                    }
+
+                    // Parse SSE stream - OpenAI format
+                    var currentLine = ""
+                    var toolCallsAccumulator: [String: (name: String, arguments: String)] = [:]
+
+                    for try await byte in bytes {
+                        let char = Character(UnicodeScalar(byte))
+
+                        if char == "\n" {
+                            if !currentLine.isEmpty {
+                                if let result = self.parseToolStreamSSELine(
+                                    currentLine,
+                                    toolCallsAccumulator: &toolCallsAccumulator
+                                ) {
+                                    switch result {
+                                    case .text(let text):
+                                        continuation.yield(.textChunk(text))
+                                    case .done:
+                                        break
+                                    }
+                                }
+                                currentLine = ""
+                            }
+                        } else {
+                            currentLine.append(char)
+                        }
+                    }
+
+                    // Build final tool calls from accumulator
+                    let finalToolCalls: [LLMToolCall] = toolCallsAccumulator.map { (id, data) in
+                        var arguments: [String: Any] = [:]
+                        if let argsData = data.arguments.data(using: .utf8),
+                           let argsDict = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any] {
+                            arguments = argsDict
+                        }
+                        return LLMToolCall(id: id, name: data.name, arguments: arguments)
+                    }
+
+                    continuation.yield(.complete(toolCalls: finalToolCalls))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
     // MARK: - Private Methods
 
     /// Build a non-streaming request
@@ -423,6 +502,114 @@ final class OpenAIProvider: LLMProvider {
         }
 
         return ToolEnabledGeneration(content: content, toolCalls: toolCalls)
+    }
+
+    /// Build a streaming request with tools
+    private func buildToolStreamRequest(
+        apiKey: String,
+        messages: [ChatMessage],
+        tools: [ConnectorTool],
+        toolRounds: [ToolExecutionRound]
+    ) throws -> URLRequest {
+        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        var formattedMessages: [[String: Any]] = PromptBuilder.shared.formatChatMessages(messages: messages).map { $0 as [String: Any] }
+
+        for round in toolRounds {
+            let toolCallsFormatted: [[String: Any]] = round.toolCalls.map { call in
+                [
+                    "id": call.id,
+                    "type": "function",
+                    "function": [
+                        "name": call.name,
+                        "arguments": (try? JSONSerialization.data(withJSONObject: call.arguments))
+                            .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+                    ] as [String: Any]
+                ]
+            }
+            formattedMessages.append([
+                "role": "assistant",
+                "tool_calls": toolCallsFormatted
+            ])
+
+            for result in round.results {
+                formattedMessages.append(ToolSchemaConverter.formatOpenAIToolResult(callID: result.callID, result: result))
+            }
+        }
+
+        var body: [String: Any] = [
+            "model": currentModel.id,
+            "messages": formattedMessages,
+            "max_tokens": 4096,
+            "stream": true
+        ]
+
+        if !tools.isEmpty {
+            body["tools"] = ToolSchemaConverter.toOpenAI(tools: tools)
+        }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// Result from parsing a tool stream SSE line
+    private enum ToolStreamSSEResult {
+        case text(String)
+        case done
+    }
+
+    /// Parse an SSE line from streaming tool response (OpenAI format)
+    private func parseToolStreamSSELine(
+        _ line: String,
+        toolCallsAccumulator: inout [String: (name: String, arguments: String)]
+    ) -> ToolStreamSSEResult? {
+        guard line.hasPrefix("data: ") else { return nil }
+
+        let jsonString = String(line.dropFirst(6))
+
+        if jsonString == "[DONE]" {
+            return .done
+        }
+
+        guard let data = jsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let firstChoice = choices.first,
+              let delta = firstChoice["delta"] as? [String: Any] else {
+            return nil
+        }
+
+        // Check for text content
+        if let content = delta["content"] as? String, !content.isEmpty {
+            return .text(content)
+        }
+
+        // Check for tool calls
+        if let toolCalls = delta["tool_calls"] as? [[String: Any]] {
+            for toolCall in toolCalls {
+                guard let index = toolCall["index"] as? Int else { continue }
+                let id = toolCall["id"] as? String ?? "tool_\(index)"
+
+                if toolCallsAccumulator[id] == nil {
+                    if let function = toolCall["function"] as? [String: Any],
+                       let name = function["name"] as? String {
+                        toolCallsAccumulator[id] = (name: name, arguments: "")
+                    }
+                }
+
+                if let function = toolCall["function"] as? [String: Any],
+                   let argsChunk = function["arguments"] as? String,
+                   var existing = toolCallsAccumulator[id] {
+                    existing.arguments += argsChunk
+                    toolCallsAccumulator[id] = existing
+                }
+            }
+        }
+
+        return nil
     }
 }
 

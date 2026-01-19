@@ -83,7 +83,9 @@ protocol LLMProvider: AnyObject {
 // MARK: - Tool Stream Event
 
 /// Events emitted during tool-enabled streaming generation
-enum ToolStreamEvent {
+/// Note: @unchecked Sendable because LLMToolCall contains [String: Any]
+/// which isn't Sendable, but we ensure safe usage in practice
+enum ToolStreamEvent: @unchecked Sendable {
     /// Text content chunk from LLM
     case textChunk(String)
 

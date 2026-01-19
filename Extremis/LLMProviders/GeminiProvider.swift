@@ -204,6 +204,70 @@ final class GeminiProvider: LLMProvider {
         return try parseToolResponse(data)
     }
 
+    func generateChatWithToolsStream(
+        messages: [ChatMessage],
+        tools: [ConnectorTool],
+        toolRounds: [ToolExecutionRound]
+    ) -> AsyncThrowingStream<ToolStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    guard let apiKey = self.apiKey else {
+                        continuation.finish(throwing: LLMProviderError.notConfigured(provider: .gemini))
+                        return
+                    }
+
+                    let request = try self.buildToolStreamRequest(
+                        apiKey: apiKey,
+                        messages: messages,
+                        tools: tools,
+                        toolRounds: toolRounds
+                    )
+
+                    let (bytes, response) = try await self.session.bytes(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        continuation.finish(throwing: LLMProviderError.invalidResponse)
+                        return
+                    }
+
+                    if httpResponse.statusCode != 200 {
+                        var errorData = Data()
+                        for try await byte in bytes {
+                            errorData.append(byte)
+                        }
+                        try self.handleStatusCode(httpResponse.statusCode, data: errorData)
+                    }
+
+                    // Accumulate tool calls as we stream
+                    var toolCalls: [LLMToolCall] = []
+
+                    // Stream JSON objects and parse for text content and function calls
+                    for try await result in self.streamToolJsonObjects(from: bytes) {
+                        if Task.isCancelled {
+                            continuation.finish()
+                            return
+                        }
+
+                        switch result {
+                        case .text(let text):
+                            if !text.isEmpty {
+                                continuation.yield(.textChunk(text))
+                            }
+                        case .toolCall(let call):
+                            toolCalls.append(call)
+                        }
+                    }
+
+                    continuation.yield(.complete(toolCalls: toolCalls))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
     // MARK: - Private Methods
 
     /// Build a non-streaming request
@@ -485,6 +549,68 @@ final class GeminiProvider: LLMProvider {
         return request
     }
 
+    /// Build a streaming request with tools
+    private func buildToolStreamRequest(
+        apiKey: String,
+        messages: [ChatMessage],
+        tools: [ConnectorTool],
+        toolRounds: [ToolExecutionRound]
+    ) throws -> URLRequest {
+        // Use streamGenerateContent for streaming
+        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(currentModel.id):streamGenerateContent?key=\(apiKey)"
+        var request = URLRequest(url: URL(string: urlString)!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        // Format messages for Gemini
+        var contents = formatMessagesForGemini(messages: messages)
+
+        // Append all tool execution rounds
+        for round in toolRounds {
+            let functionCallParts: [[String: Any]] = round.toolCalls.map { call in
+                [
+                    "functionCall": [
+                        "name": call.name,
+                        "args": call.arguments
+                    ] as [String: Any]
+                ]
+            }
+            contents.append([
+                "role": "model",
+                "parts": functionCallParts
+            ])
+
+            let functionResponseParts: [[String: Any]] = round.results.map { result in
+                [
+                    "functionResponse": [
+                        "name": result.toolName,
+                        "response": [
+                            "result": result.content?.contentForLLM ?? (result.error?.message ?? "No result")
+                        ] as [String: Any]
+                    ] as [String: Any]
+                ]
+            }
+            contents.append([
+                "role": "function",
+                "parts": functionResponseParts
+            ])
+        }
+
+        var body: [String: Any] = [
+            "contents": contents,
+            "generationConfig": [
+                "maxOutputTokens": 4096
+            ]
+        ]
+
+        if !tools.isEmpty {
+            body["tools"] = ToolSchemaConverter.toGemini(tools: tools)
+        }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
     /// Parse a tool-enabled response
     private func parseToolResponse(_ data: Data) throws -> ToolEnabledGeneration {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -568,6 +694,99 @@ final class GeminiProvider: LLMProvider {
                 }
             }
         }
+    }
+
+    // MARK: - Tool Stream Parsing
+
+    /// Result from parsing a tool stream JSON object
+    private enum ToolStreamParseResult: Sendable {
+        case text(String)
+        case toolCall(LLMToolCall)
+    }
+
+    /// Stream JSON objects from Gemini's tool-enabled streaming response
+    /// Parses both text content and function calls from parts
+    private func streamToolJsonObjects(from bytes: URLSession.AsyncBytes) -> AsyncThrowingStream<ToolStreamParseResult, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                var buffer = Data()
+                var braceDepth = 0
+                var inString = false
+                var escapeNext = false
+                var objectStart: Int? = nil
+
+                do {
+                    for try await byte in bytes {
+                        buffer.append(byte)
+                        let char = Character(UnicodeScalar(byte))
+
+                        // Track string boundaries to ignore braces inside strings
+                        if escapeNext {
+                            escapeNext = false
+                            continue
+                        }
+                        if char == "\\" && inString {
+                            escapeNext = true
+                            continue
+                        }
+                        if char == "\"" {
+                            inString = !inString
+                            continue
+                        }
+                        if inString { continue }
+
+                        // Track object boundaries
+                        if char == "{" {
+                            if braceDepth == 0 {
+                                objectStart = buffer.count - 1
+                            }
+                            braceDepth += 1
+                        } else if char == "}" {
+                            braceDepth -= 1
+                            if braceDepth == 0, let start = objectStart {
+                                // Complete JSON object found
+                                let objectData = buffer.subdata(in: start..<buffer.count)
+                                let results = self.parseToolStreamChunk(objectData)
+                                for result in results {
+                                    continuation.yield(result)
+                                }
+                                objectStart = nil
+                            }
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// Parse a single JSON chunk from Gemini streaming for both text and tool calls
+    private func parseToolStreamChunk(_ data: Data) -> [ToolStreamParseResult] {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let candidates = json["candidates"] as? [[String: Any]],
+              let firstCandidate = candidates.first,
+              let content = firstCandidate["content"] as? [String: Any],
+              let parts = content["parts"] as? [[String: Any]] else {
+            return []
+        }
+
+        var results: [ToolStreamParseResult] = []
+
+        for part in parts {
+            if let text = part["text"] as? String, !text.isEmpty {
+                results.append(.text(text))
+            } else if let functionCall = part["functionCall"] as? [String: Any],
+                      let name = functionCall["name"] as? String {
+                let args = functionCall["args"] as? [String: Any] ?? [:]
+                // Gemini doesn't provide call IDs, generate one
+                let toolCall = LLMToolCall(id: UUID().uuidString, name: name, arguments: args)
+                results.append(.toolCall(toolCall))
+            }
+        }
+
+        return results
     }
 }
 

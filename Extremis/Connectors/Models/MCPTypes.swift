@@ -157,22 +157,35 @@ indirect enum JSONValue: Codable, Equatable {
     }
 
     /// Create JSONValue from Any
+    /// Note: Order matters - we check numeric types via NSNumber carefully
+    /// to distinguish between booleans and numbers (JSON parsers often use NSNumber for both)
     static func from(_ value: Any) -> JSONValue {
         switch value {
         case is NSNull:
             return .null
-        case let bool as Bool:
-            return .bool(bool)
-        case let int as Int:
-            return .int(int)
-        case let double as Double:
-            return .double(double)
         case let string as String:
             return .string(string)
         case let array as [Any]:
             return .array(array.map { from($0) })
         case let dict as [String: Any]:
             return .object(dict.mapValues { from($0) })
+        case let number as NSNumber:
+            // NSNumber can represent bool, int, or double
+            // CFBooleanGetTypeID() identifies actual booleans vs numeric 0/1
+            if CFGetTypeID(number) == CFBooleanGetTypeID() {
+                return .bool(number.boolValue)
+            } else if number.doubleValue == Double(number.intValue) {
+                // It's an integer (no fractional part)
+                return .int(number.intValue)
+            } else {
+                return .double(number.doubleValue)
+            }
+        case let bool as Bool:
+            return .bool(bool)
+        case let int as Int:
+            return .int(int)
+        case let double as Double:
+            return .double(double)
         default:
             return .null
         }
