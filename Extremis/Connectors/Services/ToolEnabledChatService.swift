@@ -158,26 +158,30 @@ final class ToolEnabledChatService {
                     while rounds < self.maxToolRounds {
                         rounds += 1
 
-                        // Call LLM with tools and full tool execution history
-                        let generation = try await provider.generateChatWithTools(
+                        // Call LLM with tools using streaming API
+                        var streamedToolCalls: [LLMToolCall] = []
+
+                        for try await event in provider.generateChatWithToolsStream(
                             messages: messages,
                             tools: availableTools,
                             toolRounds: toolRounds
-                        )
-
-                        // Yield any text content
-                        if let content = generation.content, !content.isEmpty {
-                            continuation.yield(.contentChunk(content))
+                        ) {
+                            switch event {
+                            case .textChunk(let text):
+                                continuation.yield(.contentChunk(text))
+                            case .complete(let toolCalls):
+                                streamedToolCalls = toolCalls
+                            }
                         }
 
                         // If no tool calls, we're done
-                        if generation.isComplete {
+                        if streamedToolCalls.isEmpty {
                             break
                         }
 
                         // Resolve and execute tool calls
                         let toolCalls = self.resolveToolCalls(
-                            llmCalls: generation.toolCalls,
+                            llmCalls: streamedToolCalls,
                             availableTools: availableTools
                         )
 
@@ -201,7 +205,7 @@ final class ToolEnabledChatService {
 
                         // Add this round to history (pairs tool calls with their results)
                         toolRounds.append(ToolExecutionRound(
-                            toolCalls: generation.toolCalls,
+                            toolCalls: streamedToolCalls,
                             results: results
                         ))
 
