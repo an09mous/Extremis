@@ -18,6 +18,10 @@ A context-aware LLM writing assistant for macOS. Press a global hotkey anywhere 
   - Anthropic (Claude Sonnet 4.5, Claude Haiku 4.5, Claude Opus 4.5)
   - Google Gemini (Gemini 2.5 Flash, Gemini 2.5 Pro, Gemini 2.0 Flash)
   - Ollama (Local models - Llama, Mistral, etc.)
+- **MCP Server Support** - Connect external tools via Model Context Protocol
+  - Tool execution with multi-turn loops
+  - Automatic tool discovery from MCP servers
+  - Partial result persistence on interruption
 - **Real-time Streaming** - Responses appear character-by-character as they're generated
 - **Smart Text Insertion** - Generated text automatically inserted at cursor
 - **Privacy-First** - Uses Accessibility APIs for context, no screenshots
@@ -105,6 +109,28 @@ Smart summarization mode:
 
 A floating indicator appears while generating, and text is automatically inserted when ready.
 
+### MCP Server Tools
+
+Extremis can connect to MCP (Model Context Protocol) servers to extend the AI's capabilities with external tools:
+
+1. Configure servers in `~/Library/Application Support/Extremis/mcp-servers.json`:
+   ```json
+   {
+     "servers": {
+       "filesystem": {
+         "command": "npx",
+         "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+       }
+     }
+   }
+   ```
+
+2. Restart Extremis - servers connect automatically
+3. Tools appear in chat when the LLM decides to use them
+4. Tool execution shows progress indicators in the UI
+
+**Supported transports**: stdio (subprocess)
+
 ### Summarization
 
 Extremis can quickly summarize text in multiple ways:
@@ -153,13 +179,17 @@ Extremis/
 ├── Core/
 │   ├── Models/            # Data models (Context, ChatMessage, Preferences)
 │   │   └── Persistence/   # Session storage models (PersistedSession, SessionIndex)
-│   ├── Protocols/         # Protocol definitions (LLMProvider, SessionStorage)
+│   ├── Protocols/         # Protocol definitions (LLMProvider, SessionStorage, Connector)
 │   └── Services/          # Business logic services
 │       ├── SessionManager        # Session lifecycle and persistence
 │       ├── SummarizationManager  # Long conversation summarization
 │       ├── HotkeyManager         # Global hotkey registration
 │       ├── ContextOrchestrator   # Context extraction coordination
 │       └── JSONSessionStorage    # File-based session persistence
+├── Connectors/            # MCP server integration
+│   ├── Models/            # ConnectorTool, ToolCall, ToolResult, JSONSchema
+│   ├── Services/          # ConnectorRegistry, ToolExecutor, ToolEnabledChatService
+│   └── Transport/         # ProcessTransport (stdio subprocess communication)
 ├── Extractors/            # Context extractors
 │   ├── GenericExtractor   # Fallback for any app
 │   ├── BrowserExtractor   # All browsers via AX APIs
@@ -186,6 +216,7 @@ Extremis/
   - Carbon (global hotkey registration)
   - ApplicationServices (Accessibility APIs)
   - Security (Keychain for API key storage)
+  - MCP Swift SDK (Model Context Protocol for tool integration)
 
 ## License
 
