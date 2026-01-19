@@ -194,6 +194,16 @@ run_test_suite "Process Transport Tests" \
     "$PROJECT_DIR/Tests/Connectors/ProcessTransportTests.swift" \
     "Foundation"
 
+# 13. Connector Config Storage Tests (CRUD operations for connector config persistence)
+run_test_suite "Connector Config Storage Tests" \
+    "$PROJECT_DIR/Tests/Connectors/ConnectorConfigStorageTests.swift" \
+    "Foundation"
+
+# 14. Tool Executor Tests (parallel execution, timeout handling)
+run_test_suite "Tool Executor Tests" \
+    "$PROJECT_DIR/Tests/Connectors/ToolExecutorTests.swift" \
+    "Foundation"
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------

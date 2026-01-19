@@ -1,10 +1,15 @@
 # Tasks: Connectors (MCP Support) - Phase 1
 
+**Status**: ✅ FEATURE COMPLETE
+**Completed**: 2026-01-19
+
 **Input**: Design documents from `/specs/010-mcp-support/`
 **Prerequisites**: plan.md (required), spec.md (required), data-model.md (required)
 
 **Scope**: Phase 1 - Custom MCP Servers only (User Stories 2-6)
 **Phase 2**: Built-in Connectors (User Story 1) - requires separate approval after Phase 1
+
+**Note**: All 66 tasks completed. MCP connector support is fully implemented with custom server configuration, connection management, tool execution, and comprehensive test coverage (1051 tests pass).
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -83,7 +88,7 @@
 - [x] T021 [US2] Implement edit server flow in ConnectorsTab: load existing config > show sheet > save changes
 - [x] T022 [US2] Implement delete server flow in ConnectorsTab: confirm dialog > remove from config > delete secrets from Keychain
 - [x] T023 [US2] Add ConnectorsTab to PreferencesView tab list in `Extremis/UI/Preferences/PreferencesView.swift`
-- [ ] T024 [US2] Add unit test `Extremis/Tests/Connectors/ConnectorConfigStorageTests.swift` for CRUD operations
+- [x] T024 [US2] Add unit test `Extremis/Tests/Connectors/ConnectorConfigStorageTests.swift` for CRUD operations
 
 **Checkpoint**: User Story 2 complete - users can add/edit/delete custom MCP servers
 
@@ -126,7 +131,7 @@
 - [x] T035 [US4] Create `Extremis/Connectors/Services/ToolExecutor.swift` with execute(toolCalls:) method supporting parallel execution via TaskGroup
 - [x] T036 [US4] Implement tool routing in ToolExecutor: map tool name to connector, call connector.executeTool()
 - [x] T037 [US4] Implement 30-second timeout for tool execution with proper cancellation
-- [ ] T038 [US4] Add unit test `Extremis/Tests/Connectors/ToolExecutorTests.swift` for parallel execution and timeout handling
+- [x] T038 [US4] Add unit test `Extremis/Tests/Connectors/ToolExecutorTests.swift` for parallel execution and timeout handling
 
 ### LLM Provider Integration
 
@@ -306,18 +311,16 @@ Execute in strict order: Phase 1 → Phase 2 → US2 → US3 → US4 → US5 →
 |-------|-------|--------|
 | Setup | T001-T003 | ✅ Complete (3/3) |
 | Foundational | T004-T016 | ✅ Complete (13/13) |
-| US2: Add Server | T017-T024 | ✅ Complete (7/8) - missing T024 unit test |
+| US2: Add Server | T017-T024 | ✅ Complete (8/8) |
 | US3: Connect | T025-T032 | ✅ Complete (8/8) |
-| US4: Use Tools | T033-T049 | ✅ Complete (16/17) - missing T038 unit test |
+| US4: Use Tools | T033-T049 | ✅ Complete (17/17) |
 | US5: Multiple | T050-T054 | ✅ Complete (5/5) |
 | US6: Enable/Disable | T055-T059 | ✅ Complete (5/5) |
 | Polish | T060-T066 | ✅ Complete (7/7) |
 
 **Total**: 66 tasks
-- **Completed**: 64 tasks ✅
-- **Remaining**: 2 tasks (unit tests)
-  - T024: Unit test for ConnectorConfigStorage CRUD
-  - T038: Unit test for ToolExecutor parallel execution
+- **Completed**: 66 tasks ✅
+- **Status**: ✅ FEATURE COMPLETE
 
 ---
 
