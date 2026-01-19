@@ -5,6 +5,7 @@ import Foundation
 import AppKit
 
 /// Bridge for communicating with browsers via AppleScript
+@MainActor
 final class BrowserBridge {
     
     // MARK: - Types

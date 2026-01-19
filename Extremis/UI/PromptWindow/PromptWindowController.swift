@@ -3,7 +3,7 @@
 
 import AppKit
 import SwiftUI
-import Combine
+@preconcurrency import Combine
 
 /// Controller for the floating prompt window
 final class PromptWindowController: NSWindowController {
@@ -321,6 +321,10 @@ final class PromptViewModel: ObservableObject {
     @Published var chatInputText: String = ""
     @Published var isChatMode: Bool = false
 
+    // Tool execution state
+    @Published var activeToolCalls: [ChatToolCall] = []
+    @Published var isExecutingTools: Bool = false
+
     // Persistence properties
     private(set) var sessionId: UUID?
 
@@ -333,6 +337,9 @@ final class PromptViewModel: ObservableObject {
 
     /// Cancellable for provider change subscription
     private var providerCancellable: AnyCancellable?
+
+    /// Cancellable for Ollama state changes
+    private var ollamaCancellable: AnyCancellable?
 
     /// Cancellable for session state observation
     private var sessionCancellables = Set<AnyCancellable>()
@@ -367,9 +374,31 @@ final class PromptViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.updateProviderStatus()
+                self?.subscribeToOllamaChanges()
             }
+
+        // Subscribe to Ollama state changes (model/connection updates)
+        subscribeToOllamaChanges()
+
         // Initial update
         updateProviderStatus()
+    }
+
+    /// Subscribe to Ollama provider state changes for live updates
+    private func subscribeToOllamaChanges() {
+        ollamaCancellable?.cancel()
+
+        guard let ollama = LLMProviderRegistry.shared.provider(for: .ollama) as? OllamaProvider else {
+            return
+        }
+
+        // Observe both model and connection state changes
+        ollamaCancellable = ollama.$currentModel
+            .combineLatest(ollama.$serverConnected)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _ in
+                self?.updateProviderStatus()
+            }
     }
 
     func reset() {
@@ -385,6 +414,9 @@ final class PromptViewModel: ObservableObject {
         hasSelection = false
         selectedText = nil
         isSummarizing = false
+        // Reset tool state
+        activeToolCalls = []
+        isExecutingTools = false
         // Reset chat state
         session = nil
         sessionId = nil
@@ -515,7 +547,10 @@ final class PromptViewModel: ObservableObject {
     deinit {
         // Note: Session cleanup happens automatically via ChatSession's deinit
         // which cancels any in-flight generation task
-        providerCancellable?.cancel()
+        MainActor.assumeIsolated {
+            providerCancellable?.cancel()
+            ollamaCancellable?.cancel()
+        }
     }
 
     func updateProviderStatus() {
@@ -590,65 +625,20 @@ final class PromptViewModel: ObservableObject {
                 SessionManager.shared.registerActiveGeneration(sessionId: sid)
             }
 
-            // Track error for deferred completion
-            var generationError: String?
-
-            defer {
-                // Always unregister when generation ends (success, error, or cancellation)
+            guard let provider = LLMProviderRegistry.shared.activeProvider else {
+                sess.completeGeneration(error: "No provider configured")
                 if let sid = capturedSessionId {
                     SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
                 }
-                sess.completeGeneration(error: generationError)
+                return
             }
 
-            do {
-                guard let provider = LLMProviderRegistry.shared.activeProvider else {
-                    throw LLMProviderError.notConfigured(provider: .openai)
-                }
-
-                // Use chat streaming with session messages (context is embedded in user message)
-                // This ensures Quick Mode with selection is part of the session for follow-ups
-                let stream = provider.generateChatStream(
-                    messages: sess.messagesForLLM()
-                )
-
-                // Use array buffer to avoid O(n²) string concatenation
-                var chunks: [String] = []
-                for try await chunk in stream {
-                    if Task.isCancelled {
-                        // Save partial content so user can view, copy, insert, or retry
-                        let partialContent = chunks.joined()
-                        if !partialContent.isEmpty {
-                            sess.addAssistantMessage(partialContent)
-                            self.response = partialContent
-                            print("🔧 Generation stopped - saved partial response")
-                        }
-                        // Note: streamingContent already cleared by cancelGeneration()
-                        return
-                    }
-                    chunks.append(chunk)
-                    sess.updateStreamingContent(chunks.joined())
-                    self.response = chunks.joined()  // Update UI incrementally
-                }
-
-                // Add assistant response to session
-                let finalContent = chunks.joined()
-                if !finalContent.isEmpty {
-                    sess.addAssistantMessage(finalContent)
-                    self.response = finalContent
-                    // Note: Don't auto-enable chat mode here
-                    // User will transition to chat mode when they submit a follow-up
-                }
-                sess.clearStreamingContent()
-
-                print("🔧 Generation complete - session has \(sess.messages.count) messages")
-            } catch is CancellationError {
-                // User cancelled - streamingContent already cleared by cancelGeneration()
-                print("🔧 Generation cancelled")
-            } catch {
-                print("🔧 Generation error: \(error)")
-                generationError = error.localizedDescription
-            }
+            // Use tool-enabled generation
+            await self.generateWithToolSupport(
+                session: sess,
+                sessionId: capturedSessionId,
+                provider: provider
+            )
         }
 
         // Start generation via session (handles cancellation of any previous task)
@@ -703,65 +693,24 @@ final class PromptViewModel: ObservableObject {
                 SessionManager.shared.registerActiveGeneration(sessionId: sid)
             }
 
-            // Track error for deferred completion
-            var generationError: String?
-
-            defer {
-                // Always unregister when generation ends (success, error, or cancellation)
+            guard let provider = LLMProviderRegistry.shared.activeProvider else {
+                sess.completeGeneration(error: "No provider configured")
                 if let sid = capturedSessionId {
                     SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
                 }
-                sess.completeGeneration(error: generationError)
                 self.isSummarizing = false
+                return
             }
 
-            do {
-                guard let provider = LLMProviderRegistry.shared.activeProvider else {
-                    throw LLMProviderError.notConfigured(provider: .openai)
+            // Use tool-enabled generation with summarization cleanup
+            await self.generateWithToolSupport(
+                session: sess,
+                sessionId: capturedSessionId,
+                provider: provider,
+                completionHandler: {
+                    self.isSummarizing = false
                 }
-
-                // Use chat streaming with session messages (intent injection handles summarization rules)
-                let stream = provider.generateChatStream(
-                    messages: sess.messagesForLLM()
-                )
-
-                // Use array buffer to avoid O(n²) string concatenation
-                var chunks: [String] = []
-                for try await chunk in stream {
-                    if Task.isCancelled {
-                        // Save partial content so user can view, copy, insert, or retry
-                        let partialContent = chunks.joined()
-                        if !partialContent.isEmpty {
-                            sess.addAssistantMessage(partialContent)
-                            self.response = partialContent
-                            print("📝 Summarization stopped - saved partial response")
-                        }
-                        // Note: streamingContent already cleared by cancelGeneration()
-                        return
-                    }
-                    chunks.append(chunk)
-                    sess.updateStreamingContent(chunks.joined())
-                    self.response = chunks.joined()  // Update UI incrementally
-                }
-
-                // Add assistant response to session
-                let finalContent = chunks.joined()
-                if !finalContent.isEmpty {
-                    sess.addAssistantMessage(finalContent)
-                    self.response = finalContent
-                    // Note: Don't auto-enable chat mode here
-                    // User will transition to chat mode when they submit a follow-up
-                }
-                sess.clearStreamingContent()
-
-                print("📝 PromptViewModel: Summarization complete - session has \(sess.messages.count) messages")
-            } catch is CancellationError {
-                // User cancelled - streamingContent already cleared by cancelGeneration()
-                print("📝 PromptViewModel: Summarization cancelled")
-            } catch {
-                print("📝 PromptViewModel: Summarization error: \(error)")
-                generationError = error.localizedDescription
-            }
+            )
         }
 
         // Start generation via session (handles cancellation of any previous task)
@@ -874,61 +823,20 @@ final class PromptViewModel: ObservableObject {
                 SessionManager.shared.registerActiveGeneration(sessionId: sid)
             }
 
-            // Track error for deferred completion
-            var generationError: String?
-
-            defer {
-                // Always unregister when generation ends (success, error, or cancellation)
+            guard let provider = LLMProviderRegistry.shared.activeProvider else {
+                sess.completeGeneration(error: "No provider configured")
                 if let sid = capturedSessionId {
                     SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
                 }
-                sess.completeGeneration(error: generationError)
+                return
             }
 
-            do {
-                guard let provider = LLMProviderRegistry.shared.activeProvider else {
-                    throw LLMProviderError.notConfigured(provider: .openai)
-                }
-
-                // Use chat streaming (context is embedded in messages)
-                let stream = provider.generateChatStream(
-                    messages: sess.messagesForLLM()
-                )
-
-                // Use array buffer to avoid O(n²) string concatenation
-                var chunks: [String] = []
-                for try await chunk in stream {
-                    if Task.isCancelled {
-                        // Save partial content so user can view, copy, insert, or retry
-                        let partialContent = chunks.joined()
-                        if !partialContent.isEmpty {
-                            sess.addAssistantMessage(partialContent)
-                            self.response = partialContent
-                            print("💬 Generation stopped - saved partial response")
-                        }
-                        // Note: streamingContent already cleared by cancelGeneration()
-                        return
-                    }
-                    chunks.append(chunk)
-                    sess.updateStreamingContent(chunks.joined())
-                }
-
-                // Add completed response to session
-                let finalContent = chunks.joined()
-                if !finalContent.isEmpty {
-                    sess.addAssistantMessage(finalContent)
-                    self.response = finalContent
-                }
-                sess.clearStreamingContent()
-
-                print("💬 Chat response complete")
-            } catch is CancellationError {
-                // User cancelled - streamingContent already cleared by cancelGeneration()
-                print("💬 Chat generation cancelled")
-            } catch {
-                print("💬 Chat error: \(error)")
-                generationError = error.localizedDescription
-            }
+            // Use tool-enabled generation
+            await self.generateWithToolSupport(
+                session: sess,
+                sessionId: capturedSessionId,
+                provider: provider
+            )
         }
 
         // Start generation via session (handles cancellation of any previous task)
@@ -969,62 +877,20 @@ final class PromptViewModel: ObservableObject {
                 SessionManager.shared.registerActiveGeneration(sessionId: sid)
             }
 
-            // Track error for deferred completion
-            var generationError: String?
-
-            defer {
-                // Always unregister when generation ends (success, error, or cancellation)
+            guard let provider = LLMProviderRegistry.shared.activeProvider else {
+                sess.completeGeneration(error: "No provider configured")
                 if let sid = capturedSessionId {
                     SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
                 }
-                sess.completeGeneration(error: generationError)
+                return
             }
 
-            do {
-                guard let provider = LLMProviderRegistry.shared.activeProvider else {
-                    throw LLMProviderError.notConfigured(provider: .openai)
-                }
-
-                // Use chat streaming (context is embedded in messages)
-                let stream = provider.generateChatStream(
-                    messages: sess.messagesForLLM()
-                )
-
-                // Use array buffer to avoid O(n²) string concatenation
-                var chunks: [String] = []
-                for try await chunk in stream {
-                    if Task.isCancelled {
-                        // Save partial content so user can view, copy, insert, or retry
-                        let partialContent = chunks.joined()
-                        if !partialContent.isEmpty {
-                            sess.addAssistantMessage(partialContent)
-                            response = partialContent
-                            print("🔄 Retry stopped - saved partial response")
-                        }
-                        // Note: streamingContent already cleared by cancelGeneration()
-                        return
-                    }
-                    chunks.append(chunk)
-                    sess.updateStreamingContent(chunks.joined())  // Update UI incrementally
-                }
-
-                // Add completed response to session
-                let finalContent = chunks.joined()
-                if !finalContent.isEmpty {
-                    sess.addAssistantMessage(finalContent)
-                    response = finalContent
-                }
-                sess.clearStreamingContent()
-
-                print("🔄 Retry complete")
-            } catch is CancellationError {
-                // User cancelled - streamingContent already cleared by cancelGeneration()
-                print("🔄 Retry cancelled")
-            } catch {
-                print("🔄 Retry error: \(error)")
-                generationError = error.localizedDescription
-                self.error = error.localizedDescription
-            }
+            // Use tool-enabled generation
+            await self.generateWithToolSupport(
+                session: sess,
+                sessionId: capturedSessionId,
+                provider: provider
+            )
         }
 
         // Start generation with the task (handles state setup)
@@ -1063,66 +929,197 @@ final class PromptViewModel: ObservableObject {
                 SessionManager.shared.registerActiveGeneration(sessionId: sid)
             }
 
-            // Track error for deferred completion
-            var generationError: String?
-
-            defer {
-                // Always unregister when generation ends (success, error, or cancellation)
+            guard let provider = LLMProviderRegistry.shared.activeProvider else {
+                sess.completeGeneration(error: "No provider configured")
                 if let sid = capturedSessionId {
                     SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
                 }
-                sess.completeGeneration(error: generationError)
+                return
             }
 
-            do {
-                guard let provider = LLMProviderRegistry.shared.activeProvider else {
-                    throw LLMProviderError.notConfigured(provider: .openai)
-                }
-
-                // Use chat streaming (context is embedded in messages)
-                let stream = provider.generateChatStream(
-                    messages: sess.messagesForLLM()
-                )
-
-                // Use array buffer to avoid O(n²) string concatenation
-                var chunks: [String] = []
-                for try await chunk in stream {
-                    if Task.isCancelled {
-                        // Save partial content so user can view, copy, insert, or retry
-                        let partialContent = chunks.joined()
-                        if !partialContent.isEmpty {
-                            sess.addAssistantMessage(partialContent)
-                            response = partialContent
-                            print("🔄 Retry stopped - saved partial response")
-                        }
-                        // Note: streamingContent already cleared by cancelGeneration()
-                        return
-                    }
-                    chunks.append(chunk)
-                    sess.updateStreamingContent(chunks.joined())  // Update UI incrementally
-                }
-
-                // Add completed response to session
-                let finalContent = chunks.joined()
-                if !finalContent.isEmpty {
-                    sess.addAssistantMessage(finalContent)
-                    response = finalContent
-                }
-                sess.clearStreamingContent()
-
-                print("🔄 Retry after error complete")
-            } catch is CancellationError {
-                // User cancelled - streamingContent already cleared by cancelGeneration()
-                print("🔄 Retry cancelled")
-            } catch {
-                print("🔄 Retry error: \(error)")
-                generationError = error.localizedDescription
-                self.error = error.localizedDescription
-            }
+            // Use tool-enabled generation
+            await self.generateWithToolSupport(
+                session: sess,
+                sessionId: capturedSessionId,
+                provider: provider
+            )
         }
 
         // Start generation with the task (handles state setup)
         sess.startGeneration(task: task)
+    }
+
+    // MARK: - Tool-Enabled Generation
+
+    /// Generate a response using the tool-enabled chat service
+    /// This method handles the multi-turn tool execution loop and streams content back
+    private func generateWithToolSupport(
+        session sess: ChatSession,
+        sessionId capturedSessionId: UUID?,
+        provider: LLMProvider,
+        completionHandler: (() -> Void)? = nil
+    ) async {
+        // Track error for deferred completion
+        var generationError: String?
+
+        defer {
+            // Always unregister when generation ends (success, error, or cancellation)
+            if let sid = capturedSessionId {
+                SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
+            }
+            sess.completeGeneration(error: generationError)
+            completionHandler?()
+        }
+
+        // Declare outside do block so catch blocks can access them
+        var chunks: [String] = []
+        var completedToolRounds: [ToolExecutionRoundRecord] = []
+
+        do {
+            // Clear any previous tool calls
+            activeToolCalls = []
+            isExecutingTools = false
+
+            // Use tool-enabled streaming
+            let stream = ToolEnabledChatService.shared.generateWithToolsStream(
+                provider: provider,
+                messages: sess.messagesForLLM(),
+                onToolCallsStarted: { [weak self] toolCalls in
+                    guard let self = self else { return }
+                    self.activeToolCalls = toolCalls
+                    self.isExecutingTools = true
+                    print("🔧 Tool calls started: \(toolCalls.map { $0.toolName })")
+                },
+                onToolCallUpdated: { [weak self] id, state, summary, duration in
+                    guard let self = self else { return }
+                    if let index = self.activeToolCalls.firstIndex(where: { $0.id == id }) {
+                        self.activeToolCalls[index].state = state
+                        self.activeToolCalls[index].resultSummary = summary
+                        self.activeToolCalls[index].duration = duration
+                        if state == .failed {
+                            self.activeToolCalls[index].errorMessage = summary
+                        }
+                    }
+                    // Check if all tools are complete
+                    if self.activeToolCalls.allComplete {
+                        self.isExecutingTools = false
+                    }
+                }
+            )
+
+            for try await event in stream {
+                if Task.isCancelled {
+                    // Save partial content so user can view, copy, insert, or retry
+                    let partialContent = chunks.joined()
+                    if !partialContent.isEmpty {
+                        // Include any completed tool rounds in partial save
+                        let toolRoundsToSave = completedToolRounds.isEmpty ? nil : completedToolRounds
+                        sess.addAssistantMessage(partialContent, toolRounds: toolRoundsToSave)
+                        self.response = partialContent
+                        print("🔧 Generation stopped - saved partial response with \(completedToolRounds.count) tool rounds")
+                    }
+                    return
+                }
+
+                switch event {
+                case .contentChunk(let chunk):
+                    chunks.append(chunk)
+                    sess.updateStreamingContent(chunks.joined())
+                    self.response = chunks.joined()
+
+                case .toolCallsStarted(let toolCalls):
+                    // Already handled via callback, but update UI state
+                    activeToolCalls = toolCalls
+                    isExecutingTools = true
+
+                case .toolCallUpdated(let id, let state, let summary, let duration):
+                    // Already handled via callback
+                    if let index = activeToolCalls.firstIndex(where: { $0.id == id }) {
+                        activeToolCalls[index].state = state
+                        activeToolCalls[index].resultSummary = summary
+                        activeToolCalls[index].duration = duration
+                        if state == .failed {
+                            activeToolCalls[index].errorMessage = summary
+                        }
+                    }
+                    if activeToolCalls.allComplete {
+                        isExecutingTools = false
+                    }
+
+                case .toolResultReady(let toolCall, let result):
+                    // Individual tool result - useful for incremental tracking
+                    // The round completion event will handle batch persistence
+                    let status = result.isSuccess ? "✅" : "❌"
+                    print("🔧 Tool result ready: \(status) \(toolCall.toolName)")
+
+                case .toolRoundCompleted(let calls, let results):
+                    // A complete round is done - add to completedToolRounds immediately
+                    // This ensures partial persistence even if generation is interrupted later
+                    let roundRecord = ToolExecutionRoundRecord.from(toolCalls: calls, results: results)
+                    completedToolRounds.append(roundRecord)
+                    print("🔧 Tool round completed: \(calls.count) calls, total rounds: \(completedToolRounds.count)")
+
+                case .generationComplete(let toolRounds):
+                    // Final confirmation - use the authoritative list from the service
+                    completedToolRounds = toolRounds
+                    print("🔧 Generation complete event received with \(toolRounds.count) tool rounds")
+
+                case .generationInterrupted(_, let partialRounds):
+                    // Generation was interrupted but we have partial results
+                    // Save them so they can be persisted in the catch block below
+                    // Note: The error is propagated via continuation.finish(throwing:) in the service
+                    completedToolRounds = partialRounds
+                    print("🔧 Generation interrupted with \(partialRounds.count) completed tool rounds")
+                }
+            }
+
+            // Add assistant response to session with tool execution history
+            let finalContent = chunks.joined()
+            if !finalContent.isEmpty {
+                // Only include tool rounds if there were any
+                let toolRoundsToSave = completedToolRounds.isEmpty ? nil : completedToolRounds
+                sess.addAssistantMessage(finalContent, toolRounds: toolRoundsToSave)
+                self.response = finalContent
+
+                if !completedToolRounds.isEmpty {
+                    let totalCalls = completedToolRounds.reduce(0) { $0 + $1.toolCalls.count }
+                    print("🔧 Persisted \(completedToolRounds.count) tool rounds (\(totalCalls) calls) with assistant message")
+                }
+            }
+            sess.clearStreamingContent()
+
+            // Clear tool state after completion
+            activeToolCalls = []
+            isExecutingTools = false
+
+            print("🔧 Generation complete - session has \(sess.messages.count) messages")
+        } catch is CancellationError {
+            // User cancelled - still save any completed tool rounds
+            if !completedToolRounds.isEmpty {
+                let partialContent = chunks.joined()
+                if !partialContent.isEmpty {
+                    sess.addAssistantMessage(partialContent, toolRounds: completedToolRounds)
+                    self.response = partialContent
+                    print("🔧 Generation cancelled - saved \(completedToolRounds.count) completed tool rounds")
+                }
+            }
+            print("🔧 Generation cancelled")
+        } catch {
+            // Error during generation - still save any completed tool rounds
+            if !completedToolRounds.isEmpty {
+                let partialContent = chunks.joined()
+                // Save partial results even on error so user can see what was completed
+                sess.addAssistantMessage(
+                    partialContent.isEmpty ? "[Generation interrupted - tool results below]" : partialContent,
+                    toolRounds: completedToolRounds
+                )
+                self.response = partialContent
+                print("🔧 Generation error - saved \(completedToolRounds.count) completed tool rounds")
+            }
+            print("🔧 Generation error: \(error)")
+            generationError = error.localizedDescription
+            self.error = error.localizedDescription
+        }
     }
 
     /// Get the content to use for Insert/Copy (latest assistant message)
@@ -1247,7 +1244,9 @@ struct PromptContainerView: View {
                         onSendChat: { viewModel.sendChatMessage() },
                         onEnableChat: { viewModel.enableChatMode() },
                         onRetryMessage: { messageId in viewModel.retryMessage(id: messageId) },
-                        onRetryError: { viewModel.retryError() }
+                        onRetryError: { viewModel.retryError() },
+                        activeToolCalls: viewModel.activeToolCalls,
+                        isExecutingTools: viewModel.isExecutingTools
                     )
                     .id(sessionManager.currentSessionId)  // Force view recreation on session switch to reset scroll state
                 } else {

@@ -5,6 +5,7 @@ import Foundation
 import Combine
 
 /// Registry for managing LLM providers
+@MainActor
 final class LLMProviderRegistry: LLMProviderRegistryProtocol, ObservableObject {
 
     // MARK: - Properties

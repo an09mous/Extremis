@@ -6,7 +6,8 @@ import AppKit
 import ApplicationServices
 
 /// Extracts context from Slack (desktop app or web)
-final class SlackExtractor: ContextExtractor {
+@MainActor
+final class SlackExtractor: @preconcurrency ContextExtractor {
     
     // MARK: - Properties
     

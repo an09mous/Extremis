@@ -27,6 +27,10 @@ struct ResponseView: View {
     var onRetryMessage: ((UUID) -> Void)?
     var onRetryError: (() -> Void)?
 
+    // Tool execution state
+    var activeToolCalls: [ChatToolCall] = []
+    var isExecutingTools: Bool = false
+
     @State private var showCopiedToast = false
 
     // Auto-scroll tracking for quick mode
@@ -60,6 +64,8 @@ struct ResponseView: View {
         self.onEnableChat = nil
         self.onRetryMessage = nil
         self.onRetryError = nil
+        self.activeToolCalls = []
+        self.isExecutingTools = false
     }
 
     // Full initializer with chat support
@@ -80,7 +86,9 @@ struct ResponseView: View {
         onSendChat: @escaping () -> Void,
         onEnableChat: @escaping () -> Void,
         onRetryMessage: ((UUID) -> Void)? = nil,
-        onRetryError: (() -> Void)? = nil
+        onRetryError: (() -> Void)? = nil,
+        activeToolCalls: [ChatToolCall] = [],
+        isExecutingTools: Bool = false
     ) {
         self.response = response
         self.isGenerating = isGenerating
@@ -99,6 +107,8 @@ struct ResponseView: View {
         self.onEnableChat = onEnableChat
         self.onRetryMessage = onRetryMessage
         self.onRetryError = onRetryError
+        self.activeToolCalls = activeToolCalls
+        self.isExecutingTools = isExecutingTools
     }
 
     var body: some View {
@@ -115,6 +125,8 @@ struct ResponseView: View {
                     streamingContent: streamingContent,
                     isGenerating: isGenerating,
                     error: error,
+                    activeToolCalls: activeToolCalls,
+                    isExecutingTools: isExecutingTools,
                     onRetryMessage: onRetryMessage,
                     onRetryError: onRetryError
                 )
@@ -126,13 +138,28 @@ struct ResponseView: View {
                         VStack(alignment: .leading, spacing: 12) {
                             if let errorMessage = error {
                                 ErrorBanner(message: errorMessage, onRetry: onRetryError)
-                            } else if response.isEmpty && isGenerating {
+                            } else if response.isEmpty && isGenerating && activeToolCalls.isEmpty {
                                 GeneratingPlaceholder()
                             } else {
-                                Text(response)
-                                    .font(.body)
-                                    .textSelection(.enabled)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                // Display tool calls if any (same as chat mode)
+                                if !activeToolCalls.isEmpty {
+                                    ToolCallsGroupView(toolCalls: activeToolCalls)
+                                }
+
+                                // Display response text if available
+                                if !response.isEmpty {
+                                    Text(response)
+                                        .font(.body)
+                                        .textSelection(.enabled)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                } else if isGenerating && !activeToolCalls.isEmpty {
+                                    // Tools are running but no response yet
+                                    HStack(spacing: 8) {
+                                        LoadingIndicator(style: .dots)
+                                        Text("Processing tool results...")
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
                             }
 
                             // Bottom anchor for auto-scroll
@@ -163,6 +190,12 @@ struct ResponseView: View {
                             }
                         }
                         // Delay scroll slightly to ensure layout is complete
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                            proxy.scrollTo("quickModeBottom", anchor: .bottom)
+                        }
+                    }
+                    .onChange(of: activeToolCalls.count) { _ in
+                        // Auto-scroll when tool calls appear or change
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                             proxy.scrollTo("quickModeBottom", anchor: .bottom)
                         }

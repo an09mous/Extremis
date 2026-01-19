@@ -55,9 +55,15 @@ struct PreferencesView: View {
                     Label("Providers", systemImage: "brain")
                 }
                 .tag(1)
+
+            ConnectorsTab()
+                .tabItem {
+                    Label("Connectors", systemImage: "puzzlepiece.extension")
+                }
+                .tag(2)
         }
         .padding(20)
-        .frame(minWidth: 500, minHeight: 350)
+        .frame(minWidth: 500, minHeight: 400)
     }
 }
 

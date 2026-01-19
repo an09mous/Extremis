@@ -8,6 +8,7 @@ import Foundation
 // prevents duplicate truncation logic.
 
 /// Builds prompts from templates with context and instruction placeholders
+@MainActor
 final class PromptBuilder {
 
     // MARK: - Singleton

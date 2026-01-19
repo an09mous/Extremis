@@ -6,6 +6,7 @@ import SwiftUI
 import ObjectiveC
 import Carbon.HIToolbox
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: - Properties
@@ -45,41 +46,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         setupHotkey()
         checkPermissions()
 
-        // Check Ollama connection asynchronously and rebuild menu when done
-        checkOllamaAndRefreshMenu()
+        // Startup tasks in background - Ollama check must complete before session restore
+        // to ensure provider status is correct when PromptWindowViewModel initializes
+        Task { @MainActor in
+            // Check Ollama connection first
+            await checkOllamaConnection()
 
-        // Restore last session on launch
-        restoreSessionOnLaunch()
+            // Connect to enabled connectors in background (non-blocking)
+            connectEnabledConnectors()
+
+            // Restore last session after provider is ready
+            await restoreSessionOnLaunch()
+        }
 
         print("✅ Extremis launched successfully")
     }
 
     /// Restore the last active session on app launch
-    private func restoreSessionOnLaunch() {
-        Task { @MainActor in
-            await sessionManager.restoreLastSession()
+    private func restoreSessionOnLaunch() async {
+        await sessionManager.restoreLastSession()
 
-            // If there's a restored session, make it available to the prompt window
-            if let session = sessionManager.currentSession {
-                promptWindowController.setSession(session, id: sessionManager.currentSessionId)
-                print("📚 Restored session with \(session.messages.count) messages")
-            }
+        // If there's a restored session, make it available to the prompt window
+        if let session = sessionManager.currentSession {
+            promptWindowController.setSession(session, id: sessionManager.currentSessionId)
+            print("📚 Restored session with \(session.messages.count) messages")
         }
     }
 
-    /// Check Ollama connection and refresh the menu bar
-    private func checkOllamaAndRefreshMenu() {
-        Task {
-            if let ollamaProvider = LLMProviderRegistry.shared.provider(for: .ollama) as? OllamaProvider {
-                // Load saved URL if available
-                if let savedURL = UserDefaults.standard.string(forKey: "ollama_base_url"), !savedURL.isEmpty {
-                    ollamaProvider.updateBaseURL(savedURL)
-                }
-                let _ = await ollamaProvider.checkConnection()
-                // Rebuild menu on main thread after connection check
-                await MainActor.run {
-                    setupMenuBar()
-                }
+    /// Check Ollama connection and refresh the menu bar (awaitable)
+    private func checkOllamaConnection() async {
+        if let ollamaProvider = LLMProviderRegistry.shared.provider(for: .ollama) as? OllamaProvider {
+            // Load saved URL if available
+            if let savedURL = UserDefaults.standard.string(forKey: "ollama_base_url"), !savedURL.isEmpty {
+                ollamaProvider.updateBaseURL(savedURL)
+            }
+            let _ = await ollamaProvider.checkConnection()
+            // Rebuild menu after connection check
+            setupMenuBar()
+        }
+    }
+
+    /// Connect to all enabled connectors in background (non-blocking)
+    private func connectEnabledConnectors() {
+        Task { @MainActor in
+            await ConnectorRegistry.shared.connectAllEnabled()
+            let connectedCount = ConnectorRegistry.shared.connectedConnectors.count
+            let toolCount = ConnectorRegistry.shared.availableTools.count
+            if connectedCount > 0 {
+                print("🔌 Connected to \(connectedCount) connector(s) with \(toolCount) tool(s)")
             }
         }
     }

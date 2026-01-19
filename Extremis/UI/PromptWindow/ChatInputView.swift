@@ -179,6 +179,7 @@ struct ScrollableChatTextEditor: NSViewRepresentable {
         }
     }
 
+    @MainActor
     class Coordinator: NSObject, NSTextViewDelegate {
         @Binding var text: String
         @Binding var isFocused: Bool

@@ -5,6 +5,7 @@ import Foundation
 import AppKit
 
 /// Manages clipboard operations for text insertion
+@MainActor
 final class ClipboardManager {
     
     // MARK: - Properties

@@ -148,6 +148,7 @@ if swiftc -parse-as-library -o "$OUTPUT_DIR/SummarizationManagerTests" \
     "$PROJECT_DIR/Core/Models/Persistence/PersistedSession.swift" \
     "$PROJECT_DIR/Core/Models/Persistence/SessionSummary.swift" \
     "$PROJECT_DIR/Core/Models/Context.swift" \
+    "$PROJECT_DIR/Connectors/Models/ToolCallRecord.swift" \
     2>&1; then
     echo "✅ Compiled SummarizationManager Tests"
     echo ""
@@ -167,6 +168,41 @@ else
     FAILED_SUITES+=("SummarizationManager Tests (compilation failed)")
 fi
 echo ""
+
+# 8. Tool Models Tests (ToolCall, ToolResult, ToolExecutionRound, etc.)
+run_test_suite "Tool Models Tests" \
+    "$PROJECT_DIR/Tests/Connectors/ToolModelsTests.swift" \
+    "Foundation"
+
+# 9. Tool Schema Converter Tests (provider-specific schema conversion)
+run_test_suite "Tool Schema Converter Tests" \
+    "$PROJECT_DIR/Tests/Connectors/ToolSchemaConverterTests.swift" \
+    "Foundation"
+
+# 10. Tool Enabled Chat Service Tests (tool execution loop and state management)
+run_test_suite "Tool Enabled Chat Service Tests" \
+    "$PROJECT_DIR/Tests/Connectors/ToolEnabledChatServiceTests.swift" \
+    "Foundation"
+
+# 11. Tool Persistence Tests (ToolCallRecord, ToolResultRecord, ToolExecutionRoundRecord)
+run_test_suite "Tool Persistence Tests" \
+    "$PROJECT_DIR/Tests/Connectors/ToolPersistenceTests.swift" \
+    "Foundation"
+
+# 12. Process Transport Tests (MCP connector edge cases, JSON detection, tool naming)
+run_test_suite "Process Transport Tests" \
+    "$PROJECT_DIR/Tests/Connectors/ProcessTransportTests.swift" \
+    "Foundation"
+
+# 13. Connector Config Storage Tests (CRUD operations for connector config persistence)
+run_test_suite "Connector Config Storage Tests" \
+    "$PROJECT_DIR/Tests/Connectors/ConnectorConfigStorageTests.swift" \
+    "Foundation"
+
+# 14. Tool Executor Tests (parallel execution, timeout handling)
+run_test_suite "Tool Executor Tests" \
+    "$PROJECT_DIR/Tests/Connectors/ToolExecutorTests.swift" \
+    "Foundation"
 
 # ------------------------------------------------------------------------------
 # Final Summary

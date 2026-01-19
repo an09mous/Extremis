@@ -45,13 +45,19 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     /// Intent of the message - determines which prompt rules to inject (only relevant for user messages)
     let intent: MessageIntent?
 
+    /// Tool execution rounds associated with this assistant message
+    /// Contains the history of tool calls and their results that produced this response
+    /// Only populated for assistant messages that involved tool use
+    let toolRounds: [ToolExecutionRoundRecord]?
+
     init(
         id: UUID = UUID(),
         role: ChatRole,
         content: String,
         timestamp: Date = Date(),
         context: Context? = nil,
-        intent: MessageIntent? = nil
+        intent: MessageIntent? = nil,
+        toolRounds: [ToolExecutionRoundRecord]? = nil
     ) {
         self.id = id
         self.role = role
@@ -59,6 +65,7 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         self.timestamp = timestamp
         self.context = context
         self.intent = intent
+        self.toolRounds = toolRounds
     }
 
     /// Create a user message (for follow-up chat messages)
@@ -76,9 +83,37 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         ChatMessage(role: .assistant, content: content)
     }
 
+    /// Create an assistant message with tool execution history
+    static func assistant(_ content: String, toolRounds: [ToolExecutionRoundRecord]?) -> ChatMessage {
+        ChatMessage(role: .assistant, content: content, toolRounds: toolRounds)
+    }
+
     /// Create a system message
     static func system(_ content: String) -> ChatMessage {
         ChatMessage(role: .system, content: content)
+    }
+
+    // MARK: - Tool Execution Helpers
+
+    /// Whether this message involved tool execution
+    var hasToolExecutions: Bool {
+        guard let rounds = toolRounds else { return false }
+        return !rounds.isEmpty
+    }
+
+    /// Total number of tool calls in this message
+    var toolCallCount: Int {
+        toolRounds?.totalToolCalls ?? 0
+    }
+
+    /// All tool call records flattened
+    var allToolCalls: [ToolCallRecord] {
+        toolRounds?.flatMap { $0.toolCalls } ?? []
+    }
+
+    /// All tool result records flattened
+    var allToolResults: [ToolResultRecord] {
+        toolRounds?.flatMap { $0.results } ?? []
     }
 }
 
@@ -241,6 +276,11 @@ final class ChatSession: ObservableObject {
     /// Add an assistant message
     func addAssistantMessage(_ content: String) {
         addMessage(.assistant(content))
+    }
+
+    /// Add an assistant message with tool execution history
+    func addAssistantMessage(_ content: String, toolRounds: [ToolExecutionRoundRecord]?) {
+        addMessage(.assistant(content, toolRounds: toolRounds))
     }
     
     /// Update the last assistant message (for streaming)

@@ -63,7 +63,11 @@ Context is captured via AX metadata (app name, window title) and selected text w
 - `App/` - Entry point (`ExtremisApp.swift`, `AppDelegate.swift`)
 - `Core/Models/` - Data structures (ChatMessage, Context, Generation, Preferences)
 - `Core/Services/` - Business logic (ContextOrchestrator, HotkeyManager, PermissionManager)
-- `Core/Protocols/` - Interfaces (LLMProvider, ContextExtractor, TextInserter)
+- `Core/Protocols/` - Interfaces (LLMProvider, ContextExtractor, TextInserter, Connector)
+- `Connectors/` - MCP server integration
+  - `Models/` - ConnectorTool, ToolCall, ToolResult, JSONSchema
+  - `Services/` - ConnectorRegistry, CustomMCPConnector, ToolExecutor, ToolEnabledChatService
+  - `Transport/` - ProcessTransport (stdio subprocess communication)
 - `Extractors/` - App-specific context extractors (Browser, Slack, Generic)
 - `LLMProviders/` - Provider implementations (OpenAI, Anthropic, Gemini, Ollama)
 - `UI/PromptWindow/` - Main floating panel UI
@@ -78,6 +82,9 @@ Context is captured via AX metadata (app name, window title) and selected text w
 - `ContextOrchestrator.shared` - Context extraction coordination
 - `LLMProviderRegistry.shared` - Provider lifecycle management
 - `TextInserterService.shared` - Text insertion into apps
+- `ConnectorRegistry.shared` - MCP connector management
+- `ToolExecutor.shared` - Tool call execution
+- `ToolEnabledChatService.shared` - LLM + tool execution orchestration
 
 **Extractor Pattern**: `ContextExtractorRegistry` maps bundle IDs to extractors:
 - `GenericExtractor` - Fallback for all apps
@@ -88,6 +95,13 @@ Context is captured via AX metadata (app name, window title) and selected text w
 - All providers implement `LLMProvider` protocol
 - Streaming responses via `AsyncThrowingStream`
 - API keys stored in Keychain
+- Tool calling support via `generateChatWithToolsStream()`
+
+**MCP Connector Pattern**: MCP servers as tool providers:
+- `Connector` protocol defines lifecycle (connect/disconnect/executeTool)
+- `CustomMCPConnector` wraps MCP SDK client for subprocess servers
+- `ProcessTransport` handles stdio communication with child processes
+- Tool names are prefixed with connector name for disambiguation (e.g., `github_search_issues`)
 
 ### AppKit + SwiftUI Hybrid
 
@@ -110,6 +124,14 @@ Hotkey triggered → SelectionDetector → ContextOrchestrator.captureContext()
 - `ChatConversation` - Observable collection with trimming logic
 - `PersistedConversation` - Codable struct for disk storage (see `specs/007-memory-persistence/data-model.md`)
 
+### Tool Execution Model
+
+- `ConnectorTool` - Tool definition from MCP server (name, description, input schema)
+- `ToolCall` - Request to execute a tool (ID, tool name, arguments, connector reference)
+- `ToolResult` - Result of tool execution (success/failure, content, duration)
+- `ToolExecutionRound` - Pairs tool calls with their results for multi-turn loops
+- `ToolExecutionRoundRecord` - Codable version for persistence in chat messages
+
 ## Feature Specifications
 
 Feature specs are in `specs/` directory, each containing:
@@ -118,7 +140,7 @@ Feature specs are in `specs/` directory, each containing:
 - `tasks.md` - Task breakdown
 - `data-model.md` - Data model schemas (when applicable)
 
-Latest completed feature: `specs/008-prompting-improvements/` (Prompting Improvements & Mode Simplification) ✅
+Latest completed feature: `specs/010-mcp-support/` (MCP Server Support) ✅
 
 ## Key Files
 
@@ -127,6 +149,9 @@ Latest completed feature: `specs/008-prompting-improvements/` (Prompting Improve
 - `Extremis/UI/PromptWindow/PromptWindowController.swift` - Main UI controller
 - `Extremis/LLMProviders/LLMProviderRegistry.swift` - Provider management
 - `Extremis/Core/Models/ChatMessage.swift` - Chat data models
+- `Extremis/Connectors/Services/ConnectorRegistry.swift` - MCP connector management
+- `Extremis/Connectors/Services/ToolEnabledChatService.swift` - Tool execution loop
+- `Extremis/Connectors/Transport/ProcessTransport.swift` - MCP subprocess transport
 
 ## Configuration & Storage
 
@@ -134,6 +159,7 @@ Latest completed feature: `specs/008-prompting-improvements/` (Prompting Improve
 - **Keychain**: API keys stored as single JSON entry via `KeychainHelper`
 - **Application Support**: `~/Library/Application Support/Extremis/` for session persistence
 - **models.json**: LLM model configurations in Resources/
+- **mcp-servers.json**: MCP server configurations in Application Support (command, args, env)
 
 ## Prompt Templates
 
@@ -160,10 +186,86 @@ Latest completed feature: `specs/008-prompting-improvements/` (Prompting Improve
 
 - **Documentation**: Always update `README.md` and `Extremis/docs/` when adding new features or modifying existing functionality. Keep documentation in sync with code changes.
 - **Prompt Templates**: Never hardcode LLM prompts in Swift - always use `.hbs` template files in `Resources/PromptTemplates/`
-- **Testing**: All new tests MUST be added to `Extremis/scripts/run-tests.sh`
+- **Testing**: All new code MUST include unit tests. See Testing section below for details.
+
+## Testing Guidelines
+
+**IMPORTANT**: Always add unit tests when writing new code.
+
+### Test Structure
+All tests are standalone Swift files in `Extremis/Tests/` organized by module:
+- `Tests/Core/` - Core model and service tests
+- `Tests/LLMProviders/` - Provider and prompt builder tests
+- `Tests/Utilities/` - Utility class tests
+- `Tests/Connectors/` - MCP connector and tool tests
+
+### Adding New Tests
+
+1. **Create a test file** in the appropriate `Tests/` subdirectory
+2. **Use the test framework pattern** - see existing tests for the `TestRunner` struct with `assertEqual`, `assertTrue`, `assertNil`, etc.
+3. **Add to run script** - All new test files MUST be added to `Extremis/scripts/run-tests.sh`
+4. **Run all tests** before committing: `cd Extremis && ./scripts/run-tests.sh`
+
+### Test File Template
+```swift
+import Foundation
+
+struct TestRunner {
+    static var passedCount = 0
+    static var failedCount = 0
+    // ... (copy from existing test file)
+}
+
+func testMyFeature() {
+    TestRunner.suite("My Feature Tests")
+    TestRunner.assertEqual(actual, expected, "Test description")
+}
+
+@main
+struct MyFeatureTests {
+    static func main() {
+        testMyFeature()
+        TestRunner.printSummary()
+        if TestRunner.failedCount > 0 { exit(1) }
+    }
+}
+```
+
+### When to Write Tests
+- New models/structs with logic
+- New services with business logic
+- State management code
+- Data transformation/conversion
+- Error handling paths
 
 ## Tech Stack
 - Swift 5.9+ with Swift Concurrency
 - SwiftUI + AppKit hybrid (NSPanel, NSHostingView)
 - Carbon (global hotkeys), ApplicationServices (Accessibility APIs)
 - UserDefaults (preferences), Keychain (API keys), Application Support (sessions)
+- MCP Swift SDK (modelcontextprotocol/swift-sdk 0.10.0+) for tool integration
+
+## MCP Server Configuration
+
+MCP servers are configured in `~/Library/Application Support/Extremis/mcp-servers.json`:
+
+```json
+{
+  "servers": {
+    "my-server": {
+      "command": "npx",
+      "args": ["-y", "@my/mcp-server"],
+      "env": {
+        "API_KEY": "secret"
+      }
+    }
+  }
+}
+```
+
+**Key concepts**:
+- Servers are spawned as subprocesses communicating via stdio (JSON-RPC)
+- Each server can provide multiple tools
+- Tools are automatically discovered via `tools/list` MCP method
+- Tool names are prefixed with server name to avoid collisions
+- Tool execution supports multi-turn loops (LLM → tools → LLM → ...)

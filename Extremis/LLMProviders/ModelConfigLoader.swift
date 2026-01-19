@@ -44,6 +44,7 @@ struct ProviderModelConfig: Codable {
 
 /// Loads and caches model configuration from JSON
 /// Follows the same pattern as PromptTemplateLoader
+@MainActor
 final class ModelConfigLoader {
     
     // MARK: - Singleton
@@ -54,10 +55,7 @@ final class ModelConfigLoader {
     
     /// Cached configuration
     private var config: ModelConfig?
-    
-    /// Lock for thread-safe cache access
-    private let cacheLock = NSLock()
-    
+
     /// Bundle to load resources from
     private let bundle: Bundle
     
@@ -124,22 +122,17 @@ final class ModelConfigLoader {
     
     /// Clear the cache (primarily for testing)
     func clearCache() {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
         config = nil
     }
     
     // MARK: - Private Methods
     
     private func loadConfig() throws -> ModelConfig {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
-        
         // Return cached config if available
         if let cached = config {
             return cached
         }
-        
+
         // Load from bundle
         let loaded = try loadFromBundle()
         config = loaded

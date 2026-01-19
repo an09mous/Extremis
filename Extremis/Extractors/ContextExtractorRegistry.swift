@@ -5,7 +5,8 @@ import Foundation
 
 /// Registry for managing context extractors
 /// Provides the appropriate extractor based on the active application
-final class ContextExtractorRegistry: ContextExtractorRegistryProtocol {
+@MainActor
+final class ContextExtractorRegistry: @preconcurrency ContextExtractorRegistryProtocol {
     
     // MARK: - Properties
     

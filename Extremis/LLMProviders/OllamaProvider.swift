@@ -2,9 +2,11 @@
 // Local LLM integration via Ollama using OpenAI-compatible API
 
 import Foundation
+import Combine
 
 /// Ollama local LLM provider implementation
-final class OllamaProvider: LLMProvider {
+@MainActor
+final class OllamaProvider: LLMProvider, ObservableObject {
 
     // MARK: - Properties
 
@@ -12,9 +14,9 @@ final class OllamaProvider: LLMProvider {
     var displayName: String { "\(providerType.displayName) (\(currentModel.name))" }
 
     private let session: URLSession
-    private(set) var currentModel: LLMModel
+    @Published private(set) var currentModel: LLMModel
     private var baseURL: String
-    private var serverConnected: Bool = false
+    @Published private(set) var serverConnected: Bool = false
 
     /// Cached list of available models from Ollama server
     private(set) var availableModelsFromServer: [LLMModel] = []
@@ -195,6 +197,103 @@ final class OllamaProvider: LLMProvider {
         }
     }
 
+    // MARK: - Tool Support
+
+    func generateChatWithTools(
+        messages: [ChatMessage],
+        tools: [ConnectorTool],
+        toolRounds: [ToolExecutionRound]
+    ) async throws -> ToolEnabledGeneration {
+        guard serverConnected else {
+            throw LLMProviderError.notConfigured(provider: .ollama)
+        }
+
+        let request = try buildToolRequest(messages: messages, tools: tools, toolRounds: toolRounds)
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw LLMProviderError.invalidResponse
+        }
+
+        try handleStatusCode(httpResponse.statusCode, data: data)
+
+        return try parseToolResponse(data)
+    }
+
+    func generateChatWithToolsStream(
+        messages: [ChatMessage],
+        tools: [ConnectorTool],
+        toolRounds: [ToolExecutionRound]
+    ) -> AsyncThrowingStream<ToolStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    guard self.serverConnected else {
+                        throw LLMProviderError.notConfigured(provider: .ollama)
+                    }
+
+                    let request = try self.buildToolStreamRequest(
+                        messages: messages,
+                        tools: tools,
+                        toolRounds: toolRounds
+                    )
+
+                    let (bytes, response) = try await self.session.bytes(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        throw LLMProviderError.invalidResponse
+                    }
+
+                    if httpResponse.statusCode != 200 {
+                        var errorData = Data()
+                        for try await byte in bytes {
+                            errorData.append(byte)
+                        }
+                        try self.handleStatusCode(httpResponse.statusCode, data: errorData)
+                    }
+
+                    // Parse SSE stream - OpenAI-compatible format
+                    // Use bytes.lines for proper UTF-8 decoding
+                    var toolCallsAccumulator: [String: (name: String, arguments: String)] = [:]
+
+                    for try await line in bytes.lines {
+                        if Task.isCancelled {
+                            continuation.finish()
+                            return
+                        }
+
+                        if let result = self.parseToolStreamSSELine(
+                            line,
+                            toolCallsAccumulator: &toolCallsAccumulator
+                        ) {
+                            switch result {
+                            case .text(let text):
+                                continuation.yield(.textChunk(text))
+                            case .done:
+                                break
+                            }
+                        }
+                    }
+
+                    // Build final tool calls from accumulator
+                    let finalToolCalls: [LLMToolCall] = toolCallsAccumulator.map { (id, data) in
+                        var arguments: [String: Any] = [:]
+                        if let argsData = data.arguments.data(using: .utf8),
+                           let argsDict = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any] {
+                            arguments = argsDict
+                        }
+                        return LLMToolCall(id: id, name: data.name, arguments: arguments)
+                    }
+
+                    continuation.yield(.complete(toolCalls: finalToolCalls))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
     // MARK: - Connection & Model Discovery
 
     /// Check if Ollama server is running
@@ -220,6 +319,10 @@ final class OllamaProvider: LLMProvider {
             print("⚠️ Ollama server not available: \(error.localizedDescription)")
         }
         serverConnected = false
+        // Clear the "Loading..." placeholder when server is unavailable
+        if currentModel.id == "pending" {
+            currentModel = LLMModel(id: "unavailable", name: "Unavailable", description: "Server not running")
+        }
         return false
     }
 
@@ -316,6 +419,17 @@ final class OllamaProvider: LLMProvider {
             "messages": formattedMessages,
             "stream": true
         ]
+
+        // Log request details for debugging
+        print("📤 Ollama Chat Request:")
+        print("   Model: \(currentModel.id)")
+        print("   Messages: \(formattedMessages.count)")
+        for (i, msg) in formattedMessages.enumerated() {
+            let role = msg["role"] as? String ?? "unknown"
+            let content = (msg["content"] as? String)?.prefix(80) ?? "<no content>"
+            print("   [\(i)] \(role): \(content)...")
+        }
+
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
     }
@@ -358,6 +472,228 @@ final class OllamaProvider: LLMProvider {
             let message = String(data: data, encoding: .utf8)
             throw LLMProviderError.serverError(statusCode: code, message: message)
         }
+    }
+
+    // MARK: - Tool Request Building
+
+    /// Build a request with tools (OpenAI-compatible format)
+    private func buildToolRequest(
+        messages: [ChatMessage],
+        tools: [ConnectorTool],
+        toolRounds: [ToolExecutionRound]
+    ) throws -> URLRequest {
+        var request = URLRequest(url: URL(string: "\(baseURL)/v1/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        // Format chat messages - cast to [String: Any] for tool result compatibility
+        var formattedMessages: [[String: Any]] = PromptBuilder.shared.formatChatMessages(messages: messages).map { $0 as [String: Any] }
+
+        // Append all tool execution rounds to build complete conversation history
+        // OpenAI-compatible format requires: user message -> assistant message with tool_calls -> tool messages (for each round)
+        for round in toolRounds {
+            // Add assistant message with tool_calls
+            let toolCallsFormatted: [[String: Any]] = round.toolCalls.map { call in
+                [
+                    "id": call.id,
+                    "type": "function",
+                    "function": [
+                        "name": call.name,
+                        "arguments": (try? JSONSerialization.data(withJSONObject: call.arguments))
+                            .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+                    ] as [String: Any]
+                ]
+            }
+            formattedMessages.append([
+                "role": "assistant",
+                "tool_calls": toolCallsFormatted
+            ])
+
+            // Append tool results as tool role messages
+            for result in round.results {
+                formattedMessages.append(ToolSchemaConverter.formatOpenAIToolResult(callID: result.callID, result: result))
+            }
+        }
+
+        var body: [String: Any] = [
+            "model": currentModel.id,
+            "messages": formattedMessages,
+            "stream": false
+        ]
+
+        // Add tools if available
+        if !tools.isEmpty {
+            body["tools"] = ToolSchemaConverter.toOpenAI(tools: tools)
+        }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// Parse a tool-enabled response (OpenAI-compatible format)
+    private func parseToolResponse(_ data: Data) throws -> ToolEnabledGeneration {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let firstChoice = choices.first,
+              let message = firstChoice["message"] as? [String: Any] else {
+            throw LLMProviderError.invalidResponse
+        }
+
+        // Extract text content
+        let content = message["content"] as? String
+
+        // Extract tool calls
+        var toolCalls: [LLMToolCall] = []
+        if let rawToolCalls = message["tool_calls"] as? [[String: Any]] {
+            for call in rawToolCalls {
+                guard let id = call["id"] as? String,
+                      let function = call["function"] as? [String: Any],
+                      let name = function["name"] as? String else {
+                    continue
+                }
+
+                // Parse arguments JSON string
+                var arguments: [String: Any] = [:]
+                if let argsString = function["arguments"] as? String,
+                   let argsData = argsString.data(using: .utf8),
+                   let argsDict = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any] {
+                    arguments = argsDict
+                }
+
+                toolCalls.append(LLMToolCall(id: id, name: name, arguments: arguments))
+            }
+        }
+
+        return ToolEnabledGeneration(content: content, toolCalls: toolCalls)
+    }
+
+    /// Build a streaming request with tools (OpenAI-compatible format)
+    private func buildToolStreamRequest(
+        messages: [ChatMessage],
+        tools: [ConnectorTool],
+        toolRounds: [ToolExecutionRound]
+    ) throws -> URLRequest {
+        var request = URLRequest(url: URL(string: "\(baseURL)/v1/chat/completions")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        var formattedMessages: [[String: Any]] = PromptBuilder.shared.formatChatMessages(messages: messages).map { $0 as [String: Any] }
+
+        for round in toolRounds {
+            let toolCallsFormatted: [[String: Any]] = round.toolCalls.map { call in
+                [
+                    "id": call.id,
+                    "type": "function",
+                    "function": [
+                        "name": call.name,
+                        "arguments": (try? JSONSerialization.data(withJSONObject: call.arguments))
+                            .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+                    ] as [String: Any]
+                ]
+            }
+            formattedMessages.append([
+                "role": "assistant",
+                "tool_calls": toolCallsFormatted
+            ])
+
+            for result in round.results {
+                formattedMessages.append(ToolSchemaConverter.formatOpenAIToolResult(callID: result.callID, result: result))
+            }
+        }
+
+        var body: [String: Any] = [
+            "model": currentModel.id,
+            "messages": formattedMessages,
+            "stream": true
+        ]
+
+        if !tools.isEmpty {
+            body["tools"] = ToolSchemaConverter.toOpenAI(tools: tools)
+        }
+
+        // Log request details for debugging
+        print("📤 Ollama Tool Request:")
+        print("   Model: \(currentModel.id)")
+        print("   Messages: \(formattedMessages.count)")
+        for (i, msg) in formattedMessages.enumerated() {
+            let role = msg["role"] as? String ?? "unknown"
+            if let toolCalls = msg["tool_calls"] as? [[String: Any]] {
+                let toolNames = toolCalls.compactMap { ($0["function"] as? [String: Any])?["name"] as? String }
+                print("   [\(i)] \(role): tool_calls=[\(toolNames.joined(separator: ", "))]")
+            } else if role == "tool" {
+                let callID = msg["tool_call_id"] as? String ?? "?"
+                print("   [\(i)] \(role): result for \(callID)")
+            } else {
+                let content = (msg["content"] as? String)?.prefix(80) ?? "<no content>"
+                print("   [\(i)] \(role): \(content)...")
+            }
+        }
+        if !tools.isEmpty {
+            print("   Tools: \(tools.count) available")
+        }
+        if !toolRounds.isEmpty {
+            print("   Tool rounds: \(toolRounds.count) (historical context)")
+        }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// Result from parsing a tool stream SSE line
+    private enum ToolStreamSSEResult {
+        case text(String)
+        case done
+    }
+
+    /// Parse an SSE line from streaming tool response (OpenAI-compatible format)
+    private func parseToolStreamSSELine(
+        _ line: String,
+        toolCallsAccumulator: inout [String: (name: String, arguments: String)]
+    ) -> ToolStreamSSEResult? {
+        guard line.hasPrefix("data: ") else { return nil }
+
+        let jsonString = String(line.dropFirst(6))
+
+        if jsonString == "[DONE]" {
+            return .done
+        }
+
+        guard let data = jsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let firstChoice = choices.first,
+              let delta = firstChoice["delta"] as? [String: Any] else {
+            return nil
+        }
+
+        // Check for text content
+        if let content = delta["content"] as? String, !content.isEmpty {
+            return .text(content)
+        }
+
+        // Check for tool calls
+        if let toolCalls = delta["tool_calls"] as? [[String: Any]] {
+            for toolCall in toolCalls {
+                guard let index = toolCall["index"] as? Int else { continue }
+                let id = toolCall["id"] as? String ?? "tool_\(index)"
+
+                if toolCallsAccumulator[id] == nil {
+                    if let function = toolCall["function"] as? [String: Any],
+                       let name = function["name"] as? String {
+                        toolCallsAccumulator[id] = (name: name, arguments: "")
+                    }
+                }
+
+                if let function = toolCall["function"] as? [String: Any],
+                   let argsChunk = function["arguments"] as? String,
+                   var existing = toolCallsAccumulator[id] {
+                    existing.arguments += argsChunk
+                    toolCallsAccumulator[id] = existing
+                }
+            }
+        }
+
+        return nil
     }
 }
 

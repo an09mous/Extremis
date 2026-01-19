@@ -6,6 +6,7 @@ import AppKit
 import ApplicationServices
 
 /// Manages macOS permissions required by Extremis
+@MainActor
 final class PermissionManager {
     
     // MARK: - Types
@@ -44,7 +45,9 @@ final class PermissionManager {
     /// - Returns: true if permission is already granted
     @discardableResult
     func requestAccessibility() -> Bool {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+        // Use the string key directly to avoid Swift 6 concurrency warning for global constant
+        let promptKey = "AXTrustedCheckOptionPrompt" as CFString
+        let options = [promptKey: true] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
     }
     
