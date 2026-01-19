@@ -10,6 +10,9 @@ private final class ReadState: @unchecked Sendable {
     private var buffer = Data()
     private let lock = NSLock()
 
+    /// Maximum buffer size (1MB) to prevent unbounded growth from malformed data
+    private static let maxBufferSize = 1024 * 1024
+
     init(logger: Logger, continuation: AsyncThrowingStream<Data, Swift.Error>.Continuation) {
         self.logger = logger
         self.continuation = continuation
@@ -20,6 +23,14 @@ private final class ReadState: @unchecked Sendable {
         defer { lock.unlock() }
 
         buffer.append(data)
+
+        // Prevent unbounded buffer growth - discard oldest data if limit exceeded
+        if buffer.count > Self.maxBufferSize {
+            logger.warning("Buffer exceeded \(Self.maxBufferSize) bytes, discarding oldest data")
+            // Keep only the most recent half to preserve partial messages
+            let keepFrom = buffer.count - Self.maxBufferSize / 2
+            buffer = Data(buffer[keepFrom...])
+        }
 
         // Process complete lines (newline-delimited)
         while let newlineIndex = buffer.firstIndex(of: UInt8(ascii: "\n")) {

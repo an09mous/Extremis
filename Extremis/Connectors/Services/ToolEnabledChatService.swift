@@ -197,10 +197,6 @@ final class ToolEnabledChatService {
                         continuation.yield(.toolCallsStarted(chatToolCalls))
                         onToolCallsStarted(chatToolCalls)
 
-                        // Track results for this round incrementally
-                        var currentRoundToolCalls: [ToolCall] = []
-                        var currentRoundResults: [ToolResult] = []
-
                         // Execute tools with progress updates
                         let results = await self.executeToolsWithUpdates(
                             toolCalls: toolCalls,
@@ -210,8 +206,6 @@ final class ToolEnabledChatService {
                             },
                             onToolResultReady: { toolCall, result in
                                 // Emit each result as it completes (for incremental persistence)
-                                currentRoundToolCalls.append(toolCall)
-                                currentRoundResults.append(result)
                                 continuation.yield(.toolResultReady(toolCall: toolCall, result: result))
                             }
                         )

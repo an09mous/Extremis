@@ -1064,12 +1064,12 @@ final class PromptViewModel: ObservableObject {
                     completedToolRounds = toolRounds
                     print("🔧 Generation complete event received with \(toolRounds.count) tool rounds")
 
-                case .generationInterrupted(let error, let partialRounds):
+                case .generationInterrupted(_, let partialRounds):
                     // Generation was interrupted but we have partial results
+                    // Save them so they can be persisted in the catch block below
+                    // Note: The error is propagated via continuation.finish(throwing:) in the service
                     completedToolRounds = partialRounds
                     print("🔧 Generation interrupted with \(partialRounds.count) completed tool rounds")
-                    // The error will be thrown and handled in the catch block
-                    _ = error  // Silence unused warning - error is re-thrown
                 }
             }
 
