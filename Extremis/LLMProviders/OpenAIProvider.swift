@@ -349,6 +349,17 @@ final class OpenAIProvider: LLMProvider {
             "max_tokens": 2048,
             "stream": true
         ]
+
+        // Log request details for debugging
+        print("📤 OpenAI Chat Request:")
+        print("   Model: \(currentModel.id)")
+        print("   Messages: \(formattedMessages.count)")
+        for (i, msg) in formattedMessages.enumerated() {
+            let role = msg["role"] as? String ?? "unknown"
+            let content = (msg["content"] as? String)?.prefix(80) ?? "<no content>"
+            print("   [\(i)] \(role): \(content)...")
+        }
+
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
     }
@@ -459,6 +470,30 @@ final class OpenAIProvider: LLMProvider {
             body["tools"] = ToolSchemaConverter.toOpenAI(tools: tools)
         }
 
+        // Log request details for debugging
+        print("📤 OpenAI Request (non-streaming):")
+        print("   Model: \(currentModel.id)")
+        print("   Messages: \(formattedMessages.count)")
+        for (i, msg) in formattedMessages.enumerated() {
+            let role = msg["role"] as? String ?? "unknown"
+            if let toolCalls = msg["tool_calls"] as? [[String: Any]] {
+                let toolNames = toolCalls.compactMap { ($0["function"] as? [String: Any])?["name"] as? String }
+                print("   [\(i)] \(role): tool_calls=[\(toolNames.joined(separator: ", "))]")
+            } else if role == "tool" {
+                let callID = msg["tool_call_id"] as? String ?? "?"
+                print("   [\(i)] \(role): result for \(callID)")
+            } else {
+                let content = (msg["content"] as? String)?.prefix(80) ?? "<no content>"
+                print("   [\(i)] \(role): \(content)...")
+            }
+        }
+        if !tools.isEmpty {
+            print("   Tools: \(tools.count) available")
+        }
+        if !toolRounds.isEmpty {
+            print("   Tool rounds: \(toolRounds.count) (historical context)")
+        }
+
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
     }
@@ -545,6 +580,30 @@ final class OpenAIProvider: LLMProvider {
 
         if !tools.isEmpty {
             body["tools"] = ToolSchemaConverter.toOpenAI(tools: tools)
+        }
+
+        // Log request details for debugging
+        print("📤 OpenAI Request:")
+        print("   Model: \(currentModel.id)")
+        print("   Messages: \(formattedMessages.count)")
+        for (i, msg) in formattedMessages.enumerated() {
+            let role = msg["role"] as? String ?? "unknown"
+            if let toolCalls = msg["tool_calls"] as? [[String: Any]] {
+                let toolNames = toolCalls.compactMap { ($0["function"] as? [String: Any])?["name"] as? String }
+                print("   [\(i)] \(role): tool_calls=[\(toolNames.joined(separator: ", "))]")
+            } else if role == "tool" {
+                let callID = msg["tool_call_id"] as? String ?? "?"
+                print("   [\(i)] \(role): result for \(callID)")
+            } else {
+                let content = (msg["content"] as? String)?.prefix(80) ?? "<no content>"
+                print("   [\(i)] \(role): \(content)...")
+            }
+        }
+        if !tools.isEmpty {
+            print("   Tools: \(tools.count) available")
+        }
+        if !toolRounds.isEmpty {
+            print("   Tool rounds: \(toolRounds.count) (historical context)")
         }
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
