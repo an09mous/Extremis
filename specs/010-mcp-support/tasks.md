@@ -190,8 +190,8 @@
 **Purpose**: Quality improvements, documentation, and integration testing
 
 - [x] T060 [P] Add error logging throughout Connectors module using existing logging patterns
-- [ ] T061 [P] Update `Extremis/CLAUDE.md` with Connectors module documentation (patterns, key files)
-- [ ] T062 [P] Update `Extremis/README.md` with Connectors feature description and configuration instructions
+- [x] T061 [P] Update `Extremis/CLAUDE.md` with Connectors module documentation (patterns, key files)
+- [x] T062 [P] Update `Extremis/README.md` with Connectors feature description and configuration instructions
 - [x] T063 Create `Extremis/Resources/PromptTemplates/tool_context.hbs` for tool-aware system prompt additions (if needed) - N/A, not needed
 - [x] T064 Manual QA: Test all connector flows per quickstart.md scenarios
 - [x] T065 Run full test suite via `./scripts/run-tests.sh` and verify all pass
@@ -311,15 +311,13 @@ Execute in strict order: Phase 1 → Phase 2 → US2 → US3 → US4 → US5 →
 | US4: Use Tools | T033-T049 | ✅ Complete (16/17) - missing T038 unit test |
 | US5: Multiple | T050-T054 | ✅ Complete (5/5) |
 | US6: Enable/Disable | T055-T059 | ✅ Complete (5/5) |
-| Polish | T060-T066 | 🔄 In Progress (5/7) - missing T061, T062 docs |
+| Polish | T060-T066 | ✅ Complete (7/7) |
 
 **Total**: 66 tasks
-- **Completed**: 62 tasks ✅
-- **Remaining**: 4 tasks
+- **Completed**: 64 tasks ✅
+- **Remaining**: 2 tasks (unit tests)
   - T024: Unit test for ConnectorConfigStorage CRUD
   - T038: Unit test for ToolExecutor parallel execution
-  - T061: Update CLAUDE.md with Connectors docs
-  - T062: Update README.md with Connectors feature
 
 ---
 
