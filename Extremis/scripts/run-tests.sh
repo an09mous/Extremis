@@ -189,6 +189,11 @@ run_test_suite "Tool Persistence Tests" \
     "$PROJECT_DIR/Tests/Connectors/ToolPersistenceTests.swift" \
     "Foundation"
 
+# 12. Process Transport Tests (MCP connector edge cases, JSON detection, tool naming)
+run_test_suite "Process Transport Tests" \
+    "$PROJECT_DIR/Tests/Connectors/ProcessTransportTests.swift" \
+    "Foundation"
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------

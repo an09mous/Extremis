@@ -28,10 +28,9 @@ private final class ReadState: @unchecked Sendable {
 
             if lineData.isEmpty { continue }
 
-            // Only yield lines that look like JSON (start with '{' or '[')
+            // Check if line looks like JSON (starts with '{' or '[', allowing leading whitespace)
             // Some MCP servers incorrectly print status messages to stdout
-            if let firstByte = lineData.first,
-               firstByte == UInt8(ascii: "{") || firstByte == UInt8(ascii: "[") {
+            if looksLikeJSON(lineData) {
                 logger.trace("Received message (\(lineData.count) bytes)")
                 continuation.yield(Data(lineData))
             } else {
@@ -41,6 +40,20 @@ private final class ReadState: @unchecked Sendable {
                 }
             }
         }
+    }
+
+    /// Check if data looks like JSON (starts with '{' or '[', allowing leading whitespace)
+    private func looksLikeJSON(_ data: Data) -> Bool {
+        // Find first non-whitespace byte
+        for byte in data {
+            // Skip whitespace (space, tab, carriage return)
+            if byte == UInt8(ascii: " ") || byte == UInt8(ascii: "\t") || byte == UInt8(ascii: "\r") {
+                continue
+            }
+            // Check if it's a JSON start character
+            return byte == UInt8(ascii: "{") || byte == UInt8(ascii: "[")
+        }
+        return false
     }
 }
 
