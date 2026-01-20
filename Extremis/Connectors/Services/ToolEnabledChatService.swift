@@ -230,11 +230,33 @@ final class ToolEnabledChatService {
                                 onToolCallUpdated(toolCall.id, .approved, nil, nil)
                             }
                         } else {
+                            // Check for cancellation before approval request
+                            // This ensures we don't show approval UI if generation was already stopped
+                            if Task.isCancelled {
+                                print("🛑 Generation cancelled before tool approval - skipping")
+                                continuation.finish()
+                                return
+                            }
+
                             // Request approval for tool calls (T3.7)
                             let approvalResult = await self.approvalManager.requestApproval(
                                 for: toolCalls,
                                 sessionMemory: self.sessionApprovalMemory
                             )
+
+                            // Check for cancellation after approval returns
+                            // This handles the case where user stopped generation while approval UI was open
+                            // Even if they clicked "approve", we should not execute tools
+                            if Task.isCancelled {
+                                print("🛑 Generation cancelled during/after approval - not executing tools")
+                                // Mark all tools as cancelled
+                                for toolCall in toolCalls {
+                                    continuation.yield(.toolCallUpdated(toolCall.id, .cancelled, "Cancelled", nil))
+                                    onToolCallUpdated(toolCall.id, .cancelled, "Cancelled", nil)
+                                }
+                                continuation.finish()
+                                return
+                            }
 
                             // Check if "Allow All Once" was used
                             if approvalResult.allowAllOnce {
@@ -258,31 +280,50 @@ final class ToolEnabledChatService {
                         }
 
                         // If any tools were denied, stop generation (like Claude Code behavior)
-                        // Don't continue the loop - user denied means stop
+                        // Don't continue the loop - user denied means stop ALL tools
                         if !deniedToolCalls.isEmpty {
-                            print("🛑 Tool(s) denied by user - stopping generation")
+                            print("🛑 Tool(s) denied by user - stopping ALL tool execution")
+
+                            // Mark approved tools as cancelled (they won't execute due to denial)
+                            for toolCall in approvedToolCalls {
+                                continuation.yield(.toolCallUpdated(toolCall.id, .cancelled, "Cancelled (another tool was denied)", nil))
+                                onToolCallUpdated(toolCall.id, .cancelled, "Cancelled (another tool was denied)", nil)
+                            }
 
                             // Emit a message to the user explaining what happened
                             let deniedToolNames = deniedToolCalls.map { $0.toolName }.joined(separator: ", ")
-                            let denialMessage = "Tool execution was denied for: \(deniedToolNames). Generation stopped."
+                            let denialMessage = "Tool execution was denied for: \(deniedToolNames). All tool execution stopped."
                             continuation.yield(.contentChunk(denialMessage))
 
-                            // Record the round with denied tools (no results)
+                            // Record the round with all tools (denied + cancelled approved)
+                            var allResults: [ToolResult] = []
+                            // Add denied results
+                            allResults.append(contentsOf: deniedToolCalls.map { toolCall in
+                                ToolResult.rejection(
+                                    callID: toolCall.id,
+                                    toolName: toolCall.toolName,
+                                    reason: "User denied execution"
+                                )
+                            })
+                            // Add cancelled results for approved tools that won't run
+                            allResults.append(contentsOf: approvedToolCalls.map { toolCall in
+                                ToolResult.failure(
+                                    callID: toolCall.id,
+                                    toolName: toolCall.toolName,
+                                    error: ToolError(message: "Cancelled (another tool was denied)"),
+                                    duration: 0
+                                )
+                            })
+
                             let deniedRound = ToolExecutionRound(
                                 toolCalls: streamedToolCalls,
-                                results: deniedToolCalls.map { toolCall in
-                                    ToolResult.rejection(
-                                        callID: toolCall.id,
-                                        toolName: toolCall.toolName,
-                                        reason: "User denied execution"
-                                    )
-                                }
+                                results: allResults
                             )
                             toolRounds.append(deniedRound)
-                            resolvedToolRounds.append((toolCalls: toolCalls, results: deniedRound.results))
+                            resolvedToolRounds.append((toolCalls: toolCalls, results: allResults))
 
                             // Emit round completed and stop
-                            continuation.yield(.toolRoundCompleted(toolCalls: toolCalls, results: deniedRound.results))
+                            continuation.yield(.toolRoundCompleted(toolCalls: toolCalls, results: allResults))
                             break  // Exit the tool execution loop
                         }
 
@@ -406,6 +447,24 @@ final class ToolEnabledChatService {
 
             let result = await toolExecutor.execute(call)
             results.append(result)
+
+            // Check for cancellation after execution - if cancelled, stop processing remaining tools
+            if Task.isCancelled {
+                onToolCallUpdated(call.id, .cancelled, "Cancelled", result.duration)
+                // Mark any remaining tools as cancelled without executing
+                let currentIndex = toolCalls.firstIndex(where: { $0.id == call.id }) ?? 0
+                for remainingCall in toolCalls.suffix(from: currentIndex + 1) {
+                    let cancelledResult = ToolResult.failure(
+                        callID: remainingCall.id,
+                        toolName: remainingCall.toolName,
+                        error: ToolError(message: "Execution cancelled"),
+                        duration: 0
+                    )
+                    results.append(cancelledResult)
+                    onToolCallUpdated(remainingCall.id, .cancelled, "Cancelled", 0)
+                }
+                break
+            }
 
             // Update UI immediately for this tool
             let state: ToolCallState = result.isSuccess ? .completed : .failed

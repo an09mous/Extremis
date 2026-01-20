@@ -684,6 +684,16 @@ final class PromptViewModel: ObservableObject {
 
     func cancelGeneration() {
         session?.cancelGeneration()
+        // Immediately clear tool UI state so user sees the stop take effect
+        activeToolCalls = []
+        isExecutingTools = false
+        // Dismiss any pending approval UI - this completes the approval continuation
+        // with "dismissed" decisions, which prevents tools from executing
+        pendingApprovalRequests = []
+        showApprovalView = false
+        // Also notify the ToolApprovalManager to complete any pending approval request
+        // This ensures the continuation in waitForUserDecisions is properly resolved
+        ToolApprovalManager.shared.uiDelegate?.dismissApprovalUI()
     }
 
     // MARK: - Summarization
