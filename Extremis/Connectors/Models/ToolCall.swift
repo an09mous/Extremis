@@ -14,6 +14,9 @@ struct ToolCall: Identifiable, Sendable {
     /// Connector ID that provides this tool
     let connectorID: String
 
+    /// Human-readable connector name (for display)
+    let connectorName: String
+
     /// Original tool name (without connector prefix)
     let originalToolName: String
 
@@ -29,6 +32,7 @@ struct ToolCall: Identifiable, Sendable {
         id: String,
         toolName: String,
         connectorID: String,
+        connectorName: String,
         originalToolName: String,
         arguments: [String: JSONValue],
         requestedAt: Date = Date()
@@ -36,6 +40,7 @@ struct ToolCall: Identifiable, Sendable {
         self.id = id
         self.toolName = toolName
         self.connectorID = connectorID
+        self.connectorName = connectorName
         self.originalToolName = originalToolName
         self.arguments = arguments
         self.requestedAt = requestedAt
@@ -51,6 +56,7 @@ struct ToolCall: Identifiable, Sendable {
             id: id,
             toolName: tool.name,
             connectorID: tool.connectorID,
+            connectorName: tool.connectorName,
             originalToolName: tool.originalName,
             arguments: arguments
         )
@@ -71,6 +77,7 @@ struct ToolCall: Identifiable, Sendable {
             id: llmCallID,
             toolName: toolName,
             connectorID: tool.connectorID,
+            connectorName: tool.connectorName,
             originalToolName: tool.originalName,
             arguments: arguments
         )

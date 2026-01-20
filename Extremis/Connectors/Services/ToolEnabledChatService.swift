@@ -16,6 +16,7 @@ final class ToolEnabledChatService {
 
     private let connectorRegistry: ConnectorRegistry
     private let toolExecutor: ToolExecutor
+    private let approvalManager: ToolApprovalManager
 
     // MARK: - Configuration
 
@@ -23,14 +24,21 @@ final class ToolEnabledChatService {
     /// Prevents infinite loops if LLM keeps requesting tools
     private let maxToolRounds: Int = 10
 
+    // MARK: - Session Context
+
+    /// Current session's approval memory (set before generation)
+    var sessionApprovalMemory: SessionApprovalMemory?
+
     // MARK: - Initialization
 
     init(
         connectorRegistry: ConnectorRegistry = .shared,
-        toolExecutor: ToolExecutor = .shared
+        toolExecutor: ToolExecutor = .shared,
+        approvalManager: ToolApprovalManager = .shared
     ) {
         self.connectorRegistry = connectorRegistry
         self.toolExecutor = toolExecutor
+        self.approvalManager = approvalManager
     }
 
     // MARK: - Public Methods
@@ -156,6 +164,9 @@ final class ToolEnabledChatService {
                     var toolRounds: [ToolExecutionRound] = historicalToolRounds
                     var rounds = 0
 
+                    // Track if "Allow All Once" was used - skip approval for rest of this generation
+                    var allowAllOnceActive = false
+
                     while rounds < self.maxToolRounds {
                         rounds += 1
                         print("🔧 Tool round \(rounds) starting...")
@@ -192,23 +203,108 @@ final class ToolEnabledChatService {
                             break
                         }
 
-                        // Notify about tool calls starting
-                        let chatToolCalls = toolCalls.map { ChatToolCall.from($0) }
+                        // Notify about tool calls starting (with pendingApproval state)
+                        var chatToolCalls = toolCalls.map { ChatToolCall.from($0) }
+                        // Mark all as pending approval initially (unless allowAllOnce is active)
+                        if !allowAllOnceActive {
+                            for i in chatToolCalls.indices {
+                                chatToolCalls[i].markPendingApproval()
+                            }
+                        }
                         continuation.yield(.toolCallsStarted(chatToolCalls))
                         onToolCallsStarted(chatToolCalls)
 
-                        // Execute tools with progress updates
-                        let results = await self.executeToolsWithUpdates(
-                            toolCalls: toolCalls,
-                            onToolCallUpdated: { id, state, summary, duration in
-                                continuation.yield(.toolCallUpdated(id, state, summary, duration))
-                                onToolCallUpdated(id, state, summary, duration)
-                            },
-                            onToolResultReady: { toolCall, result in
-                                // Emit each result as it completes (for incremental persistence)
-                                continuation.yield(.toolResultReady(toolCall: toolCall, result: result))
+                        // Determine approved/denied tools
+                        let approvedToolCalls: [ToolCall]
+                        let deniedToolCalls: [ToolCall]
+
+                        if allowAllOnceActive {
+                            // "Allow All Once" was used in a previous round - auto-approve all tools
+                            print("🔓 Auto-approving \(toolCalls.count) tools (Allow All Once active)")
+                            approvedToolCalls = toolCalls
+                            deniedToolCalls = []
+
+                            // Update UI state to approved
+                            for toolCall in approvedToolCalls {
+                                continuation.yield(.toolCallUpdated(toolCall.id, .approved, nil, nil))
+                                onToolCallUpdated(toolCall.id, .approved, nil, nil)
                             }
-                        )
+                        } else {
+                            // Request approval for tool calls (T3.7)
+                            let approvalResult = await self.approvalManager.requestApproval(
+                                for: toolCalls,
+                                sessionMemory: self.sessionApprovalMemory
+                            )
+
+                            // Check if "Allow All Once" was used
+                            if approvalResult.allowAllOnce {
+                                print("🔓 Allow All Once activated - subsequent tool calls will be auto-approved")
+                                allowAllOnceActive = true
+                            }
+
+                            // Filter to only approved tools
+                            approvedToolCalls = toolCalls.filter { approvalResult.approvedIds.contains($0.id) }
+                            deniedToolCalls = toolCalls.filter { !approvalResult.approvedIds.contains($0.id) }
+
+                            // Update UI state for approved/denied tools (T3.9)
+                            for toolCall in approvedToolCalls {
+                                continuation.yield(.toolCallUpdated(toolCall.id, .approved, nil, nil))
+                                onToolCallUpdated(toolCall.id, .approved, nil, nil)
+                            }
+                            for toolCall in deniedToolCalls {
+                                continuation.yield(.toolCallUpdated(toolCall.id, .denied, "Denied by user", nil))
+                                onToolCallUpdated(toolCall.id, .denied, "Denied by user", nil)
+                            }
+                        }
+
+                        // If any tools were denied, stop generation (like Claude Code behavior)
+                        // Don't continue the loop - user denied means stop
+                        if !deniedToolCalls.isEmpty {
+                            print("🛑 Tool(s) denied by user - stopping generation")
+
+                            // Emit a message to the user explaining what happened
+                            let deniedToolNames = deniedToolCalls.map { $0.toolName }.joined(separator: ", ")
+                            let denialMessage = "Tool execution was denied for: \(deniedToolNames). Generation stopped."
+                            continuation.yield(.contentChunk(denialMessage))
+
+                            // Record the round with denied tools (no results)
+                            let deniedRound = ToolExecutionRound(
+                                toolCalls: streamedToolCalls,
+                                results: deniedToolCalls.map { toolCall in
+                                    ToolResult.rejection(
+                                        callID: toolCall.id,
+                                        toolName: toolCall.toolName,
+                                        reason: "User denied execution"
+                                    )
+                                }
+                            )
+                            toolRounds.append(deniedRound)
+                            resolvedToolRounds.append((toolCalls: toolCalls, results: deniedRound.results))
+
+                            // Emit round completed and stop
+                            continuation.yield(.toolRoundCompleted(toolCalls: toolCalls, results: deniedRound.results))
+                            break  // Exit the tool execution loop
+                        }
+
+                        // Execute approved tools with progress updates (T3.17)
+                        var allResults: [ToolResult] = []
+                        if !approvedToolCalls.isEmpty {
+                            let executionResults = await self.executeToolsWithUpdates(
+                                toolCalls: approvedToolCalls,
+                                onToolCallUpdated: { id, state, summary, duration in
+                                    continuation.yield(.toolCallUpdated(id, state, summary, duration))
+                                    onToolCallUpdated(id, state, summary, duration)
+                                },
+                                onToolResultReady: { toolCall, result in
+                                    // Emit each result as it completes (for incremental persistence)
+                                    continuation.yield(.toolResultReady(toolCall: toolCall, result: result))
+                                }
+                            )
+                            allResults.append(contentsOf: executionResults)
+                        }
+
+                        // Use execution results
+                        let results = allResults
 
                         // Add this round to history (pairs tool calls with their results)
                         toolRounds.append(ToolExecutionRound(

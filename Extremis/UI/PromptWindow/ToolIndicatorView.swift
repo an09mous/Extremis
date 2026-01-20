@@ -22,7 +22,7 @@ struct ToolIndicatorView: View {
                     .foregroundColor(.primary)
 
                 // Connector badge
-                Text(toolCall.connectorID)
+                Text(toolCall.connectorName)
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 4)
@@ -115,6 +115,15 @@ struct ToolIndicatorView: View {
         case .pending:
             Image(systemName: "clock")
                 .foregroundColor(.secondary)
+        case .pendingApproval:
+            Image(systemName: "questionmark.circle")
+                .foregroundColor(.orange)
+        case .approved:
+            Image(systemName: "checkmark.shield")
+                .foregroundColor(.green)
+        case .denied:
+            Image(systemName: "xmark.shield.fill")
+                .foregroundColor(.red)
         case .executing:
             // Animated spinner
             ProgressView()
@@ -126,6 +135,9 @@ struct ToolIndicatorView: View {
         case .failed:
             Image(systemName: "xmark.circle.fill")
                 .foregroundColor(.red)
+        case .cancelled:
+            Image(systemName: "stop.circle")
+                .foregroundColor(.secondary)
         }
     }
 
@@ -133,12 +145,20 @@ struct ToolIndicatorView: View {
         switch toolCall.state {
         case .pending:
             return Color(NSColor.controlBackgroundColor)
+        case .pendingApproval:
+            return Color.orange.opacity(0.05)
+        case .approved:
+            return Color.green.opacity(0.03)
+        case .denied:
+            return Color.red.opacity(0.05)
         case .executing:
             return Color.blue.opacity(0.05)
         case .completed:
             return Color.green.opacity(0.05)
         case .failed:
             return Color.red.opacity(0.05)
+        case .cancelled:
+            return Color(NSColor.controlBackgroundColor)
         }
     }
 
@@ -146,12 +166,20 @@ struct ToolIndicatorView: View {
         switch toolCall.state {
         case .pending:
             return Color.secondary.opacity(0.2)
+        case .pendingApproval:
+            return Color.orange.opacity(0.3)
+        case .approved:
+            return Color.green.opacity(0.2)
+        case .denied:
+            return Color.red.opacity(0.3)
         case .executing:
             return Color.blue.opacity(0.3)
         case .completed:
             return Color.green.opacity(0.3)
         case .failed:
             return Color.red.opacity(0.3)
+        case .cancelled:
+            return Color.secondary.opacity(0.2)
         }
     }
 }
@@ -209,8 +237,21 @@ struct ToolCallsGroupView: View {
         let completedCount = toolCalls.filter { $0.state == .completed }.count
         let failedCount = toolCalls.filter { $0.state == .failed }.count
         let executingCount = toolCalls.filter { $0.state == .executing }.count
+        let pendingApprovalCount = toolCalls.filter { $0.state == .pendingApproval }.count
+        let deniedCount = toolCalls.filter { $0.state == .denied || $0.state == .cancelled }.count
 
         HStack(spacing: 6) {
+            if pendingApprovalCount > 0 {
+                HStack(spacing: 2) {
+                    Image(systemName: "questionmark.circle")
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
+                    Text("\(pendingApprovalCount) awaiting")
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
+                }
+            }
+
             if executingCount > 0 {
                 HStack(spacing: 2) {
                     ProgressView()
@@ -243,6 +284,17 @@ struct ToolCallsGroupView: View {
                         .foregroundColor(.red)
                 }
             }
+
+            if deniedCount > 0 {
+                HStack(spacing: 2) {
+                    Image(systemName: "xmark.shield.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(.red)
+                    Text("\(deniedCount) denied")
+                        .font(.system(size: 10))
+                        .foregroundColor(.red)
+                }
+            }
         }
     }
 }
@@ -256,7 +308,8 @@ struct ToolIndicatorView_Previews: PreviewProvider {
             ToolIndicatorView(toolCall: ChatToolCall(
                 id: "1",
                 toolName: "github_search_issues",
-                connectorID: "github-mcp",
+                connectorID: "github-mcp-uuid",
+                connectorName: "github",
                 argumentsSummary: "query=bug, repo=extremis",
                 state: .pending
             ))
@@ -264,7 +317,8 @@ struct ToolIndicatorView_Previews: PreviewProvider {
             ToolIndicatorView(toolCall: ChatToolCall(
                 id: "2",
                 toolName: "slack_send_message",
-                connectorID: "slack-mcp",
+                connectorID: "slack-mcp-uuid",
+                connectorName: "slack",
                 argumentsSummary: "channel=#general, text=Hello",
                 state: .executing
             ))
@@ -272,7 +326,8 @@ struct ToolIndicatorView_Previews: PreviewProvider {
             ToolIndicatorView(toolCall: ChatToolCall(
                 id: "3",
                 toolName: "github_get_pr",
-                connectorID: "github-mcp",
+                connectorID: "github-mcp-uuid",
+                connectorName: "github",
                 argumentsSummary: "pr_number=123",
                 state: .completed,
                 resultSummary: "Found PR #123: Add new feature",
@@ -282,7 +337,8 @@ struct ToolIndicatorView_Previews: PreviewProvider {
             ToolIndicatorView(toolCall: ChatToolCall(
                 id: "4",
                 toolName: "api_call",
-                connectorID: "custom-api",
+                connectorID: "custom-api-uuid",
+                connectorName: "custom-api",
                 argumentsSummary: "endpoint=/users",
                 state: .failed,
                 errorMessage: "Connection timeout",
@@ -293,9 +349,9 @@ struct ToolIndicatorView_Previews: PreviewProvider {
 
             // Group view
             ToolCallsGroupView(toolCalls: [
-                ChatToolCall(id: "1", toolName: "github_search", connectorID: "github", argumentsSummary: "q=test", state: .completed, resultSummary: "5 results", duration: 0.2),
-                ChatToolCall(id: "2", toolName: "slack_post", connectorID: "slack", argumentsSummary: "text=hi", state: .executing),
-                ChatToolCall(id: "3", toolName: "jira_create", connectorID: "jira", argumentsSummary: "title=Bug", state: .pending)
+                ChatToolCall(id: "1", toolName: "github_search", connectorID: "github-uuid", connectorName: "github", argumentsSummary: "q=test", state: .completed, resultSummary: "5 results", duration: 0.2),
+                ChatToolCall(id: "2", toolName: "slack_post", connectorID: "slack-uuid", connectorName: "slack", argumentsSummary: "text=hi", state: .executing),
+                ChatToolCall(id: "3", toolName: "jira_create", connectorID: "jira-uuid", connectorName: "jira", argumentsSummary: "title=Bug", state: .pending)
             ])
         }
         .padding()

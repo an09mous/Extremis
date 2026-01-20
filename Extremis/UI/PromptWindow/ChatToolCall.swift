@@ -15,8 +15,11 @@ struct ChatToolCall: Identifiable, Equatable {
     /// Display name of the tool (e.g., "github_search_issues")
     let toolName: String
 
-    /// Connector that provides this tool
+    /// Connector ID (UUID) that provides this tool
     let connectorID: String
+
+    /// Human-readable connector name (for display)
+    let connectorName: String
 
     /// Human-readable description of arguments
     let argumentsSummary: String
@@ -43,9 +46,24 @@ struct ChatToolCall: Identifiable, Equatable {
     /// Whether execution completed (success or failure)
     var isComplete: Bool {
         switch state {
-        case .completed, .failed:
+        case .completed, .failed, .denied, .cancelled:
             return true
-        case .pending, .executing:
+        case .pending, .pendingApproval, .approved, .executing:
+            return false
+        }
+    }
+
+    /// Whether this tool is waiting for user approval
+    var isPendingApproval: Bool {
+        state == .pendingApproval
+    }
+
+    /// Whether execution was blocked (denied or cancelled)
+    var wasBlocked: Bool {
+        switch state {
+        case .denied, .cancelled:
+            return true
+        default:
             return false
         }
     }
@@ -64,12 +82,20 @@ struct ChatToolCall: Identifiable, Equatable {
         switch state {
         case .pending:
             return "clock"
+        case .pendingApproval:
+            return "questionmark.circle"
+        case .approved:
+            return "checkmark.shield"
+        case .denied:
+            return "xmark.shield.fill"
         case .executing:
             return "arrow.triangle.2.circlepath"
         case .completed:
             return "checkmark.circle.fill"
         case .failed:
             return "xmark.circle.fill"
+        case .cancelled:
+            return "stop.circle"
         }
     }
 
@@ -78,12 +104,20 @@ struct ChatToolCall: Identifiable, Equatable {
         switch state {
         case .pending:
             return "secondary"
+        case .pendingApproval:
+            return "orange"
+        case .approved:
+            return "green"
+        case .denied:
+            return "red"
         case .executing:
             return "blue"
         case .completed:
             return "green"
         case .failed:
             return "red"
+        case .cancelled:
+            return "secondary"
         }
     }
 
@@ -93,6 +127,7 @@ struct ChatToolCall: Identifiable, Equatable {
         id: String,
         toolName: String,
         connectorID: String,
+        connectorName: String,
         argumentsSummary: String,
         state: ToolCallState = .pending,
         resultSummary: String? = nil,
@@ -102,6 +137,7 @@ struct ChatToolCall: Identifiable, Equatable {
         self.id = id
         self.toolName = toolName
         self.connectorID = connectorID
+        self.connectorName = connectorName
         self.argumentsSummary = argumentsSummary
         self.state = state
         self.resultSummary = resultSummary
@@ -112,12 +148,13 @@ struct ChatToolCall: Identifiable, Equatable {
     // MARK: - Factory Methods
 
     /// Create from an LLMToolCall
-    static func from(_ llmCall: LLMToolCall, connectorID: String) -> ChatToolCall {
+    static func from(_ llmCall: LLMToolCall, connectorID: String, connectorName: String) -> ChatToolCall {
         let summary = formatArgumentsSummary(llmCall.arguments)
         return ChatToolCall(
             id: llmCall.id,
             toolName: llmCall.name,
             connectorID: connectorID,
+            connectorName: connectorName,
             argumentsSummary: summary
         )
     }
@@ -129,11 +166,32 @@ struct ChatToolCall: Identifiable, Equatable {
             id: toolCall.id,
             toolName: toolCall.toolName,
             connectorID: toolCall.connectorID,
+            connectorName: toolCall.connectorName,
             argumentsSummary: summary
         )
     }
 
     // MARK: - State Updates
+
+    /// Mark as pending approval
+    mutating func markPendingApproval() {
+        state = .pendingApproval
+    }
+
+    /// Mark as approved (ready to execute)
+    mutating func markApproved() {
+        state = .approved
+    }
+
+    /// Mark as denied
+    mutating func markDenied() {
+        state = .denied
+    }
+
+    /// Mark as cancelled
+    mutating func markCancelled() {
+        state = .cancelled
+    }
 
     /// Mark as executing
     mutating func markExecuting() {
@@ -174,16 +232,24 @@ struct ChatToolCall: Identifiable, Equatable {
 
 // MARK: - Tool Call State
 
-/// Execution state of a tool call
+/// Execution state of a tool call (Extended for approval in T2.11)
 enum ToolCallState: Equatable {
-    /// Waiting to execute
+    /// Waiting to execute (before approval check)
     case pending
+    /// Waiting for user approval decision
+    case pendingApproval
+    /// User approved, waiting to execute
+    case approved
+    /// User denied execution
+    case denied
     /// Currently executing
     case executing
     /// Completed successfully
     case completed
     /// Execution failed
     case failed
+    /// User cancelled after approval
+    case cancelled
 }
 
 // MARK: - Tool Calls Collection

@@ -33,6 +33,13 @@ final class SessionManager: ObservableObject {
     private let debounceInterval: TimeInterval = 2.0
     private var cancellables = Set<AnyCancellable>()
 
+    /// In-memory cache of sessions to preserve approval memory across switches
+    /// Key: Session UUID, Value: ChatSession instance
+    private var sessionCache: [UUID: ChatSession] = [:]
+
+    /// Maximum number of sessions to keep in cache
+    private let maxCachedSessions = 10
+
     // MARK: - Storage (Strategy Pattern)
     private let storage: any SessionStorage
 
@@ -72,6 +79,9 @@ final class SessionManager: ObservableObject {
         isDirty = false
         hasDraftSession = true  // Mark as draft until first message is sent
 
+        // Cache the session for later retrieval
+        cacheSession(session, id: sessionId)
+
         // Observe changes to the session
         observeSession(session)
 
@@ -103,6 +113,9 @@ final class SessionManager: ObservableObject {
             isDirty = false
             hasDraftSession = false  // Restored sessions are not drafts
 
+            // Cache the session for later retrieval
+            cacheSession(session, id: activeId)
+
             // Observe changes
             observeSession(session)
 
@@ -114,10 +127,14 @@ final class SessionManager: ObservableObject {
 
     /// Set the current session (for cases where session already exists)
     func setCurrentSession(_ session: ChatSession, id: UUID? = nil) {
+        let sessionId = id ?? UUID()
         currentSession = session
-        currentSessionId = id ?? UUID()
+        currentSessionId = sessionId
         isDirty = true
         hasDraftSession = session.messages.isEmpty  // Draft if no messages yet
+
+        // Cache the session for later retrieval
+        cacheSession(session, id: sessionId)
         observeSession(session)
         scheduleDebouncedSave()  // Schedule save for the new session
     }
@@ -349,11 +366,21 @@ final class SessionManager: ObservableObject {
         // Save current first (if it has content)
         await saveIfDirty()
 
-        guard let persisted = try await storage.loadSession(id: id) else {
-            throw StorageError.sessionNotFound(id: id)
+        // Check cache first to preserve approval memory
+        let session: ChatSession
+        if let cached = sessionCache[id] {
+            session = cached
+            print("[SessionManager] Using cached session \(id) (approval memory preserved)")
+        } else {
+            // Load from storage
+            guard let persisted = try await storage.loadSession(id: id) else {
+                throw StorageError.sessionNotFound(id: id)
+            }
+            session = persisted.toSession()
+            // Cache for future retrieval
+            cacheSession(session, id: id)
         }
 
-        let session = persisted.toSession()
         currentSession = session
         currentSessionId = id
         currentContext = nil  // Clear context when switching sessions
@@ -377,8 +404,34 @@ final class SessionManager: ObservableObject {
             cancellables.removeAll()
         }
 
+        // Remove from cache
+        sessionCache.removeValue(forKey: id)
+
         try await storage.deleteSession(id: id)
         sessionListVersion += 1  // Notify sidebar to refresh
         print("[SessionManager] Deleted session \(id)")
+    }
+
+    // MARK: - Session Cache
+
+    /// Cache a session for later retrieval (preserves approval memory across switches)
+    private func cacheSession(_ session: ChatSession, id: UUID) {
+        sessionCache[id] = session
+
+        // Evict oldest sessions if cache is full
+        if sessionCache.count > maxCachedSessions {
+            // Remove sessions that aren't the current one
+            // Keep a simple LRU-ish approach: just remove one that's not current
+            if let keyToRemove = sessionCache.keys.first(where: { $0 != id && $0 != currentSessionId }) {
+                sessionCache.removeValue(forKey: keyToRemove)
+                print("[SessionManager] Evicted session \(keyToRemove) from cache (limit: \(maxCachedSessions))")
+            }
+        }
+    }
+
+    /// Clear the session cache (e.g., on app termination)
+    func clearSessionCache() {
+        sessionCache.removeAll()
+        print("[SessionManager] Cleared session cache")
     }
 }
