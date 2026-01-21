@@ -24,11 +24,6 @@ final class ToolEnabledChatService {
     /// Prevents infinite loops if LLM keeps requesting tools
     private let maxToolRounds: Int = 10
 
-    // MARK: - Session Context
-
-    /// Current session's approval memory (set before generation)
-    var sessionApprovalMemory: SessionApprovalMemory?
-
     // MARK: - Initialization
 
     init(
@@ -126,9 +121,18 @@ final class ToolEnabledChatService {
 
     /// Stream-based generation with tools (for UI that needs incremental updates)
     /// Note: Tool execution is not streamed - only the final text response can be
+    /// - Parameters:
+    ///   - provider: The LLM provider to use
+    ///   - messages: The chat messages to send
+    ///   - sessionApprovalMemory: Session-scoped approval memory for "remember for session" functionality
+    ///   - sessionId: The chat session ID for isolating approval decisions
+    ///   - onToolCallsStarted: Callback when tool calls start
+    ///   - onToolCallUpdated: Callback when a tool call state changes
     func generateWithToolsStream(
         provider: LLMProvider,
         messages: [ChatMessage],
+        sessionApprovalMemory: SessionApprovalMemory?,
+        sessionId: UUID?,
         onToolCallsStarted: @escaping ([ChatToolCall]) -> Void,
         onToolCallUpdated: @escaping (String, ToolCallState, String?, TimeInterval?) -> Void
     ) -> AsyncThrowingStream<ToolEnabledGenerationEvent, Error> {
@@ -280,7 +284,8 @@ final class ToolEnabledChatService {
                             // Request approval for tool calls (T3.7)
                             let approvalResult = await self.approvalManager.requestApproval(
                                 for: toolCalls,
-                                sessionMemory: self.sessionApprovalMemory
+                                sessionMemory: sessionApprovalMemory,
+                                sessionId: sessionId
                             )
 
                             // Check for cancellation after approval returns

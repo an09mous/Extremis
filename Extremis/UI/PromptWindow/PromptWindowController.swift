@@ -18,6 +18,8 @@ final class PromptWindowController: NSWindowController {
     /// Represents a queued approval batch waiting to be processed
     private struct PendingApprovalBatch {
         let requests: [ToolApprovalRequest]
+        /// The chat session ID this batch belongs to (for UI isolation)
+        let sessionId: UUID?
         let completion: (ApprovalUIResult) -> Void
     }
 
@@ -683,6 +685,8 @@ final class PromptViewModel: ObservableObject {
     }
 
     func cancelGeneration() {
+        // Capture session ID before cancelling for approval dismissal
+        let sessionId = session?.id
         session?.cancelGeneration()
         // Immediately clear tool UI state so user sees the stop take effect
         activeToolCalls = []
@@ -693,7 +697,8 @@ final class PromptViewModel: ObservableObject {
         showApprovalView = false
         // Also notify the ToolApprovalManager to complete any pending approval request
         // This ensures the continuation in waitForUserDecisions is properly resolved
-        ToolApprovalManager.shared.uiDelegate?.dismissApprovalUI()
+        // Pass the session ID so only this session's approval UI is dismissed
+        ToolApprovalManager.shared.uiDelegate?.dismissApprovalUI(for: sessionId)
     }
 
     // MARK: - Summarization
@@ -1027,13 +1032,12 @@ final class PromptViewModel: ObservableObject {
             activeToolCalls = []
             isExecutingTools = false
 
-            // Set session approval memory for tool approval (T3.8)
-            ToolEnabledChatService.shared.sessionApprovalMemory = sess.approvalMemory
-
-            // Use tool-enabled streaming
+            // Use tool-enabled streaming with session-isolated approval
             let stream = ToolEnabledChatService.shared.generateWithToolsStream(
                 provider: provider,
                 messages: sess.messagesForLLM(),
+                sessionApprovalMemory: sess.approvalMemory,
+                sessionId: capturedSessionId,
                 onToolCallsStarted: { [weak self] toolCalls in
                     guard let self = self else { return }
                     self.activeToolCalls = toolCalls
@@ -1339,7 +1343,12 @@ struct PromptContainerView: View {
                         onRetryMessage: { messageId in viewModel.retryMessage(id: messageId) },
                         onRetryError: { viewModel.retryError() },
                         activeToolCalls: viewModel.activeToolCalls,
-                        isExecutingTools: viewModel.isExecutingTools
+                        isExecutingTools: viewModel.isExecutingTools,
+                        showApprovalView: viewModel.showApprovalView,
+                        pendingApprovalRequests: viewModel.pendingApprovalRequests,
+                        onApproveRequest: viewModel.onApproveRequest,
+                        onDenyRequest: viewModel.onDenyRequest,
+                        onApproveAll: viewModel.onApproveAll
                     )
                     .id(sessionManager.currentSessionId)  // Force view recreation on session switch to reset scroll state
                 } else {
@@ -1362,36 +1371,6 @@ struct PromptContainerView: View {
             }
         }
         .frame(minWidth: 500, idealWidth: 600, minHeight: 350, idealHeight: 450)
-        .overlay {
-            // Tool approval overlay (T3.13)
-            if viewModel.showApprovalView && !viewModel.pendingApprovalRequests.isEmpty {
-                ZStack {
-                    // Dimmed background covering the entire view
-                    Color(NSColor.windowBackgroundColor).opacity(0.9)
-                        .ignoresSafeArea()
-
-                    // Approval view at bottom
-                    VStack {
-                        Spacer()
-                        ToolApprovalView(
-                            requests: viewModel.pendingApprovalRequests,
-                            onApprove: { requestId, remember in
-                                viewModel.onApproveRequest?(requestId, remember)
-                            },
-                            onDeny: { requestId in
-                                viewModel.onDenyRequest?(requestId)
-                            },
-                            onApproveAll: {
-                                viewModel.onApproveAll?()
-                            }
-                        )
-                        .padding()
-                    }
-                }
-                .transition(.opacity)
-                .animation(.spring(response: 0.3, dampingFraction: 0.8), value: viewModel.showApprovalView)
-            }
-        }
         .overlay {
             // Context viewer overlay (faster than sheet)
             if showContextViewer, let context = contextForViewer {
@@ -1430,13 +1409,16 @@ extension PromptWindowController: ToolApprovalUIDelegate {
 
     func showApprovalUI(
         for requests: [ToolApprovalRequest],
+        sessionId: UUID?,
         completion: @escaping (ApprovalUIResult) -> Void
     ) {
-        let batch = PendingApprovalBatch(requests: requests, completion: completion)
+        let batch = PendingApprovalBatch(requests: requests, sessionId: sessionId, completion: completion)
 
         // If there's an active batch, queue this one for later
+        // Note: In the future with concurrent sessions, we might want to allow multiple active batches
+        // if they belong to different sessions. For now, we queue all overlapping requests.
         if currentApprovalBatch != nil {
-            print("🔄 Queuing approval batch (\(requests.count) tools) - another batch is active")
+            print("🔄 Queuing approval batch (\(requests.count) tools, session: \(sessionId?.uuidString.prefix(8) ?? "none")) - another batch is active")
             approvalQueue.append(batch)
             return
         }
@@ -1445,40 +1427,75 @@ extension PromptWindowController: ToolApprovalUIDelegate {
         startApprovalBatch(batch)
     }
 
-    func dismissApprovalUI() {
-        // Complete current batch with denials (for timeout/cancellation scenarios)
-        if let batch = currentApprovalBatch {
-            var decisions: [String: ApprovalDecision] = accumulatedDecisions
-            for request in batch.requests where decisions[request.id] == nil {
-                decisions[request.id] = ApprovalDecision(
-                    request: request,
-                    action: .dismissed,
-                    reason: "Approval dismissed"
-                )
+    func dismissApprovalUI(for sessionId: UUID?) {
+        // If sessionId is provided, only dismiss if it matches the current batch
+        // If sessionId is nil, dismiss everything (legacy behavior)
+        if let targetSessionId = sessionId {
+            // Only dismiss if the current batch belongs to this session
+            if let batch = currentApprovalBatch, batch.sessionId == targetSessionId {
+                var decisions: [String: ApprovalDecision] = accumulatedDecisions
+                for request in batch.requests where decisions[request.id] == nil {
+                    decisions[request.id] = ApprovalDecision(
+                        request: request,
+                        action: .dismissed,
+                        reason: "Approval dismissed"
+                    )
+                }
+                completeCurrentBatch(decisions: decisions, allowAllOnce: false)
             }
-            // Note: completeCurrentBatch clears UI state, so don't duplicate below
-            completeCurrentBatch(decisions: decisions, allowAllOnce: false)
-        }
 
-        // Also complete any queued batches with dismissals
-        // This prevents zombie batches that would start processing unexpectedly later
-        while !approvalQueue.isEmpty {
-            let queuedBatch = approvalQueue.removeFirst()
-            var queuedDecisions: [String: ApprovalDecision] = [:]
-            for request in queuedBatch.requests {
-                queuedDecisions[request.id] = ApprovalDecision(
-                    request: request,
-                    action: .dismissed,
-                    reason: "Approval dismissed (queued)"
-                )
+            // Also dismiss any queued batches for this session
+            let batchesToDismiss = approvalQueue.filter { $0.sessionId == targetSessionId }
+            approvalQueue.removeAll { $0.sessionId == targetSessionId }
+
+            for queuedBatch in batchesToDismiss {
+                var queuedDecisions: [String: ApprovalDecision] = [:]
+                for request in queuedBatch.requests {
+                    queuedDecisions[request.id] = ApprovalDecision(
+                        request: request,
+                        action: .dismissed,
+                        reason: "Approval dismissed (session cancelled)"
+                    )
+                }
+                print("📋 Dismissing queued batch for session \(targetSessionId.uuidString.prefix(8)) with \(queuedBatch.requests.count) tools")
+                queuedBatch.completion(ApprovalUIResult(decisions: queuedDecisions, allowAllOnce: false))
             }
-            print("📋 Dismissing queued batch with \(queuedBatch.requests.count) tools")
-            queuedBatch.completion(ApprovalUIResult(decisions: queuedDecisions, allowAllOnce: false))
-        }
+        } else {
+            // No sessionId specified - dismiss everything (legacy behavior)
+            // Complete current batch with denials (for timeout/cancellation scenarios)
+            if let batch = currentApprovalBatch {
+                var decisions: [String: ApprovalDecision] = accumulatedDecisions
+                for request in batch.requests where decisions[request.id] == nil {
+                    decisions[request.id] = ApprovalDecision(
+                        request: request,
+                        action: .dismissed,
+                        reason: "Approval dismissed"
+                    )
+                }
+                // Note: completeCurrentBatch clears UI state, so don't duplicate below
+                completeCurrentBatch(decisions: decisions, allowAllOnce: false)
+            }
 
-        // Clear UI state (in case no batch was active)
-        viewModel.showApprovalView = false
-        viewModel.pendingApprovalRequests = []
+            // Also complete any queued batches with dismissals
+            // This prevents zombie batches that would start processing unexpectedly later
+            while !approvalQueue.isEmpty {
+                let queuedBatch = approvalQueue.removeFirst()
+                var queuedDecisions: [String: ApprovalDecision] = [:]
+                for request in queuedBatch.requests {
+                    queuedDecisions[request.id] = ApprovalDecision(
+                        request: request,
+                        action: .dismissed,
+                        reason: "Approval dismissed (queued)"
+                    )
+                }
+                print("📋 Dismissing queued batch with \(queuedBatch.requests.count) tools")
+                queuedBatch.completion(ApprovalUIResult(decisions: queuedDecisions, allowAllOnce: false))
+            }
+
+            // Clear UI state (in case no batch was active)
+            viewModel.showApprovalView = false
+            viewModel.pendingApprovalRequests = []
+        }
     }
 
     func updateApprovalState(requestId: String, state: ApprovalState) {
@@ -1519,7 +1536,7 @@ extension PromptWindowController: ToolApprovalUIDelegate {
             self?.handleApproveAll()
         }
 
-        print("📋 Started approval batch with \(batch.requests.count) tools")
+        print("📋 Started approval batch with \(batch.requests.count) tools (session: \(batch.sessionId?.uuidString.prefix(8) ?? "none"))")
     }
 
     /// Complete the current batch and process next queued batch if any
