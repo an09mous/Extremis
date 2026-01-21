@@ -406,12 +406,6 @@ final class ToolEnabledChatService {
                         // Emit round completed event for persistence tracking
                         continuation.yield(.toolRoundCompleted(toolCalls: toolCalls, results: results))
                         print("🔧 Round \(rounds) complete: executed \(results.count) tools")
-
-                        // Check cancellation one more time before looping back
-                        if shouldStop() {
-                            print("🛑 Generation cancelled at end of round - stopping before next round")
-                            break
-                        }
                     }
 
                     print("🔧 Generation finished after \(rounds) round(s), \(resolvedToolRounds.count) new tool rounds")
