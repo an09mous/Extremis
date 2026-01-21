@@ -30,6 +30,16 @@ final class ToolExecutor {
     func execute(_ call: ToolCall) async -> ToolResult {
         let startTime = Date()
 
+        // Check for cancellation before starting
+        if Task.isCancelled {
+            return ToolResult.failure(
+                callID: call.id,
+                toolName: call.toolName,
+                error: ToolError(message: "Execution cancelled"),
+                duration: 0
+            )
+        }
+
         // Get the connector for this tool
         guard let connector = registry.connector(id: call.connectorID) else {
             return ToolResult.failure(
@@ -78,6 +88,14 @@ final class ToolExecutor {
                 ),
                 duration: Date().timeIntervalSince(startTime)
             )
+        } catch is CancellationError {
+            // Task was cancelled - return cancelled result
+            return ToolResult.failure(
+                callID: call.id,
+                toolName: call.toolName,
+                error: ToolError(message: "Execution cancelled"),
+                duration: Date().timeIntervalSince(startTime)
+            )
         } catch {
             return ToolResult.failure(
                 callID: call.id,
@@ -100,6 +118,20 @@ final class ToolExecutor {
         results.reserveCapacity(calls.count)
 
         for call in calls {
+            // Check for cancellation before each tool
+            if Task.isCancelled {
+                // Add cancelled results for remaining tools
+                for remainingCall in calls.suffix(from: results.count) {
+                    results.append(ToolResult.failure(
+                        callID: remainingCall.id,
+                        toolName: remainingCall.toolName,
+                        error: ToolError(message: "Execution cancelled"),
+                        duration: 0
+                    ))
+                }
+                break
+            }
+
             let result = await execute(call)
             results.append(result)
         }
@@ -157,11 +189,15 @@ struct TimeoutError: Error {
 
 /// MainActor-safe timeout wrapper
 /// Uses Task cancellation instead of racing tasks
+/// Also propagates parent task cancellation properly
 @MainActor
 func withTimeoutMainActor<T: Sendable>(
     _ timeout: TimeInterval,
     operation: @escaping @MainActor () async throws -> T
 ) async throws -> T {
+    // Check for cancellation before starting
+    try Task.checkCancellation()
+
     // Create a task for the operation
     let task = Task { @MainActor in
         try await operation()
@@ -173,16 +209,23 @@ func withTimeoutMainActor<T: Sendable>(
         task.cancel()
     }
 
-    // Wait for the result or cancellation
-    do {
-        let result = try await task.value
+    // Use withTaskCancellationHandler to propagate parent cancellation
+    return try await withTaskCancellationHandler {
+        do {
+            let result = try await task.value
+            timeoutTask.cancel()
+            return result
+        } catch is CancellationError {
+            timeoutTask.cancel()
+            throw TimeoutError(timeout: timeout)
+        } catch {
+            timeoutTask.cancel()
+            throw error
+        }
+    } onCancel: {
+        // When parent task is cancelled, cancel the operation task
+        task.cancel()
         timeoutTask.cancel()
-        return result
-    } catch is CancellationError {
-        throw TimeoutError(timeout: timeout)
-    } catch {
-        timeoutTask.cancel()
-        throw error
     }
 }
 
