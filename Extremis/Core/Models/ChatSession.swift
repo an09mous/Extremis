@@ -112,6 +112,18 @@ final class ChatSession: ObservableObject, Identifiable {
         streamingContent = ""
     }
 
+    /// Cancel any in-progress generation and wait for it to complete
+    /// Use this when you need to ensure the task has fully stopped before starting a new one
+    func cancelGenerationAndWait() async {
+        guard let task = generationTask else { return }
+        task.cancel()
+        // Wait for the task to actually complete (it will exit early due to cancellation)
+        _ = await task.value
+        generationTask = nil
+        isGenerating = false
+        streamingContent = ""
+    }
+
     /// Start a new generation, canceling any existing one
     /// - Parameter task: The new generation task
     func startGeneration(task: Task<Void, Never>) {

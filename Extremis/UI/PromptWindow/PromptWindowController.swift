@@ -147,10 +147,41 @@ final class PromptWindowController: NSWindowController {
         // Update SessionManager with the new context so it's saved with messages
         SessionManager.shared.updateCurrentContext(context)
 
-        // Prepare for new input but preserve session state
-        // Don't call reset() - keep the session/conversation intact
-        viewModel.prepareForNewInput()
+        if autoSummarize, let selectedText = context.selectedText, !selectedText.isEmpty {
+            // Auto-summarize path: need to wait for any existing generation to stop first
+            // to avoid overlapping tasks
 
+            // Show window immediately for responsive UX
+            viewModel.prepareForNewInput()  // Non-blocking cancel to clear UI state immediately
+            setupPromptUI(with: context)
+            window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+
+            // Capture values for the async block to avoid stale references
+            let capturedText = selectedText
+            let capturedSource = context.source
+            let capturedContext = context
+
+            Task { @MainActor in
+                // Wait for any in-progress generation to fully complete
+                // (prepareForNewInput already called cancel, this just waits for completion)
+                await viewModel.session?.cancelGenerationAndWait()
+
+                print("📋 PromptWindow: Auto-triggering summarization...")
+                viewModel.summarize(text: capturedText, source: capturedSource, surroundingContext: capturedContext)
+            }
+        } else {
+            // Normal path: non-blocking cancellation is fine
+            viewModel.prepareForNewInput()
+            setupPromptUI(with: context)
+
+            window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    /// Set up the prompt UI state (shared by sync and async paths)
+    private func setupPromptUI(with context: Context) {
         // Set the context on the viewModel so it can access source info for summarization
         viewModel.currentContext = context
 
@@ -209,15 +240,6 @@ final class PromptWindowController: NSWindowController {
             }
 
             print("📋 PromptWindow: No selection → Chat Mode enabled")
-        }
-
-        window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-
-        // Auto-trigger summarization if requested (Magic Mode)
-        if autoSummarize, let selectedText = context.selectedText, !selectedText.isEmpty {
-            print("📋 PromptWindow: Auto-triggering summarization...")
-            viewModel.summarize(text: selectedText, source: context.source, surroundingContext: context)
         }
     }
 
@@ -468,7 +490,7 @@ final class PromptViewModel: ObservableObject {
     /// Prepare for new input without losing session state
     /// Called when hotkey is triggered to show prompt
     func prepareForNewInput() {
-        // Cancel any in-progress generation via session
+        // Cancel any in-progress generation via session (non-blocking)
         session?.cancelGeneration()
 
         // Clear input-related state but preserve session
