@@ -14,6 +14,12 @@ struct ConnectorsTab: View {
         VStack(alignment: .leading, spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    // Tool Approval Section - Session-based approval info
+                    ToolApprovalInfoSection()
+
+                    Divider()
+                        .padding(.vertical, 8)
+
                     // Custom MCP Servers Section
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
@@ -491,3 +497,39 @@ final class ConnectorsTabViewModel: ObservableObject {
 }
 
 // Note: MCPTransportType.displayName is defined in MCPTransportConfig.swift
+
+// MARK: - Tool Approval Info Section (Phase 1: Session-based approval only)
+
+struct ToolApprovalInfoSection: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header
+            Text("Tool Approval")
+                .font(.headline)
+
+            // Explanation text
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "shield.checkered")
+                        .foregroundColor(.blue)
+                        .frame(width: 20)
+
+                    Text("All MCP tools require your approval before running. When a tool is invoked, you'll see a prompt to approve or deny the action.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .foregroundColor(.orange)
+                        .frame(width: 20)
+
+                    Text("Use \"Remember for this session\" to skip approval prompts for the same tool during your current session. Approvals reset when you start a new session.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(.vertical, 8)
+    }
+}

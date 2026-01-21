@@ -85,6 +85,7 @@ Context is captured via AX metadata (app name, window title) and selected text w
 - `ConnectorRegistry.shared` - MCP connector management
 - `ToolExecutor.shared` - Tool call execution
 - `ToolEnabledChatService.shared` - LLM + tool execution orchestration
+- `ToolApprovalManager.shared` - Human-in-loop tool approval
 
 **Extractor Pattern**: `ContextExtractorRegistry` maps bundle IDs to extractors:
 - `GenericExtractor` - Fallback for all apps
@@ -132,6 +133,17 @@ Hotkey triggered → SelectionDetector → ContextOrchestrator.captureContext()
 - `ToolExecutionRound` - Pairs tool calls with their results for multi-turn loops
 - `ToolExecutionRoundRecord` - Codable version for persistence in chat messages
 
+### Tool Approval Model
+
+Human-in-loop tool approval with session memory (see `specs/011-tool-approval/`):
+- `ToolApprovalRequest` - Pending request with tool info and approval state
+- `ApprovalDecision` - Record of user's decision for audit logging
+- `SessionApprovalMemory` - Session-scoped memory for "remember for session" feature
+- `ToolApprovalManager` - Central service coordinating approval flow
+- `ToolApprovalView` - SwiftUI component for approval UI overlay
+
+Approval flow: Tool calls → Session memory check → User prompt → Execute/reject
+
 ## Feature Specifications
 
 Feature specs are in `specs/` directory, each containing:
@@ -140,7 +152,7 @@ Feature specs are in `specs/` directory, each containing:
 - `tasks.md` - Task breakdown
 - `data-model.md` - Data model schemas (when applicable)
 
-Latest completed feature: `specs/010-mcp-support/` (MCP Server Support) ✅
+Latest completed feature: `specs/011-tool-approval/` (Human-in-Loop Tool Approval) ✅
 
 ## Key Files
 
@@ -152,6 +164,9 @@ Latest completed feature: `specs/010-mcp-support/` (MCP Server Support) ✅
 - `Extremis/Connectors/Services/ConnectorRegistry.swift` - MCP connector management
 - `Extremis/Connectors/Services/ToolEnabledChatService.swift` - Tool execution loop
 - `Extremis/Connectors/Transport/ProcessTransport.swift` - MCP subprocess transport
+- `Extremis/Core/Services/ToolApprovalManager.swift` - Tool approval coordination
+- `Extremis/Core/Models/ToolApprovalModels.swift` - Approval state models
+- `Extremis/UI/PromptWindow/ToolApprovalView.swift` - Approval UI components
 
 ## Configuration & Storage
 
@@ -269,3 +284,4 @@ MCP servers are configured in `~/Library/Application Support/Extremis/mcp-server
 - Tools are automatically discovered via `tools/list` MCP method
 - Tool names are prefixed with server name to avoid collisions
 - Tool execution supports multi-turn loops (LLM → tools → LLM → ...)
+

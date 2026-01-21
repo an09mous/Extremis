@@ -22,6 +22,7 @@ A context-aware LLM writing assistant for macOS. Press a global hotkey anywhere 
   - Tool execution with multi-turn loops
   - Automatic tool discovery from MCP servers
   - Partial result persistence on interruption
+  - **Human-in-loop tool approval** with session memory
 - **Real-time Streaming** - Responses appear character-by-character as they're generated
 - **Smart Text Insertion** - Generated text automatically inserted at cursor
 - **Privacy-First** - Uses Accessibility APIs for context, no screenshots
@@ -130,6 +131,20 @@ Extremis can connect to MCP (Model Context Protocol) servers to extend the AI's 
 4. Tool execution shows progress indicators in the UI
 
 **Supported transports**: stdio (subprocess)
+
+### Tool Approval
+
+Extremis includes a human-in-loop approval system for MCP tool execution. You'll be prompted to approve or deny tools before they run.
+
+**Keyboard shortcuts:**
+- `Option+Return` - Allow all pending tools
+- `Option+Escape` - Deny all pending tools
+- `Return` - Allow focused tool
+- `Escape` - Deny focused tool
+
+**Session memory:**
+
+Check "Remember for this session" when approving to automatically approve the same tool for the rest of the session without being asked again.
 
 ### Summarization
 

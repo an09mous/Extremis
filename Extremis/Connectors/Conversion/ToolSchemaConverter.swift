@@ -243,6 +243,7 @@ extension ToolSchemaConverter {
             id: id,
             toolName: functionName,
             connectorID: tool.connectorID,
+            connectorName: tool.connectorName,
             originalToolName: tool.originalName,
             arguments: arguments
         )
@@ -265,6 +266,7 @@ extension ToolSchemaConverter {
             id: id,
             toolName: name,
             connectorID: tool.connectorID,
+            connectorName: tool.connectorName,
             originalToolName: tool.originalName,
             arguments: arguments
         )
@@ -286,6 +288,7 @@ extension ToolSchemaConverter {
             id: UUID().uuidString,  // Gemini doesn't provide call IDs
             toolName: name,
             connectorID: tool.connectorID,
+            connectorName: tool.connectorName,
             originalToolName: tool.originalName,
             arguments: arguments
         )

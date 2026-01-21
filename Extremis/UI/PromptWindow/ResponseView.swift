@@ -31,6 +31,13 @@ struct ResponseView: View {
     var activeToolCalls: [ChatToolCall] = []
     var isExecutingTools: Bool = false
 
+    // Tool approval state (session-scoped)
+    var showApprovalView: Bool = false
+    var pendingApprovalRequests: [ApprovalRequestDisplayModel] = []
+    var onApproveRequest: ((String, Bool) -> Void)?
+    var onDenyRequest: ((String) -> Void)?
+    var onApproveAll: (() -> Void)?
+
     @State private var showCopiedToast = false
 
     // Auto-scroll tracking for quick mode
@@ -66,6 +73,11 @@ struct ResponseView: View {
         self.onRetryError = nil
         self.activeToolCalls = []
         self.isExecutingTools = false
+        self.showApprovalView = false
+        self.pendingApprovalRequests = []
+        self.onApproveRequest = nil
+        self.onDenyRequest = nil
+        self.onApproveAll = nil
     }
 
     // Full initializer with chat support
@@ -88,7 +100,12 @@ struct ResponseView: View {
         onRetryMessage: ((UUID) -> Void)? = nil,
         onRetryError: (() -> Void)? = nil,
         activeToolCalls: [ChatToolCall] = [],
-        isExecutingTools: Bool = false
+        isExecutingTools: Bool = false,
+        showApprovalView: Bool = false,
+        pendingApprovalRequests: [ApprovalRequestDisplayModel] = [],
+        onApproveRequest: ((String, Bool) -> Void)? = nil,
+        onDenyRequest: ((String) -> Void)? = nil,
+        onApproveAll: (() -> Void)? = nil
     ) {
         self.response = response
         self.isGenerating = isGenerating
@@ -109,6 +126,11 @@ struct ResponseView: View {
         self.onRetryError = onRetryError
         self.activeToolCalls = activeToolCalls
         self.isExecutingTools = isExecutingTools
+        self.showApprovalView = showApprovalView
+        self.pendingApprovalRequests = pendingApprovalRequests
+        self.onApproveRequest = onApproveRequest
+        self.onDenyRequest = onDenyRequest
+        self.onApproveAll = onApproveAll
     }
 
     var body: some View {
@@ -214,6 +236,36 @@ struct ResponseView: View {
 
             // Action buttons
             actionButtons
+        }
+        .overlay {
+            // Tool approval overlay (session-scoped) - only covers this session's content
+            if showApprovalView && !pendingApprovalRequests.isEmpty {
+                ZStack {
+                    // Semi-transparent background covering just this view
+                    Color(NSColor.windowBackgroundColor).opacity(0.9)
+                        .ignoresSafeArea()
+
+                    // Approval view at bottom
+                    VStack {
+                        Spacer()
+                        ToolApprovalView(
+                            requests: pendingApprovalRequests,
+                            onApprove: { requestId, remember in
+                                onApproveRequest?(requestId, remember)
+                            },
+                            onDeny: { requestId in
+                                onDenyRequest?(requestId)
+                            },
+                            onApproveAll: {
+                                onApproveAll?()
+                            }
+                        )
+                        .padding()
+                    }
+                }
+                .transition(.opacity)
+                .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showApprovalView)
+            }
         }
     }
 

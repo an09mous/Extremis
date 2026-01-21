@@ -1,0 +1,344 @@
+// MARK: - Chat Session
+// Manages a multi-turn chat session with isolated generation state
+
+import Foundation
+
+/// Manages a multi-turn chat session with isolated generation state
+///
+/// ## Design Principles
+/// - **Isolation**: Each session owns its generation state (streaming content, task, flags)
+/// - **Extensibility**: Prepared for future concurrent execution across sessions
+/// - **Observability**: All state changes are published for SwiftUI reactivity
+///
+/// ## Generation State Ownership
+/// The session owns:
+/// - `streamingContent`: Current streaming response text
+/// - `isGenerating`: Whether generation is in progress
+/// - `generationTask`: The async task handling generation (for cancellation)
+/// - `error`: Any error from the last generation attempt
+///
+/// This isolation allows:
+/// 1. Clean session switching without state leakage
+/// 2. Future concurrent generation across multiple sessions
+/// 3. Per-session cancellation without affecting others
+@MainActor
+final class ChatSession: ObservableObject, Identifiable {
+
+    // MARK: - Session Identity
+
+    /// Stable unique identifier for this session
+    /// Used for persistence and approval memory tracking
+    let id: UUID
+
+    // MARK: - Message State
+
+    /// All messages in the session
+    @Published var messages: [ChatMessage] = []
+
+    // MARK: - Generation State (Per-Session Isolation)
+
+    /// Content currently being streamed from LLM
+    /// This is per-session to enable future concurrent generation
+    @Published var streamingContent: String = ""
+
+    /// Whether this session is currently generating a response
+    @Published var isGenerating: Bool = false
+
+    /// Error from the last generation attempt (if any)
+    @Published var generationError: String?
+
+    /// The async task handling generation - owned by session for clean cancellation
+    /// Not published as it's not needed for UI reactivity
+    var generationTask: Task<Void, Never>?
+
+    // MARK: - Session Metadata
+
+    /// Original context when session started (for system prompt)
+    let originalContext: Context?
+
+    /// Original request that started the session (instruction or "summarize")
+    let initialRequest: String?
+
+    /// Maximum messages to keep (for context window management)
+    let maxMessages: Int
+
+    /// Summary of earlier messages (for context efficiency)
+    /// When present, messagesForLLM() returns summary + recent messages instead of truncating
+    var summary: SessionSummary?
+
+    /// Number of messages covered by the summary
+    /// Used to calculate which messages are "recent" (not covered by summary)
+    var summaryCoversCount: Int = 0
+
+    // MARK: - Tool Approval Memory (T3.8)
+
+    /// Session-scoped memory for tool approvals
+    /// Tools approved with "remember for session" are stored here
+    /// Uses the session's stable ID for consistent tracking
+    lazy var approvalMemory: SessionApprovalMemory = {
+        SessionApprovalMemory(sessionId: id.uuidString)
+    }()
+
+    // MARK: - Initialization
+
+    init(
+        id: UUID = UUID(),
+        originalContext: Context? = nil,
+        initialRequest: String? = nil,
+        maxMessages: Int = 20,
+        summary: SessionSummary? = nil,
+        summaryCoversCount: Int = 0
+    ) {
+        self.id = id
+        self.originalContext = originalContext
+        self.initialRequest = initialRequest
+        self.maxMessages = maxMessages
+        self.summary = summary
+        self.summaryCoversCount = summaryCoversCount
+    }
+
+    deinit {
+        // Cancel any in-flight generation when session is deallocated
+        generationTask?.cancel()
+    }
+
+    // MARK: - Generation Control
+
+    /// Cancel any in-progress generation for this session
+    func cancelGeneration() {
+        generationTask?.cancel()
+        generationTask = nil
+        isGenerating = false
+        streamingContent = ""
+    }
+
+    /// Cancel any in-progress generation and wait for it to complete
+    /// Use this when you need to ensure the task has fully stopped before starting a new one
+    func cancelGenerationAndWait() async {
+        guard let task = generationTask else { return }
+        task.cancel()
+        // Wait for the task to actually complete (it will exit early due to cancellation)
+        _ = await task.value
+        generationTask = nil
+        isGenerating = false
+        streamingContent = ""
+    }
+
+    /// Start a new generation, canceling any existing one
+    /// - Parameter task: The new generation task
+    func startGeneration(task: Task<Void, Never>) {
+        // Cancel any existing generation first
+        generationTask?.cancel()
+
+        // Set new state
+        generationTask = task
+        isGenerating = true
+        generationError = nil
+        streamingContent = ""
+    }
+
+    /// Mark generation as complete
+    /// - Parameter error: Optional error message if generation failed
+    func completeGeneration(error: String? = nil) {
+        generationTask = nil
+        isGenerating = false
+        generationError = error
+        // Note: streamingContent is cleared by the caller after saving to messages
+    }
+
+    /// Update streaming content during generation
+    /// - Parameter content: The accumulated streamed content
+    func updateStreamingContent(_ content: String) {
+        streamingContent = content
+    }
+
+    /// Clear streaming content (called after content is saved to messages)
+    func clearStreamingContent() {
+        streamingContent = ""
+    }
+
+    /// Initialize with an existing assistant response
+    convenience init(
+        initialResponse: String,
+        originalContext: Context? = nil,
+        initialRequest: String? = nil,
+        maxMessages: Int = 20
+    ) {
+        self.init(
+            originalContext: originalContext,
+            initialRequest: initialRequest,
+            maxMessages: maxMessages
+        )
+        addAssistantMessage(initialResponse)
+    }
+
+    // MARK: - Message Management
+
+    /// Add a message to the session
+    /// Note: Messages are NOT trimmed here - all messages are preserved for persistence.
+    /// Use messagesForLLM() when building LLM context to get trimmed messages.
+    func addMessage(_ message: ChatMessage) {
+        messages.append(message)
+    }
+
+    /// Add a user message
+    func addUserMessage(_ content: String) {
+        addMessage(.user(content))
+    }
+
+    /// Add an assistant message
+    func addAssistantMessage(_ content: String) {
+        addMessage(.assistant(content))
+    }
+
+    /// Add an assistant message with tool execution history
+    func addAssistantMessage(_ content: String, toolRounds: [ToolExecutionRoundRecord]?) {
+        addMessage(.assistant(content, toolRounds: toolRounds))
+    }
+
+    /// Update the last assistant message (for streaming)
+    func updateLastAssistantMessage(_ content: String) {
+        guard let lastIndex = messages.lastIndex(where: { $0.role == .assistant }) else {
+            // No assistant message yet, add one
+            addAssistantMessage(content)
+            return
+        }
+        let existing = messages[lastIndex]
+        messages[lastIndex] = ChatMessage(
+            id: existing.id,
+            role: .assistant,
+            content: content,
+            timestamp: existing.timestamp,
+            context: existing.context
+        )
+    }
+
+    /// Append to the last assistant message (for streaming chunks)
+    func appendToLastAssistantMessage(_ chunk: String) {
+        guard let lastIndex = messages.lastIndex(where: { $0.role == .assistant }) else {
+            addAssistantMessage(chunk)
+            return
+        }
+        let existing = messages[lastIndex]
+        messages[lastIndex] = ChatMessage(
+            id: existing.id,
+            role: .assistant,
+            content: existing.content + chunk,
+            timestamp: existing.timestamp,
+            context: existing.context
+        )
+    }
+
+    /// Remove a message by its ID and all messages that follow it
+    /// Returns the user message that preceded the removed assistant message (for retry)
+    @discardableResult
+    func removeMessageAndFollowing(id: UUID) -> ChatMessage? {
+        guard let index = messages.firstIndex(where: { $0.id == id }) else {
+            return nil
+        }
+
+        // Find the user message that preceded this assistant message (for retry)
+        var precedingUserMessage: ChatMessage?
+        if index > 0 {
+            // Look backwards for the most recent user message before this assistant message
+            for i in stride(from: index - 1, through: 0, by: -1) {
+                if messages[i].role == .user {
+                    precedingUserMessage = messages[i]
+                    break
+                }
+            }
+        }
+
+        // Remove the message and all following messages
+        messages.removeSubrange(index...)
+        print("[ChatSession] Removed message at index \(index) and following, now have \(messages.count) messages")
+
+        return precedingUserMessage
+    }
+
+    // MARK: - Computed Properties
+
+    /// The last assistant message
+    var lastAssistantMessage: ChatMessage? {
+        messages.last { $0.role == .assistant }
+    }
+
+    /// Content of the last assistant message (for Insert/Copy)
+    var lastAssistantContent: String {
+        lastAssistantMessage?.content ?? ""
+    }
+
+    /// Whether the session has any messages
+    var isEmpty: Bool {
+        messages.isEmpty
+    }
+
+    /// Number of messages
+    var count: Int {
+        messages.count
+    }
+
+    // MARK: - LLM Context
+
+    /// Get messages for LLM context
+    /// Uses summary + recent messages if summary is available, otherwise truncates to maxMessages.
+    /// This returns a trimmed copy - the original messages array is preserved for persistence.
+    func messagesForLLM() -> [ChatMessage] {
+        // Defensive: validate summary consistency
+        // This catches edge cases where summary state got out of sync (e.g., after retry)
+        if summaryCoversCount > messages.count {
+            print("[ChatSession] Warning: summaryCoversCount (\(summaryCoversCount)) > messages.count (\(messages.count)) - resetting summary")
+            summary = nil
+            summaryCoversCount = 0
+            return messages
+        }
+
+        // If we have a valid summary, use summary + recent messages
+        if let summary = summary, summary.isValid, summaryCoversCount > 0 {
+            // Create a system message with the summary
+            let summaryMessage = ChatMessage.system("Previous session context: \(summary.content)")
+
+            // Get messages after the summarized portion
+            let recentStartIndex = min(summaryCoversCount, messages.count)
+            let recentMessages = Array(messages.suffix(from: recentStartIndex))
+
+            let result = [summaryMessage] + recentMessages
+            print("[ChatSession] messagesForLLM: using summary + \(recentMessages.count) recent messages (summary covers \(summaryCoversCount))")
+            return result
+        }
+
+        // No summary - fall back to simple truncation
+        guard messages.count > maxMessages else { return messages }
+
+        // Keep system messages at the start
+        let systemMessages = messages.prefix(while: { $0.role == .system })
+        let nonSystemMessages = messages.dropFirst(systemMessages.count)
+
+        // Keep only recent non-system messages
+        let keepCount = maxMessages - systemMessages.count
+        let recentMessages = nonSystemMessages.suffix(keepCount)
+
+        let trimmed = Array(systemMessages) + Array(recentMessages)
+        print("[ChatSession] messagesForLLM: returning \(trimmed.count) of \(messages.count) messages (no summary)")
+        return trimmed
+    }
+
+    /// Update the summary (called after summarization completes)
+    func updateSummary(_ newSummary: SessionSummary, coversCount: Int) {
+        self.summary = newSummary
+        self.summaryCoversCount = coversCount
+        print("[ChatSession] Updated summary covering \(coversCount) messages")
+    }
+
+    // MARK: - Retry Validation
+
+    /// Check if a message at the given ID can be retried
+    /// Messages within the summarized portion cannot be retried to avoid inconsistent state
+    func canRetryMessage(id: UUID) -> Bool {
+        guard let index = messages.firstIndex(where: { $0.id == id }) else {
+            return false
+        }
+        // Can only retry messages AFTER the summarized portion
+        return index >= summaryCoversCount
+    }
+}

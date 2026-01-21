@@ -17,7 +17,9 @@ struct ChatMessageView: View {
     @State private var isHovering = false
     @State private var showCopied = false
     @State private var showContextSheet = false
-    @State private var showToolHistory = false
+    /// Auto-expand tool history by default so tool calls remain visible after generation stops
+    /// This ensures consistency: tools appear at top during generation, stay visible after
+    @State private var showToolHistory = true
 
     private var isUser: Bool {
         message.role == .user

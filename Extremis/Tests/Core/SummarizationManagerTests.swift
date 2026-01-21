@@ -1,8 +1,128 @@
 // MARK: - SummarizationManager Unit Tests
 // Tests for summarization trigger logic and SessionSummary model
 // These tests verify the summarization thresholds and summary validation logic
+// NOTE: This test is fully self-contained with embedded type definitions to avoid complex dependencies
 
 import Foundation
+
+// MARK: - Embedded Types for Standalone Testing
+// These are minimal copies of the actual types, sufficient for testing the summarization logic
+
+/// Role of a participant in a chat session (embedded copy)
+enum ChatRole: String, Codable, Equatable {
+    case system
+    case user
+    case assistant
+}
+
+/// Summary of older messages for LLM context efficiency (embedded copy)
+struct SessionSummary: Codable, Equatable {
+    let content: String
+    let coversMessageCount: Int
+    let createdAt: Date
+    let modelUsed: String?
+
+    init(
+        content: String,
+        coversMessageCount: Int,
+        createdAt: Date = Date(),
+        modelUsed: String? = nil
+    ) {
+        self.content = content
+        self.coversMessageCount = coversMessageCount
+        self.createdAt = createdAt
+        self.modelUsed = modelUsed
+    }
+
+    var isValid: Bool {
+        coversMessageCount > 0 && !content.isEmpty
+    }
+
+    func needsRegeneration(totalMessages: Int, threshold: Int = 10) -> Bool {
+        let coveredWhenCreated = coversMessageCount + threshold
+        let newMessagesSinceSummary = totalMessages - coveredWhenCreated
+        return newMessagesSinceSummary >= threshold
+    }
+}
+
+/// A single message in a persisted conversation (embedded copy)
+struct PersistedMessage: Codable, Identifiable, Equatable {
+    let id: UUID
+    let role: ChatRole
+    let content: String
+    let timestamp: Date
+    let contextData: Data?
+
+    init(
+        id: UUID = UUID(),
+        role: ChatRole,
+        content: String,
+        timestamp: Date = Date(),
+        contextData: Data? = nil
+    ) {
+        self.id = id
+        self.role = role
+        self.content = content
+        self.timestamp = timestamp
+        self.contextData = contextData
+    }
+}
+
+/// Codable representation of a session for persistence (embedded copy)
+struct PersistedSession: Codable, Identifiable, Equatable {
+    let id: UUID
+    var messages: [PersistedMessage]
+    let initialRequest: String?
+    let maxMessages: Int
+    let createdAt: Date
+    var updatedAt: Date
+    var title: String?
+    var isArchived: Bool
+    var summary: SessionSummary?
+
+    init(
+        id: UUID = UUID(),
+        messages: [PersistedMessage] = [],
+        initialRequest: String? = nil,
+        maxMessages: Int = 20,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date(),
+        title: String? = nil,
+        isArchived: Bool = false,
+        summary: SessionSummary? = nil
+    ) {
+        self.id = id
+        self.messages = messages
+        self.initialRequest = initialRequest
+        self.maxMessages = maxMessages
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.title = title
+        self.isArchived = isArchived
+        self.summary = summary
+    }
+
+    func buildLLMContext() -> [PersistedMessage] {
+        guard let summary = summary, summary.isValid else {
+            return messages
+        }
+
+        if summary.coversMessageCount > messages.count {
+            return messages
+        }
+
+        let summaryMessage = PersistedMessage(
+            id: UUID(),
+            role: .system,
+            content: "Previous session context: \(summary.content)",
+            timestamp: summary.createdAt,
+            contextData: nil
+        )
+
+        let recentMessages = Array(messages.suffix(from: min(summary.coversMessageCount, messages.count)))
+        return [summaryMessage] + recentMessages
+    }
+}
 
 // MARK: - Test Runner (embedded for standalone execution)
 

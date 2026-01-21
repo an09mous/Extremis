@@ -137,37 +137,10 @@ run_test_suite "SessionManager Tests" \
     "Foundation"
 
 # 7. SummarizationManager Tests (session summarization and context preservation)
-# Note: This test requires multiple source files for models
-echo "📦 SummarizationManager Tests"
-echo "--------------------------------------------------"
-((TOTAL_SUITES++))
-if swiftc -parse-as-library -o "$OUTPUT_DIR/SummarizationManagerTests" \
+# Note: This test is fully self-contained with embedded type definitions
+run_test_suite "SummarizationManager Tests" \
     "$PROJECT_DIR/Tests/Core/SummarizationManagerTests.swift" \
-    "$PROJECT_DIR/Core/Models/ChatMessage.swift" \
-    "$PROJECT_DIR/Core/Models/Persistence/PersistedMessage.swift" \
-    "$PROJECT_DIR/Core/Models/Persistence/PersistedSession.swift" \
-    "$PROJECT_DIR/Core/Models/Persistence/SessionSummary.swift" \
-    "$PROJECT_DIR/Core/Models/Context.swift" \
-    "$PROJECT_DIR/Connectors/Models/ToolCallRecord.swift" \
-    2>&1; then
-    echo "✅ Compiled SummarizationManager Tests"
-    echo ""
-    output=$("$OUTPUT_DIR/SummarizationManagerTests" 2>&1)
-    exit_code=$?
-    echo "$output"
-    passed=$(echo "$output" | grep "^Passed:" | tail -1 | awk '{print $2}')
-    failed=$(echo "$output" | grep "^Failed:" | tail -1 | awk '{print $2}')
-    TOTAL_PASSED=$((TOTAL_PASSED + ${passed:-0}))
-    TOTAL_FAILED=$((TOTAL_FAILED + ${failed:-0}))
-    if [ $exit_code -ne 0 ]; then
-        FAILED_SUITES+=("SummarizationManager Tests")
-    fi
-    rm -f "$OUTPUT_DIR/SummarizationManagerTests"
-else
-    echo "❌ Compilation failed for SummarizationManager Tests"
-    FAILED_SUITES+=("SummarizationManager Tests (compilation failed)")
-fi
-echo ""
+    "Foundation"
 
 # 8. Tool Models Tests (ToolCall, ToolResult, ToolExecutionRound, etc.)
 run_test_suite "Tool Models Tests" \
@@ -202,6 +175,11 @@ run_test_suite "Connector Config Storage Tests" \
 # 14. Tool Executor Tests (parallel execution, timeout handling)
 run_test_suite "Tool Executor Tests" \
     "$PROJECT_DIR/Tests/Connectors/ToolExecutorTests.swift" \
+    "Foundation"
+
+# 15. Tool Approval Manager Tests (approval flow, rule matching, session memory)
+run_test_suite "Tool Approval Manager Tests" \
+    "$PROJECT_DIR/Tests/Core/ToolApprovalManagerTests.swift" \
     "Foundation"
 
 # ------------------------------------------------------------------------------

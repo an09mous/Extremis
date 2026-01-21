@@ -13,6 +13,28 @@ final class PromptWindowController: NSWindowController {
     /// View model for the prompt window
     private let viewModel = PromptViewModel()
 
+    // MARK: - Tool Approval State (T3.14)
+
+    /// Represents a queued approval batch waiting to be processed
+    private struct PendingApprovalBatch {
+        let requests: [ToolApprovalRequest]
+        /// The chat session ID this batch belongs to (for UI isolation)
+        let sessionId: UUID?
+        let completion: (ApprovalUIResult) -> Void
+    }
+
+    /// Queue of pending approval batches (for handling overlapping requests)
+    private var approvalQueue: [PendingApprovalBatch] = []
+
+    /// Currently active approval batch being shown in UI (nil if none active)
+    private var currentApprovalBatch: PendingApprovalBatch?
+
+    /// Accumulated decisions for the current batch (for individual approvals)
+    private var accumulatedDecisions: [String: ApprovalDecision] = [:]
+
+    /// Set of request IDs in the current batch that are still pending
+    private var pendingRequestIds: Set<String> = []
+
     /// Callback when text should be inserted
     var onInsertText: ((String, ContextSource) -> Void)?
 
@@ -50,6 +72,9 @@ final class PromptWindowController: NSWindowController {
         panel.backgroundColor = .windowBackgroundColor
         panel.isMovableByWindowBackground = true
         panel.title = "Extremis"
+
+        // Set up tool approval UI delegate (T3.14)
+        ToolApprovalManager.shared.uiDelegate = self
 
         updateContentView()
         panel.center()
@@ -122,10 +147,41 @@ final class PromptWindowController: NSWindowController {
         // Update SessionManager with the new context so it's saved with messages
         SessionManager.shared.updateCurrentContext(context)
 
-        // Prepare for new input but preserve session state
-        // Don't call reset() - keep the session/conversation intact
-        viewModel.prepareForNewInput()
+        if autoSummarize, let selectedText = context.selectedText, !selectedText.isEmpty {
+            // Auto-summarize path: need to wait for any existing generation to stop first
+            // to avoid overlapping tasks
 
+            // Show window immediately for responsive UX
+            viewModel.prepareForNewInput()  // Non-blocking cancel to clear UI state immediately
+            setupPromptUI(with: context)
+            window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+
+            // Capture values for the async block to avoid stale references
+            let capturedText = selectedText
+            let capturedSource = context.source
+            let capturedContext = context
+
+            Task { @MainActor in
+                // Wait for any in-progress generation to fully complete
+                // (prepareForNewInput already called cancel, this just waits for completion)
+                await viewModel.session?.cancelGenerationAndWait()
+
+                print("📋 PromptWindow: Auto-triggering summarization...")
+                viewModel.summarize(text: capturedText, source: capturedSource, surroundingContext: capturedContext)
+            }
+        } else {
+            // Normal path: non-blocking cancellation is fine
+            viewModel.prepareForNewInput()
+            setupPromptUI(with: context)
+
+            window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    /// Set up the prompt UI state (shared by sync and async paths)
+    private func setupPromptUI(with context: Context) {
         // Set the context on the viewModel so it can access source info for summarization
         viewModel.currentContext = context
 
@@ -184,15 +240,6 @@ final class PromptWindowController: NSWindowController {
             }
 
             print("📋 PromptWindow: No selection → Chat Mode enabled")
-        }
-
-        window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-
-        // Auto-trigger summarization if requested (Magic Mode)
-        if autoSummarize, let selectedText = context.selectedText, !selectedText.isEmpty {
-            print("📋 PromptWindow: Auto-triggering summarization...")
-            viewModel.summarize(text: selectedText, source: context.source, surroundingContext: context)
         }
     }
 
@@ -325,6 +372,17 @@ final class PromptViewModel: ObservableObject {
     @Published var activeToolCalls: [ChatToolCall] = []
     @Published var isExecutingTools: Bool = false
 
+    // Tool approval state (T3.13)
+    @Published var pendingApprovalRequests: [ApprovalRequestDisplayModel] = []
+    @Published var showApprovalView: Bool = false
+
+    /// Callback when user approves a single tool
+    var onApproveRequest: ((String, Bool) -> Void)?
+    /// Callback when user denies a single tool
+    var onDenyRequest: ((String) -> Void)?
+    /// Callback when user approves all tools (one-time, no remember)
+    var onApproveAll: (() -> Void)?
+
     // Persistence properties
     private(set) var sessionId: UUID?
 
@@ -417,6 +475,9 @@ final class PromptViewModel: ObservableObject {
         // Reset tool state
         activeToolCalls = []
         isExecutingTools = false
+        // Reset approval state (T3.13)
+        pendingApprovalRequests = []
+        showApprovalView = false
         // Reset chat state
         session = nil
         sessionId = nil
@@ -429,7 +490,7 @@ final class PromptViewModel: ObservableObject {
     /// Prepare for new input without losing session state
     /// Called when hotkey is triggered to show prompt
     func prepareForNewInput() {
-        // Cancel any in-progress generation via session
+        // Cancel any in-progress generation via session (non-blocking)
         session?.cancelGeneration()
 
         // Clear input-related state but preserve session
@@ -646,7 +707,20 @@ final class PromptViewModel: ObservableObject {
     }
 
     func cancelGeneration() {
+        // Capture session ID before cancelling for approval dismissal
+        let sessionId = session?.id
         session?.cancelGeneration()
+        // Immediately clear tool UI state so user sees the stop take effect
+        activeToolCalls = []
+        isExecutingTools = false
+        // Dismiss any pending approval UI - this completes the approval continuation
+        // with "dismissed" decisions, which prevents tools from executing
+        pendingApprovalRequests = []
+        showApprovalView = false
+        // Also notify the ToolApprovalManager to complete any pending approval request
+        // This ensures the continuation in waitForUserDecisions is properly resolved
+        // Pass the session ID so only this session's approval UI is dismissed
+        ToolApprovalManager.shared.uiDelegate?.dismissApprovalUI(for: sessionId)
     }
 
     // MARK: - Summarization
@@ -980,10 +1054,12 @@ final class PromptViewModel: ObservableObject {
             activeToolCalls = []
             isExecutingTools = false
 
-            // Use tool-enabled streaming
+            // Use tool-enabled streaming with session-isolated approval
             let stream = ToolEnabledChatService.shared.generateWithToolsStream(
                 provider: provider,
                 messages: sess.messagesForLLM(),
+                sessionApprovalMemory: sess.approvalMemory,
+                sessionId: capturedSessionId,
                 onToolCallsStarted: { [weak self] toolCalls in
                     guard let self = self else { return }
                     self.activeToolCalls = toolCalls
@@ -1009,15 +1085,22 @@ final class PromptViewModel: ObservableObject {
 
             for try await event in stream {
                 if Task.isCancelled {
-                    // Save partial content so user can view, copy, insert, or retry
+                    // Save partial content or show stopped message
                     let partialContent = chunks.joined()
-                    if !partialContent.isEmpty {
+                    if !partialContent.isEmpty || !completedToolRounds.isEmpty {
                         // Include any completed tool rounds in partial save
                         let toolRoundsToSave = completedToolRounds.isEmpty ? nil : completedToolRounds
                         sess.addAssistantMessage(partialContent, toolRounds: toolRoundsToSave)
                         self.response = partialContent
                         print("🔧 Generation stopped - saved partial response with \(completedToolRounds.count) tool rounds")
+                    } else {
+                        // No content at all - show stopped message
+                        let stoppedMessage = "[Generation stopped]"
+                        sess.addAssistantMessage(stoppedMessage)
+                        self.response = stoppedMessage
+                        print("🔧 Generation stopped - no content, showing stopped message")
                     }
+                    sess.clearStreamingContent()
                     return
                 }
 
@@ -1075,11 +1158,38 @@ final class PromptViewModel: ObservableObject {
 
             // Add assistant response to session with tool execution history
             let finalContent = chunks.joined()
-            if !finalContent.isEmpty {
-                // Only include tool rounds if there were any
+
+            // Check if we were cancelled - providers finish stream normally on cancellation
+            // so we need to check here and show appropriate message
+            if Task.isCancelled {
+                if !finalContent.isEmpty || !completedToolRounds.isEmpty {
+                    let toolRoundsToSave = completedToolRounds.isEmpty ? nil : completedToolRounds
+                    sess.addAssistantMessage(finalContent, toolRounds: toolRoundsToSave)
+                    self.response = finalContent
+                    print("🔧 Generation cancelled (normal finish) - saved partial content")
+                } else {
+                    let stoppedMessage = "[Generation stopped]"
+                    sess.addAssistantMessage(stoppedMessage)
+                    self.response = stoppedMessage
+                    print("🔧 Generation cancelled (normal finish) - no content, showing stopped message")
+                }
+                sess.clearStreamingContent()
+                activeToolCalls = []
+                isExecutingTools = false
+                return
+            }
+
+            // Save message if we have content OR tool rounds (tools may produce no text response)
+            if !finalContent.isEmpty || !completedToolRounds.isEmpty {
                 let toolRoundsToSave = completedToolRounds.isEmpty ? nil : completedToolRounds
-                sess.addAssistantMessage(finalContent, toolRounds: toolRoundsToSave)
-                self.response = finalContent
+
+                // If no text content but we have tool rounds, show a placeholder
+                let contentToSave = finalContent.isEmpty && !completedToolRounds.isEmpty
+                    ? "[Tool execution completed - see results above]"
+                    : finalContent
+
+                sess.addAssistantMessage(contentToSave, toolRounds: toolRoundsToSave)
+                self.response = contentToSave
 
                 if !completedToolRounds.isEmpty {
                     let totalCalls = completedToolRounds.reduce(0) { $0 + $1.toolCalls.count }
@@ -1094,15 +1204,24 @@ final class PromptViewModel: ObservableObject {
 
             print("🔧 Generation complete - session has \(sess.messages.count) messages")
         } catch is CancellationError {
-            // User cancelled - still save any completed tool rounds
-            if !completedToolRounds.isEmpty {
-                let partialContent = chunks.joined()
-                if !partialContent.isEmpty {
-                    sess.addAssistantMessage(partialContent, toolRounds: completedToolRounds)
-                    self.response = partialContent
-                    print("🔧 Generation cancelled - saved \(completedToolRounds.count) completed tool rounds")
-                }
+            // User cancelled - save partial content and/or tool rounds
+            let partialContent = chunks.joined()
+
+            if !partialContent.isEmpty || !completedToolRounds.isEmpty {
+                // We have some content or tool results to save
+                let toolRoundsToSave = completedToolRounds.isEmpty ? nil : completedToolRounds
+                sess.addAssistantMessage(partialContent, toolRounds: toolRoundsToSave)
+                self.response = partialContent
+                print("🔧 Generation cancelled - saved partial content and \(completedToolRounds.count) tool rounds")
+            } else {
+                // No content at all - show a stopped message so user knows what happened
+                let stoppedMessage = "[Generation stopped]"
+                sess.addAssistantMessage(stoppedMessage)
+                self.response = stoppedMessage
+                print("🔧 Generation cancelled - no content generated, showing stopped message")
             }
+
+            sess.clearStreamingContent()
             print("🔧 Generation cancelled")
         } catch {
             // Error during generation - still save any completed tool rounds
@@ -1246,7 +1365,12 @@ struct PromptContainerView: View {
                         onRetryMessage: { messageId in viewModel.retryMessage(id: messageId) },
                         onRetryError: { viewModel.retryError() },
                         activeToolCalls: viewModel.activeToolCalls,
-                        isExecutingTools: viewModel.isExecutingTools
+                        isExecutingTools: viewModel.isExecutingTools,
+                        showApprovalView: viewModel.showApprovalView,
+                        pendingApprovalRequests: viewModel.pendingApprovalRequests,
+                        onApproveRequest: viewModel.onApproveRequest,
+                        onDenyRequest: viewModel.onDenyRequest,
+                        onApproveAll: viewModel.onApproveAll
                     )
                     .id(sessionManager.currentSessionId)  // Force view recreation on session switch to reset scroll state
                 } else {
@@ -1298,6 +1422,250 @@ struct PromptContainerView: View {
             }
         }
         .animation(.spring(response: 0.2, dampingFraction: 0.85), value: showContextViewer)
+    }
+}
+
+// MARK: - Tool Approval UI Delegate (T3.14)
+
+extension PromptWindowController: ToolApprovalUIDelegate {
+
+    func showApprovalUI(
+        for requests: [ToolApprovalRequest],
+        sessionId: UUID?,
+        completion: @escaping (ApprovalUIResult) -> Void
+    ) {
+        let batch = PendingApprovalBatch(requests: requests, sessionId: sessionId, completion: completion)
+
+        // If there's an active batch, queue this one for later
+        // Note: In the future with concurrent sessions, we might want to allow multiple active batches
+        // if they belong to different sessions. For now, we queue all overlapping requests.
+        if currentApprovalBatch != nil {
+            print("🔄 Queuing approval batch (\(requests.count) tools, session: \(sessionId?.uuidString.prefix(8) ?? "none")) - another batch is active")
+            approvalQueue.append(batch)
+            return
+        }
+
+        // Start processing this batch
+        startApprovalBatch(batch)
+    }
+
+    func dismissApprovalUI(for sessionId: UUID?) {
+        // If sessionId is provided, only dismiss if it matches the current batch
+        // If sessionId is nil, dismiss everything (legacy behavior)
+        if let targetSessionId = sessionId {
+            // Only dismiss if the current batch belongs to this session
+            if let batch = currentApprovalBatch, batch.sessionId == targetSessionId {
+                var decisions: [String: ApprovalDecision] = accumulatedDecisions
+                for request in batch.requests where decisions[request.id] == nil {
+                    decisions[request.id] = ApprovalDecision(
+                        request: request,
+                        action: .dismissed,
+                        reason: "Approval dismissed"
+                    )
+                }
+                completeCurrentBatch(decisions: decisions, allowAllOnce: false)
+            }
+
+            // Also dismiss any queued batches for this session
+            let batchesToDismiss = approvalQueue.filter { $0.sessionId == targetSessionId }
+            approvalQueue.removeAll { $0.sessionId == targetSessionId }
+
+            for queuedBatch in batchesToDismiss {
+                var queuedDecisions: [String: ApprovalDecision] = [:]
+                for request in queuedBatch.requests {
+                    queuedDecisions[request.id] = ApprovalDecision(
+                        request: request,
+                        action: .dismissed,
+                        reason: "Approval dismissed (session cancelled)"
+                    )
+                }
+                print("📋 Dismissing queued batch for session \(targetSessionId.uuidString.prefix(8)) with \(queuedBatch.requests.count) tools")
+                queuedBatch.completion(ApprovalUIResult(decisions: queuedDecisions, allowAllOnce: false))
+            }
+        } else {
+            // No sessionId specified - dismiss everything (legacy behavior)
+            // Complete current batch with denials (for timeout/cancellation scenarios)
+            if let batch = currentApprovalBatch {
+                var decisions: [String: ApprovalDecision] = accumulatedDecisions
+                for request in batch.requests where decisions[request.id] == nil {
+                    decisions[request.id] = ApprovalDecision(
+                        request: request,
+                        action: .dismissed,
+                        reason: "Approval dismissed"
+                    )
+                }
+                // Note: completeCurrentBatch clears UI state, so don't duplicate below
+                completeCurrentBatch(decisions: decisions, allowAllOnce: false)
+            }
+
+            // Also complete any queued batches with dismissals
+            // This prevents zombie batches that would start processing unexpectedly later
+            while !approvalQueue.isEmpty {
+                let queuedBatch = approvalQueue.removeFirst()
+                var queuedDecisions: [String: ApprovalDecision] = [:]
+                for request in queuedBatch.requests {
+                    queuedDecisions[request.id] = ApprovalDecision(
+                        request: request,
+                        action: .dismissed,
+                        reason: "Approval dismissed (queued)"
+                    )
+                }
+                print("📋 Dismissing queued batch with \(queuedBatch.requests.count) tools")
+                queuedBatch.completion(ApprovalUIResult(decisions: queuedDecisions, allowAllOnce: false))
+            }
+
+            // Clear UI state (in case no batch was active)
+            viewModel.showApprovalView = false
+            viewModel.pendingApprovalRequests = []
+        }
+    }
+
+    func updateApprovalState(requestId: String, state: ApprovalState) {
+        if let index = viewModel.pendingApprovalRequests.firstIndex(where: { $0.id == requestId }) {
+            viewModel.pendingApprovalRequests[index] = ApprovalRequestDisplayModel(
+                id: viewModel.pendingApprovalRequests[index].id,
+                toolName: viewModel.pendingApprovalRequests[index].toolName,
+                connectorId: viewModel.pendingApprovalRequests[index].connectorId,
+                argumentsSummary: viewModel.pendingApprovalRequests[index].argumentsSummary,
+                state: state,
+                rememberForSession: viewModel.pendingApprovalRequests[index].rememberForSession
+            )
+        }
+    }
+
+    // MARK: - Private Batch Management
+
+    /// Start processing an approval batch
+    private func startApprovalBatch(_ batch: PendingApprovalBatch) {
+        currentApprovalBatch = batch
+        accumulatedDecisions = [:]
+        pendingRequestIds = Set(batch.requests.map(\.id))
+
+        // Convert to display models and update UI
+        let displayModels = batch.requests.map { ApprovalRequestDisplayModel.from($0) }
+        viewModel.pendingApprovalRequests = displayModels
+        viewModel.showApprovalView = true
+
+        // Set up callbacks (only once per controller, but safe to reassign)
+        viewModel.onApproveRequest = { [weak self] requestId, remember in
+            self?.handleApprove(requestId: requestId, remember: remember)
+        }
+        viewModel.onDenyRequest = { [weak self] requestId in
+            self?.handleDeny(requestId: requestId)
+        }
+        viewModel.onApproveAll = { [weak self] in
+            print("📋 onApproveAll callback triggered")
+            self?.handleApproveAll()
+        }
+
+        print("📋 Started approval batch with \(batch.requests.count) tools (session: \(batch.sessionId?.uuidString.prefix(8) ?? "none"))")
+    }
+
+    /// Complete the current batch and process next queued batch if any
+    /// - Parameters:
+    ///   - decisions: The approval decisions for each tool
+    ///   - allowAllOnce: Whether "Allow All Once" was used - skip approval for rest of this generation
+    private func completeCurrentBatch(decisions: [String: ApprovalDecision], allowAllOnce: Bool) {
+        guard let batch = currentApprovalBatch else {
+            print("⚠️ completeCurrentBatch called with no active batch")
+            return
+        }
+
+        // Clear current batch state first (before calling completion to prevent re-entry issues)
+        currentApprovalBatch = nil
+        accumulatedDecisions = [:]
+        pendingRequestIds = []
+
+        // Dismiss UI
+        viewModel.showApprovalView = false
+        viewModel.pendingApprovalRequests = []
+
+        // Call completion handler with the result
+        let result = ApprovalUIResult(decisions: decisions, allowAllOnce: allowAllOnce)
+        print("✅ Completed approval batch with \(decisions.count) decisions, allowAllOnce=\(allowAllOnce)")
+        batch.completion(result)
+
+        // Process next batch in queue if any
+        if !approvalQueue.isEmpty {
+            let nextBatch = approvalQueue.removeFirst()
+            print("📋 Processing next queued batch (\(nextBatch.requests.count) tools)")
+            startApprovalBatch(nextBatch)
+        }
+    }
+
+    // MARK: - Private Handlers
+
+    private func handleApprove(requestId: String, remember: Bool) {
+        guard let batch = currentApprovalBatch,
+              let request = batch.requests.first(where: { $0.id == requestId }) else {
+            print("⚠️ handleApprove: request \(requestId) not found in current batch")
+            return
+        }
+
+        var mutableRequest = request
+        mutableRequest.rememberForSession = remember
+
+        let decision = ApprovalDecision(request: mutableRequest, action: .approved)
+        resolveRequest(requestId: requestId, decision: decision)
+    }
+
+    private func handleDeny(requestId: String) {
+        guard let batch = currentApprovalBatch,
+              let request = batch.requests.first(where: { $0.id == requestId }) else {
+            print("⚠️ handleDeny: request \(requestId) not found in current batch")
+            return
+        }
+
+        let decision = ApprovalDecision(request: request, action: .denied, reason: "User denied")
+        resolveRequest(requestId: requestId, decision: decision)
+    }
+
+    private func handleApproveAll() {
+        print("📋 handleApproveAll called")
+        guard let batch = currentApprovalBatch else {
+            print("⚠️ handleApproveAll: no active batch")
+            return
+        }
+
+        print("📋 handleApproveAll: processing \(batch.requests.count) requests, \(pendingRequestIds.count) pending")
+
+        var decisions: [String: ApprovalDecision] = accumulatedDecisions
+
+        // Allow All is one-time only - no remember for individual tools
+        // But we set allowAllOnce=true to skip approval for entire generation
+        for request in batch.requests where pendingRequestIds.contains(request.id) {
+            decisions[request.id] = ApprovalDecision(request: request, action: .approved)
+            print("📋 handleApproveAll: approved \(request.id)")
+        }
+
+        print("📋 handleApproveAll: completing batch with \(decisions.count) decisions, allowAllOnce=true")
+        completeCurrentBatch(decisions: decisions, allowAllOnce: true)
+    }
+
+    private func resolveRequest(requestId: String, decision: ApprovalDecision) {
+        // Validate request belongs to current batch
+        guard pendingRequestIds.contains(requestId) else {
+            print("⚠️ resolveRequest: request \(requestId) not in pending set")
+            return
+        }
+
+        // Accumulate this decision
+        accumulatedDecisions[requestId] = decision
+
+        // Remove from pending
+        pendingRequestIds.remove(requestId)
+
+        // Update UI
+        viewModel.pendingApprovalRequests.removeAll { $0.id == requestId }
+
+        // Check if all resolved
+        if pendingRequestIds.isEmpty {
+            // Individual approvals don't set allowAllOnce - only "Allow All Once" button does
+            completeCurrentBatch(decisions: accumulatedDecisions, allowAllOnce: false)
+        }
+        // Note: We intentionally don't hide the UI if viewModel.pendingApprovalRequests is empty
+        // but pendingRequestIds is not. This shouldn't happen since they're kept in sync,
+        // but if it does, the timeout will eventually trigger and complete the batch.
     }
 }
 

@@ -100,6 +100,22 @@ struct ToolResult: Identifiable, Sendable {
         )
     }
 
+    /// Create a rejection result (tool execution denied by user)
+    /// Used when human-in-loop approval denies the tool call
+    static func rejection(
+        callID: String,
+        toolName: String,
+        reason: String
+    ) -> ToolResult {
+        let message = "Tool execution was rejected by user: \(reason)"
+        return ToolResult(
+            callID: callID,
+            toolName: toolName,
+            outcome: .error(ToolError(message: message, isRetryable: false)),
+            duration: 0
+        )
+    }
+
     /// Create from MCP call result
     static func from(
         mcpResult: MCPToolCallResult,
