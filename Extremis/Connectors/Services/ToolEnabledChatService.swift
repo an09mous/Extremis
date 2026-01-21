@@ -132,8 +132,28 @@ final class ToolEnabledChatService {
         onToolCallsStarted: @escaping ([ChatToolCall]) -> Void,
         onToolCallUpdated: @escaping (String, ToolCallState, String?, TimeInterval?) -> Void
     ) -> AsyncThrowingStream<ToolEnabledGenerationEvent, Error> {
-        AsyncThrowingStream { continuation in
+        // Use a class to share cancellation state between the stream and its internal Task
+        // This is needed because Task {} doesn't inherit cancellation from the stream consumer
+        final class CancellationState: @unchecked Sendable {
+            var isCancelled = false
+        }
+        let cancellationState = CancellationState()
+
+        return AsyncThrowingStream { continuation in
+            // Set up termination handler to detect when stream consumer cancels
+            continuation.onTermination = { termination in
+                if case .cancelled = termination {
+                    cancellationState.isCancelled = true
+                    print("🛑 Stream terminated (cancelled) - marking internal state")
+                }
+            }
+
             Task {
+                // Helper to check if we should stop (either Task cancelled OR stream cancelled)
+                func shouldStop() -> Bool {
+                    Task.isCancelled || cancellationState.isCancelled
+                }
+
                 // Track resolved tool calls for persistence - declared outside do block for catch access
                 var resolvedToolRounds: [(toolCalls: [ToolCall], results: [ToolResult])] = []
 
@@ -168,6 +188,14 @@ final class ToolEnabledChatService {
                     var allowAllOnceActive = false
 
                     while rounds < self.maxToolRounds {
+                        // CRITICAL: Check for cancellation at the START of each round
+                        // This is the primary exit point - if stop was pressed, exit immediately
+                        // Uses shouldStop() which checks both Task.isCancelled AND stream cancellation
+                        if shouldStop() {
+                            print("🛑 Generation cancelled - stopping tool loop at start of round \(rounds + 1)")
+                            break
+                        }
+
                         rounds += 1
                         print("🔧 Tool round \(rounds) starting...")
 
@@ -179,12 +207,23 @@ final class ToolEnabledChatService {
                             tools: availableTools,
                             toolRounds: toolRounds
                         ) {
+                            // Check cancellation during streaming
+                            if shouldStop() {
+                                print("🛑 Generation cancelled during LLM streaming")
+                                break
+                            }
                             switch event {
                             case .textChunk(let text):
                                 continuation.yield(.contentChunk(text))
                             case .complete(let toolCalls):
                                 streamedToolCalls = toolCalls
                             }
+                        }
+
+                        // Check for cancellation after LLM call completes
+                        if shouldStop() {
+                            print("🛑 Generation cancelled after LLM response - not processing tool calls")
+                            break
                         }
 
                         // If no tool calls, we're done
@@ -232,7 +271,7 @@ final class ToolEnabledChatService {
                         } else {
                             // Check for cancellation before approval request
                             // This ensures we don't show approval UI if generation was already stopped
-                            if Task.isCancelled {
+                            if shouldStop() {
                                 print("🛑 Generation cancelled before tool approval - skipping")
                                 continuation.finish()
                                 return
@@ -247,7 +286,7 @@ final class ToolEnabledChatService {
                             // Check for cancellation after approval returns
                             // This handles the case where user stopped generation while approval UI was open
                             // Even if they clicked "approve", we should not execute tools
-                            if Task.isCancelled {
+                            if shouldStop() {
                                 print("🛑 Generation cancelled during/after approval - not executing tools")
                                 // Mark all tools as cancelled
                                 for toolCall in toolCalls {
@@ -344,6 +383,14 @@ final class ToolEnabledChatService {
                             allResults.append(contentsOf: executionResults)
                         }
 
+                        // CRITICAL: Check for cancellation after tool execution completes
+                        // Even if MCP subprocess is still running, WE stop processing here
+                        if shouldStop() {
+                            print("🛑 Generation cancelled after tool execution - not continuing to next round")
+                            // Don't add to history, don't continue loop - just exit
+                            break
+                        }
+
                         // Use execution results
                         let results = allResults
 
@@ -359,6 +406,12 @@ final class ToolEnabledChatService {
                         // Emit round completed event for persistence tracking
                         continuation.yield(.toolRoundCompleted(toolCalls: toolCalls, results: results))
                         print("🔧 Round \(rounds) complete: executed \(results.count) tools")
+
+                        // Check cancellation one more time before looping back
+                        if shouldStop() {
+                            print("🛑 Generation cancelled at end of round - stopping before next round")
+                            break
+                        }
                     }
 
                     print("🔧 Generation finished after \(rounds) round(s), \(resolvedToolRounds.count) new tool rounds")
