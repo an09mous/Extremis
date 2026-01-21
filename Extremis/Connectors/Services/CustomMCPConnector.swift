@@ -184,6 +184,17 @@ final class CustomMCPConnector: Connector, ObservableObject {
     // MARK: - Tool Execution
 
     func executeTool(_ call: ToolCall) async throws -> ToolResult {
+        // Check for cancellation before starting
+        if Task.isCancelled {
+            connectorLogger.info("[\(name)] Tool '\(call.toolName)' cancelled before execution")
+            return ToolResult.failure(
+                callID: call.id,
+                toolName: call.toolName,
+                error: ToolError(message: "Execution cancelled"),
+                duration: 0
+            )
+        }
+
         guard state.isConnected, let client = client else {
             connectorLogger.warning("[\(name)] Cannot execute tool '\(call.toolName)': not connected")
             throw ConnectorError.notConnected
@@ -207,8 +218,23 @@ final class CustomMCPConnector: Connector, ObservableObject {
             // Convert arguments to SDK Value type
             let sdkArguments = convertToSDKValues(call.arguments)
 
-            let (content, isError) = try await withTimeout(ConnectorConstants.toolExecutionTimeout) {
+            // Use cancellation-aware timeout wrapper
+            // Note: MCP servers are external processes, so cancellation won't stop them mid-execution.
+            // However, we can return early and ignore their result.
+            let (content, isError) = try await withCancellableTimeout(ConnectorConstants.toolExecutionTimeout) {
                 try await client.callTool(name: toolOriginalName, arguments: sdkArguments)
+            }
+
+            // Check for cancellation after tool returns
+            if Task.isCancelled {
+                let duration = Date().timeIntervalSince(startTime)
+                connectorLogger.info("[\(name)] Tool '\(toolOriginalName)' cancelled after completion (result discarded)")
+                return ToolResult.failure(
+                    callID: call.id,
+                    toolName: call.toolName,
+                    error: ToolError(message: "Execution cancelled"),
+                    duration: duration
+                )
             }
 
             let duration = Date().timeIntervalSince(startTime)
@@ -223,6 +249,15 @@ final class CustomMCPConnector: Connector, ObservableObject {
                 duration: duration
             )
 
+        } catch is CancellationError {
+            let duration = Date().timeIntervalSince(startTime)
+            connectorLogger.info("[\(name)] Tool '\(toolOriginalName)' cancelled after \(String(format: "%.2f", duration))s")
+            return ToolResult.failure(
+                callID: call.id,
+                toolName: call.toolName,
+                error: ToolError(message: "Execution cancelled"),
+                duration: duration
+            )
         } catch {
             let duration = Date().timeIntervalSince(startTime)
             connectorLogger.error("[\(name)] Tool '\(toolOriginalName)' failed after \(String(format: "%.2f", duration))s: \(error.localizedDescription)")
@@ -486,6 +521,44 @@ final class CustomMCPConnector: Connector, ObservableObject {
             group.cancelAll()
 
             return result
+        }
+    }
+
+    /// Execute with timeout and proper cancellation propagation
+    /// When the parent task is cancelled, this throws CancellationError immediately
+    nonisolated private func withCancellableTimeout<T: Sendable>(
+        _ timeout: TimeInterval,
+        operation: @Sendable @escaping () async throws -> T
+    ) async throws -> T {
+        // Check for cancellation before starting
+        try Task.checkCancellation()
+
+        return try await withTaskCancellationHandler {
+            try await withThrowingTaskGroup(of: T.self) { group in
+                // Add the main operation
+                group.addTask {
+                    try await operation()
+                }
+
+                // Add the timeout
+                group.addTask {
+                    try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                    throw ConnectorError.connectionTimeout
+                }
+
+                // Get the first result (either success or timeout)
+                guard let result = try await group.next() else {
+                    throw ConnectorError.connectionTimeout
+                }
+
+                // Cancel remaining tasks
+                group.cancelAll()
+
+                return result
+            }
+        } onCancel: {
+            // When parent is cancelled, we can't stop the external process
+            // but the TaskGroup will be cancelled and throw CancellationError
         }
     }
 }
