@@ -122,6 +122,20 @@ enum LLMProviderType: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Model Capabilities
+
+/// Model capabilities - extensible for future features (vision, embeddings, etc.)
+struct ModelCapabilities: Codable, Equatable, Hashable {
+    /// Whether the model supports tool/function calling
+    let supportsTools: Bool
+
+    /// Default capabilities (assumes tool support for cloud models)
+    static let `default` = ModelCapabilities(supportsTools: true)
+
+    /// No capabilities (for models that don't support tools)
+    static let none = ModelCapabilities(supportsTools: false)
+}
+
 // MARK: - LLM Model
 
 /// Represents an LLM model within a provider
@@ -130,8 +144,41 @@ struct LLMModel: Identifiable, Codable, Equatable, Hashable {
     let name: String
     let description: String
 
+    /// Model capabilities (nil = use defaults based on provider)
+    let capabilities: ModelCapabilities?
+
     var displayName: String {
         "\(name)"
+    }
+
+    /// Whether this model supports tool/function calling
+    /// Defaults to true if capabilities not specified (most cloud models support tools)
+    var supportsTools: Bool {
+        capabilities?.supportsTools ?? true
+    }
+
+    // MARK: - Initializers
+
+    /// Full initializer with capabilities
+    init(id: String, name: String, description: String, capabilities: ModelCapabilities? = nil) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.capabilities = capabilities
+    }
+
+    // MARK: - Codable
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, description, capabilities
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decode(String.self, forKey: .description)
+        capabilities = try container.decodeIfPresent(ModelCapabilities.self, forKey: .capabilities)
     }
 }
 

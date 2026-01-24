@@ -49,8 +49,15 @@ final class ToolEnabledChatService {
         // Get available tools from all enabled connectors
         let availableTools = connectorRegistry.toolDefinitions
 
-        // If no tools are available, fall back to regular generation
+        // If no tools are configured, fall back to regular generation
         if availableTools.isEmpty {
+            return try await generateWithoutTools(provider: provider, messages: messages)
+        }
+
+        // Check if the model supports tools
+        let modelSupportsTools = await provider.supportsTools
+        if !modelSupportsTools {
+            print("🔧 Model '\(provider.currentModel.name)' (\(provider.providerType.displayName)) doesn't support tools - falling back to regular chat (skipping \(availableTools.count) available tools)")
             return try await generateWithoutTools(provider: provider, messages: messages)
         }
 
@@ -65,11 +72,18 @@ final class ToolEnabledChatService {
             print("🔧 Tool round \(rounds) starting...")
 
             // Call LLM with tools and full tool execution history
-            let generation = try await provider.generateChatWithTools(
-                messages: messages,
-                tools: availableTools,
-                toolRounds: toolRounds
-            )
+            let generation: ToolEnabledGeneration
+            do {
+                generation = try await provider.generateChatWithTools(
+                    messages: messages,
+                    tools: availableTools,
+                    toolRounds: toolRounds
+                )
+            } catch let error as LLMProviderError where isToolCapabilityError(error) {
+                // Tool capability error - fall back to regular chat
+                print("🔧 Tool capability error for '\(provider.currentModel.name)': \(error.localizedDescription) - falling back to regular chat")
+                return try await generateWithoutTools(provider: provider, messages: messages)
+            }
 
             // Accumulate any text content
             if let content = generation.content {
@@ -165,12 +179,24 @@ final class ToolEnabledChatService {
                     // Get available tools
                     let availableTools = self.connectorRegistry.toolDefinitions
 
-                    // If no tools, use regular streaming
+                    // If no tools configured, use regular streaming
                     if availableTools.isEmpty {
                         for try await chunk in provider.generateChatStream(messages: messages) {
                             continuation.yield(.contentChunk(chunk))
                         }
                         // No tools used, emit empty completion
+                        continuation.yield(.generationComplete(toolRounds: []))
+                        continuation.finish()
+                        return
+                    }
+
+                    // Check if the model supports tools
+                    let modelSupportsTools = await provider.supportsTools
+                    if !modelSupportsTools {
+                        print("🔧 Model '\(provider.currentModel.name)' (\(provider.providerType.displayName)) doesn't support tools - falling back to regular chat (skipping \(availableTools.count) available tools)")
+                        for try await chunk in provider.generateChatStream(messages: messages) {
+                            continuation.yield(.contentChunk(chunk))
+                        }
                         continuation.yield(.generationComplete(toolRounds: []))
                         continuation.finish()
                         return
@@ -422,9 +448,34 @@ final class ToolEnabledChatService {
                     continuation.yield(.generationComplete(toolRounds: roundRecords))
 
                     continuation.finish()
-                } catch {
+                } catch let error as LLMProviderError {
+                    // Check if this is a tool capability error - if so, fall back to regular chat
+                    if self.isToolCapabilityError(error) {
+                        print("🔧 Tool capability error for '\(provider.currentModel.name)': \(error.localizedDescription) - falling back to regular chat")
+                        do {
+                            for try await chunk in provider.generateChatStream(messages: messages) {
+                                continuation.yield(.contentChunk(chunk))
+                            }
+                            continuation.yield(.generationComplete(toolRounds: []))
+                            continuation.finish()
+                            return
+                        } catch {
+                            continuation.finish(throwing: error)
+                            return
+                        }
+                    }
+
                     // Emit partial results before finishing with error
                     // This ensures any completed tool rounds are persisted
+                    if !resolvedToolRounds.isEmpty {
+                        let partialRecords = resolvedToolRounds.map { round in
+                            ToolExecutionRoundRecord.from(toolCalls: round.toolCalls, results: round.results)
+                        }
+                        continuation.yield(.generationInterrupted(error: error, partialToolRounds: partialRecords))
+                    }
+                    continuation.finish(throwing: error)
+                } catch {
+                    // Non-LLMProviderError - emit partial results and throw
                     if !resolvedToolRounds.isEmpty {
                         let partialRecords = resolvedToolRounds.map { round in
                             ToolExecutionRoundRecord.from(toolCalls: round.toolCalls, results: round.results)
@@ -535,6 +586,30 @@ final class ToolEnabledChatService {
         }
 
         return results
+    }
+
+    /// Detect if an error indicates the model doesn't support tools
+    /// Used to trigger graceful fallback to regular chat
+    private func isToolCapabilityError(_ error: LLMProviderError) -> Bool {
+        switch error {
+        case .serverError(let statusCode, let message):
+            // HTTP 400 with tool-related message indicates capability issue
+            if statusCode == 400 {
+                let lowercased = (message ?? "").lowercased()
+                return lowercased.contains("tool") ||
+                       lowercased.contains("function") ||
+                       lowercased.contains("unsupported") ||
+                       lowercased.contains("not support")
+            }
+            return false
+        case .unknown(let message):
+            let lowercased = message.lowercased()
+            return lowercased.contains("tool") ||
+                   lowercased.contains("function") ||
+                   lowercased.contains("not support")
+        default:
+            return false
+        }
     }
 
     /// Extract historical tool rounds from persisted messages

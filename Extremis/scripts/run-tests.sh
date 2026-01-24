@@ -182,6 +182,11 @@ run_test_suite "Tool Approval Manager Tests" \
     "$PROJECT_DIR/Tests/Core/ToolApprovalManagerTests.swift" \
     "Foundation"
 
+# 16. Model Capability Tests (ModelCapabilities struct, tool support detection)
+run_test_suite "Model Capability Tests" \
+    "$PROJECT_DIR/Tests/Core/ModelCapabilityTests.swift" \
+    "Foundation"
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------

@@ -18,6 +18,11 @@ protocol LLMProvider: AnyObject {
     /// Currently selected model
     var currentModel: LLMModel { get }
 
+    /// Whether the current model supports tool/function calling
+    /// Default implementation checks currentModel.capabilities.supportsTools
+    /// Providers can override for dynamic detection (e.g., Ollama)
+    var supportsTools: Bool { get async }
+
     /// Configure the provider with an API key
     /// - Parameter apiKey: The API key to use
     /// - Throws: LLMProviderError.invalidAPIKey if key is invalid
@@ -78,6 +83,18 @@ protocol LLMProvider: AnyObject {
         tools: [ConnectorTool],
         toolRounds: [ToolExecutionRound]
     ) -> AsyncThrowingStream<ToolStreamEvent, Error>
+}
+
+// MARK: - LLMProvider Default Implementations
+
+extension LLMProvider {
+    /// Default implementation: check the model's capabilities.supportsTools flag
+    /// Ollama overrides this for dynamic detection via /api/show
+    var supportsTools: Bool {
+        get async {
+            currentModel.capabilities?.supportsTools ?? true
+        }
+    }
 }
 
 // MARK: - Tool Stream Event

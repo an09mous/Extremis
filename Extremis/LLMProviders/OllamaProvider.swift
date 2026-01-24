@@ -21,6 +21,9 @@ final class OllamaProvider: LLMProvider, ObservableObject {
     /// Cached list of available models from Ollama server
     private(set) var availableModelsFromServer: [LLMModel] = []
 
+    /// Cache of model tool support status (modelId -> supportsTools)
+    private var toolCapabilityCache: [String: Bool] = [:]
+
     /// Ollama doesn't require API key, just server connectivity
     var isConfigured: Bool { serverConnected }
 
@@ -294,6 +297,65 @@ final class OllamaProvider: LLMProvider, ObservableObject {
         }
     }
 
+    // MARK: - Tool Capability Detection
+
+    /// Override: Check if the current model supports tools via /api/show
+    var supportsTools: Bool {
+        get async {
+            // Check cache first
+            if let cached = toolCapabilityCache[currentModel.id] {
+                return cached
+            }
+
+            // Query Ollama for model capabilities
+            let supports = await detectToolSupport(for: currentModel.id)
+            toolCapabilityCache[currentModel.id] = supports
+            return supports
+        }
+    }
+
+    /// Query Ollama's /api/show endpoint for model capabilities
+    /// Returns true if the model's capabilities include "tools"
+    private func detectToolSupport(for modelId: String) async -> Bool {
+        guard serverConnected else { return false }
+
+        guard let url = URL(string: "\(baseURL)/api/show") else { return false }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body = ["name": modelId]
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return false }
+        request.httpBody = bodyData
+
+        do {
+            let (data, _) = try await session.data(for: request)
+
+            // Parse response for capabilities field
+            // Ollama returns: {"capabilities": ["completion", "tools", "vision"]}
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let capabilities = json["capabilities"] as? [String] {
+                let supportsTools = capabilities.contains("tools")
+                print("🔧 Ollama model '\(modelId)' capabilities: \(capabilities), supportsTools: \(supportsTools)")
+                return supportsTools
+            }
+
+            // If capabilities field is missing (older Ollama version), assume no tool support
+            print("⚠️ Ollama model '\(modelId)' has no capabilities field - assuming no tool support")
+            return false
+        } catch {
+            print("⚠️ Failed to detect tool support for '\(modelId)': \(error.localizedDescription)")
+            return false // Conservative: assume no support on error
+        }
+    }
+
+    /// Clear capability cache (called on server reconnect)
+    func clearCapabilityCache() {
+        toolCapabilityCache.removeAll()
+        print("🔧 Cleared Ollama tool capability cache")
+    }
+
     // MARK: - Connection & Model Discovery
 
     /// Check if Ollama server is running
@@ -311,6 +373,8 @@ final class OllamaProvider: LLMProvider, ObservableObject {
             if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
                 serverConnected = true
                 print("✅ Ollama server connected at \(baseURL)")
+                // Clear capability cache on reconnect (server may have new models/versions)
+                clearCapabilityCache()
                 // Fetch available models
                 await fetchAvailableModels()
                 return true
