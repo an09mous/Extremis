@@ -187,6 +187,11 @@ run_test_suite "Model Capability Tests" \
     "$PROJECT_DIR/Tests/Core/ModelCapabilityTests.swift" \
     "Foundation"
 
+# 17. OAuth Tests (OAuth models, PKCE generation, configuration validation)
+run_test_suite "OAuth Tests" \
+    "$PROJECT_DIR/Tests/Core/OAuthTests.swift" \
+    "Foundation"
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------

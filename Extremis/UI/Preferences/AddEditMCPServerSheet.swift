@@ -59,6 +59,15 @@ struct AddEditMCPServerSheet: View {
     @State private var secretEnvVars: String = ""
     @State private var secretHeaders: String = ""
 
+    // OAuth configuration
+    @State private var oauthEnabled: Bool = false
+    @State private var oauthUseAutoDiscovery: Bool = false  // For HTTP transport: use MCP auto-discovery
+    @State private var oauthAuthorizationEndpoint: String = ""
+    @State private var oauthTokenEndpoint: String = ""
+    @State private var oauthClientId: String = ""
+    @State private var oauthScopes: String = ""
+    @State private var oauthAccessTokenEnvVar: String = "OAUTH_ACCESS_TOKEN"
+
     // Validation
     @State private var validationErrors: [String] = []
     @State private var showingValidationAlert = false
@@ -85,9 +94,33 @@ struct AddEditMCPServerSheet: View {
                 _command = State(initialValue: stdioConfig.command)
                 _args = State(initialValue: stdioConfig.args.joined(separator: " "))
                 _envVars = State(initialValue: formatKeyValue(stdioConfig.env))
+                // Load OAuth config if present
+                if let oauth = stdioConfig.oauth {
+                    _oauthEnabled = State(initialValue: true)
+                    _oauthAuthorizationEndpoint = State(initialValue: oauth.authorizationEndpoint.absoluteString)
+                    _oauthTokenEndpoint = State(initialValue: oauth.tokenEndpoint.absoluteString)
+                    _oauthClientId = State(initialValue: oauth.clientId)
+                    _oauthScopes = State(initialValue: oauth.scopes.joined(separator: " "))
+                    _oauthAccessTokenEnvVar = State(initialValue: oauth.accessTokenEnvVar ?? "OAUTH_ACCESS_TOKEN")
+                }
             case .http(let httpConfig):
                 _url = State(initialValue: httpConfig.url.absoluteString)
                 _headers = State(initialValue: formatKeyValue(httpConfig.headers))
+                // Load auto-discovery setting
+                _oauthUseAutoDiscovery = State(initialValue: httpConfig.useAutoDiscovery)
+                if httpConfig.useAutoDiscovery {
+                    _oauthEnabled = State(initialValue: true)
+                    _oauthClientId = State(initialValue: httpConfig.oauthClientId ?? "")
+                }
+                // Load manual OAuth config if present
+                if let oauth = httpConfig.oauth {
+                    _oauthEnabled = State(initialValue: true)
+                    _oauthAuthorizationEndpoint = State(initialValue: oauth.authorizationEndpoint.absoluteString)
+                    _oauthTokenEndpoint = State(initialValue: oauth.tokenEndpoint.absoluteString)
+                    _oauthClientId = State(initialValue: oauth.clientId)
+                    _oauthScopes = State(initialValue: oauth.scopes.joined(separator: " "))
+                    _oauthAccessTokenEnvVar = State(initialValue: oauth.accessTokenEnvVar ?? "OAUTH_ACCESS_TOKEN")
+                }
             }
 
             // Load secrets from Keychain
@@ -167,6 +200,27 @@ struct AddEditMCPServerSheet: View {
                         }
                         .padding(.vertical, 8)
                     }
+
+                    // OAuth Authentication
+                    GroupBox("OAuth Authentication") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            if transportType == .http {
+                                // HTTP transport supports auto-discovery
+                                httpOAuthConfigView
+                            } else {
+                                // STDIO transport uses manual OAuth config
+                                OAuthConfigView(
+                                    enabled: $oauthEnabled,
+                                    authorizationEndpoint: $oauthAuthorizationEndpoint,
+                                    tokenEndpoint: $oauthTokenEndpoint,
+                                    clientId: $oauthClientId,
+                                    scopes: $oauthScopes,
+                                    accessTokenEnvVar: $oauthAccessTokenEnvVar
+                                )
+                            }
+                        }
+                        .padding(.vertical, 8)
+                    }
                 }
                 .padding()
             }
@@ -190,7 +244,7 @@ struct AddEditMCPServerSheet: View {
             }
             .padding()
         }
-        .frame(width: 480, height: 620)
+        .frame(width: 480, height: 720)
         .alert("Validation Error", isPresented: $showingValidationAlert) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -308,6 +362,80 @@ struct AddEditMCPServerSheet: View {
         }
     }
 
+    // MARK: - HTTP OAuth Config View
+
+    private var httpOAuthConfigView: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Toggle("Requires OAuth Authentication", isOn: $oauthEnabled)
+
+            if oauthEnabled {
+                // Mode selector for HTTP OAuth
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("OAuth Mode")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Picker("Mode", selection: $oauthUseAutoDiscovery) {
+                        Text("Auto-Discovery (MCP Servers)").tag(true)
+                        Text("Manual Configuration").tag(false)
+                    }
+                    .pickerStyle(.segmented)
+                }
+                .padding(.leading, 20)
+
+                if oauthUseAutoDiscovery {
+                    // Auto-discovery mode - only needs Client ID
+                    VStack(alignment: .leading, spacing: 12) {
+                        GroupBox {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Label("MCP Auto-Discovery", systemImage: "wand.and.stars")
+                                    .font(.caption.bold())
+                                    .foregroundColor(.blue)
+
+                                Text("OAuth endpoints will be discovered automatically when connecting to the server. This works with MCP-compliant servers like Atlassian Rovo.")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Client ID")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            TextField("your-client-id", text: $oauthClientId)
+                                .textFieldStyle(.roundedBorder)
+                            Text("OAuth application client ID (provided by the service)")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(.leading, 20)
+                } else {
+                    // Manual configuration mode
+                    OAuthConfigView(
+                        enabled: .constant(true),  // Already enabled, don't show toggle
+                        authorizationEndpoint: $oauthAuthorizationEndpoint,
+                        tokenEndpoint: $oauthTokenEndpoint,
+                        clientId: $oauthClientId,
+                        scopes: $oauthScopes,
+                        accessTokenEnvVar: $oauthAccessTokenEnvVar
+                    )
+                }
+
+                // OAuth info box
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("OAuth Flow", systemImage: "lock.shield")
+                            .font(.caption.bold())
+                        Text("After saving, click 'Connect' in the server list to complete the OAuth flow. A browser window will open for authorization.")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.leading, 20)
+            }
+        }
+    }
+
     // MARK: - Secret Config Views
 
     private var secretEnvVarsView: some View {
@@ -347,10 +475,31 @@ struct AddEditMCPServerSheet: View {
 
         if transportType == .stdio {
             let parsedEnv = parseKeyValue(envVars)
+
+            // Build OAuth config if enabled
+            var oauthConfig: OAuthConfig? = nil
+            if oauthEnabled {
+                guard let authEndpoint = URL(string: oauthAuthorizationEndpoint.trimmingCharacters(in: .whitespaces)),
+                      let tokenEndpoint = URL(string: oauthTokenEndpoint.trimmingCharacters(in: .whitespaces)) else {
+                    validationErrors = ["Invalid OAuth endpoint URLs"]
+                    showingValidationAlert = true
+                    return
+                }
+                let scopes = oauthScopes.split(separator: " ").map(String.init)
+                oauthConfig = OAuthConfig(
+                    authorizationEndpoint: authEndpoint,
+                    tokenEndpoint: tokenEndpoint,
+                    clientId: oauthClientId.trimmingCharacters(in: .whitespaces),
+                    scopes: scopes,
+                    accessTokenEnvVar: oauthAccessTokenEnvVar.trimmingCharacters(in: .whitespaces)
+                )
+            }
+
             let stdioConfig = StdioConfig(
                 command: command.trimmingCharacters(in: .whitespaces),
                 args: args.split(separator: " ").map(String.init),
-                env: parsedEnv
+                env: parsedEnv,
+                oauth: oauthConfig
             )
 
             config = CustomMCPServerConfig(
@@ -369,10 +518,47 @@ struct AddEditMCPServerSheet: View {
                 return
             }
 
+            // Build OAuth config based on mode
+            var oauthConfig: OAuthConfig? = nil
+            var useAutoDiscovery = false
+            var autoDiscoveryClientId: String? = nil
+
+            if oauthEnabled {
+                if oauthUseAutoDiscovery {
+                    // Auto-discovery mode - only need client ID
+                    useAutoDiscovery = true
+                    autoDiscoveryClientId = oauthClientId.trimmingCharacters(in: .whitespaces)
+                    if autoDiscoveryClientId?.isEmpty ?? true {
+                        validationErrors = ["Client ID is required for OAuth auto-discovery"]
+                        showingValidationAlert = true
+                        return
+                    }
+                } else {
+                    // Manual OAuth configuration
+                    guard let authEndpoint = URL(string: oauthAuthorizationEndpoint.trimmingCharacters(in: .whitespaces)),
+                          let tokenEndpoint = URL(string: oauthTokenEndpoint.trimmingCharacters(in: .whitespaces)) else {
+                        validationErrors = ["Invalid OAuth endpoint URLs"]
+                        showingValidationAlert = true
+                        return
+                    }
+                    let scopes = oauthScopes.split(separator: " ").map(String.init)
+                    oauthConfig = OAuthConfig(
+                        authorizationEndpoint: authEndpoint,
+                        tokenEndpoint: tokenEndpoint,
+                        clientId: oauthClientId.trimmingCharacters(in: .whitespaces),
+                        scopes: scopes,
+                        accessTokenEnvVar: oauthAccessTokenEnvVar.trimmingCharacters(in: .whitespaces)
+                    )
+                }
+            }
+
             let parsedHeaders = parseKeyValue(headers)
             let httpConfig = HTTPConfig(
                 url: parsedURL,
-                headers: parsedHeaders
+                headers: parsedHeaders,
+                oauth: oauthConfig,
+                useAutoDiscovery: useAutoDiscovery,
+                oauthClientId: autoDiscoveryClientId
             )
 
             config = CustomMCPServerConfig(

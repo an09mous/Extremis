@@ -120,6 +120,26 @@ struct CustomMCPServerConfig: Codable, Identifiable, Equatable {
         validate().isEmpty
     }
 
+    /// Whether this server requires OAuth authentication
+    var requiresOAuth: Bool {
+        switch transport {
+        case .stdio(let config):
+            return config.requiresOAuth
+        case .http(let config):
+            return config.requiresOAuth
+        }
+    }
+
+    /// Get the OAuth config if present
+    var oauthConfig: OAuthConfig? {
+        switch transport {
+        case .stdio(let config):
+            return config.oauth
+        case .http(let config):
+            return config.oauth
+        }
+    }
+
     // MARK: - Modification
 
     /// Create a copy with updated modification date

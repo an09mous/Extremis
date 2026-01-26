@@ -36,6 +36,7 @@ struct ConnectorsTab: View {
                                     server: server,
                                     connectionState: viewModel.connectionState(for: server),
                                     tools: viewModel.tools(for: server),
+                                    oauthStatus: viewModel.oauthStatus(for: server),
                                     onToggleEnabled: { viewModel.toggleEnabled(server) },
                                     onEdit: { editingServer = server },
                                     onDelete: {
@@ -43,7 +44,9 @@ struct ConnectorsTab: View {
                                         showingDeleteConfirmation = true
                                     },
                                     onConnect: { viewModel.connect(server) },
-                                    onDisconnect: { viewModel.disconnect(server) }
+                                    onDisconnect: { viewModel.disconnect(server) },
+                                    onOAuthConnect: { viewModel.connectOAuth(server) },
+                                    onOAuthDisconnect: { viewModel.disconnectOAuth(server) }
                                 )
                             }
                         }
@@ -148,11 +151,14 @@ struct CustomServerRow: View {
     let server: CustomMCPServerConfig
     let connectionState: ConnectorState
     let tools: [ConnectorTool]
+    let oauthStatus: OAuthConnectionStatus?
     let onToggleEnabled: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
     let onConnect: () -> Void
     let onDisconnect: () -> Void
+    let onOAuthConnect: () -> Void
+    let onOAuthDisconnect: () -> Void
 
     @State private var showingTools = false
 
@@ -230,6 +236,11 @@ struct CustomServerRow: View {
             transportDetailsView
                 .font(.caption2)
                 .foregroundColor(.secondary)
+
+            // OAuth status (if applicable)
+            if server.requiresOAuth, let status = oauthStatus {
+                oauthStatusView(status: status)
+            }
 
             // Collapsible tools list
             if showingTools && connectionState.isConnected && !tools.isEmpty {
@@ -330,6 +341,65 @@ struct CustomServerRow: View {
             Text("URL: \(config.url.absoluteString)")
                 .lineLimit(1)
                 .truncationMode(.middle)
+        }
+    }
+
+    @ViewBuilder
+    private func oauthStatusView(status: OAuthConnectionStatus) -> some View {
+        HStack(spacing: 8) {
+            // Status indicator
+            HStack(spacing: 4) {
+                Image(systemName: oauthStatusIcon(status))
+                    .foregroundColor(oauthStatusColor(status))
+                Text(status.displayName)
+                    .font(.caption)
+                    .foregroundColor(oauthStatusColor(status))
+            }
+
+            Spacer()
+
+            // OAuth action button
+            switch status {
+            case .disconnected, .expired, .error:
+                Button("Connect OAuth") {
+                    onOAuthConnect()
+                }
+                .font(.caption)
+            case .connecting:
+                ProgressView()
+                    .scaleEffect(0.6)
+            case .connected:
+                Button("Disconnect OAuth") {
+                    onOAuthDisconnect()
+                }
+                .font(.caption)
+            }
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(oauthStatusColor(status).opacity(0.1))
+        )
+    }
+
+    private func oauthStatusIcon(_ status: OAuthConnectionStatus) -> String {
+        switch status {
+        case .disconnected: return "lock"
+        case .connecting: return "arrow.clockwise"
+        case .connected: return "lock.open.fill"
+        case .expired: return "exclamationmark.lock"
+        case .error: return "lock.slash"
+        }
+    }
+
+    private func oauthStatusColor(_ status: OAuthConnectionStatus) -> Color {
+        switch status {
+        case .disconnected: return .secondary
+        case .connecting: return .blue
+        case .connected: return .green
+        case .expired: return .orange
+        case .error: return .red
         }
     }
 }
@@ -487,6 +557,39 @@ final class ConnectorsTabViewModel: ObservableObject {
             return connector.tools
         }
         return []
+    }
+
+    func oauthStatus(for server: CustomMCPServerConfig) -> OAuthConnectionStatus? {
+        guard server.requiresOAuth else { return nil }
+        if let connector = registry.connector(id: server.id.uuidString) as? CustomMCPConnector {
+            return connector.oauthStatus
+        }
+        return .disconnected
+    }
+
+    func connectOAuth(_ server: CustomMCPServerConfig) {
+        Task {
+            if let connector = registry.connector(id: server.id.uuidString) as? CustomMCPConnector {
+                do {
+                    _ = try await connector.startOAuthFlow()
+                    objectWillChange.send()
+                    statusMessage = "OAuth connected for '\(server.name)'"
+                    isError = false
+                } catch {
+                    statusMessage = "OAuth failed: \(error.localizedDescription)"
+                    isError = true
+                }
+            }
+        }
+    }
+
+    func disconnectOAuth(_ server: CustomMCPServerConfig) {
+        if let connector = registry.connector(id: server.id.uuidString) as? CustomMCPConnector {
+            connector.disconnectOAuth()
+            objectWillChange.send()
+            statusMessage = "OAuth disconnected for '\(server.name)'"
+            isError = false
+        }
     }
 }
 

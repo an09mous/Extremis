@@ -88,10 +88,14 @@ struct StdioConfig: Codable, Equatable {
     /// Sensitive values are stored in Keychain and merged at runtime
     var env: [String: String]
 
-    init(command: String, args: [String] = [], env: [String: String] = [:]) {
+    /// OAuth configuration (optional - for OAuth-protected servers)
+    var oauth: OAuthConfig?
+
+    init(command: String, args: [String] = [], env: [String: String] = [:], oauth: OAuthConfig? = nil) {
         self.command = command
         self.args = args
         self.env = env
+        self.oauth = oauth
     }
 
     /// Validate the configuration
@@ -102,14 +106,24 @@ struct StdioConfig: Codable, Equatable {
             errors.append("Command cannot be empty")
         }
 
+        // Validate OAuth config if present
+        if let oauthConfig = oauth {
+            errors.append(contentsOf: oauthConfig.validate().map { "OAuth: \($0)" })
+        }
+
         return errors
+    }
+
+    /// Whether this config requires OAuth authentication
+    var requiresOAuth: Bool {
+        oauth != nil
     }
 }
 
 // MARK: - HTTP Configuration
 
 /// Configuration for HTTP transport (remote servers)
-struct HTTPConfig: Codable, Equatable {
+struct HTTPConfig: Equatable {
     /// Server endpoint URL
     var url: URL
 
@@ -117,9 +131,23 @@ struct HTTPConfig: Codable, Equatable {
     /// Sensitive headers (Authorization, etc.) are stored in Keychain
     var headers: [String: String]
 
-    init(url: URL, headers: [String: String] = [:]) {
+    /// OAuth configuration (optional - for OAuth-protected servers with manual config)
+    var oauth: OAuthConfig?
+
+    /// Whether to use MCP OAuth auto-discovery (RFC 9728 / RFC 8414)
+    /// When true, OAuth endpoints are discovered automatically from the server
+    var useAutoDiscovery: Bool
+
+    /// Client ID for OAuth (required when useAutoDiscovery is true)
+    /// This identifies the application to the OAuth provider
+    var oauthClientId: String?
+
+    init(url: URL, headers: [String: String] = [:], oauth: OAuthConfig? = nil, useAutoDiscovery: Bool = false, oauthClientId: String? = nil) {
         self.url = url
         self.headers = headers
+        self.oauth = oauth
+        self.useAutoDiscovery = useAutoDiscovery
+        self.oauthClientId = oauthClientId
     }
 
     /// Validate the configuration
@@ -135,6 +163,62 @@ struct HTTPConfig: Codable, Equatable {
             errors.append("URL must have a valid host")
         }
 
+        // Validate OAuth config if present
+        if let oauthConfig = oauth {
+            errors.append(contentsOf: oauthConfig.validate().map { "OAuth: \($0)" })
+        }
+
+        // Validate auto-discovery config
+        if useAutoDiscovery {
+            if oauthClientId?.trimmingCharacters(in: .whitespaces).isEmpty ?? true {
+                errors.append("OAuth Client ID is required for auto-discovery")
+            }
+        }
+
         return errors
+    }
+
+    /// Whether this config requires OAuth authentication
+    var requiresOAuth: Bool {
+        oauth != nil || useAutoDiscovery
+    }
+
+    /// Whether this config uses auto-discovery for OAuth
+    var usesAutoDiscovery: Bool {
+        useAutoDiscovery && oauthClientId != nil && !oauthClientId!.isEmpty
+    }
+}
+
+// MARK: - HTTPConfig Codable (Backwards Compatible)
+
+extension HTTPConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case url
+        case headers
+        case oauth
+        case useAutoDiscovery
+        case oauthClientId
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        url = try container.decode(URL.self, forKey: .url)
+        headers = try container.decodeIfPresent([String: String].self, forKey: .headers) ?? [:]
+        oauth = try container.decodeIfPresent(OAuthConfig.self, forKey: .oauth)
+
+        // New fields with backwards-compatible defaults
+        useAutoDiscovery = try container.decodeIfPresent(Bool.self, forKey: .useAutoDiscovery) ?? false
+        oauthClientId = try container.decodeIfPresent(String.self, forKey: .oauthClientId)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+
+        try container.encode(url, forKey: .url)
+        try container.encode(headers, forKey: .headers)
+        try container.encodeIfPresent(oauth, forKey: .oauth)
+        try container.encode(useAutoDiscovery, forKey: .useAutoDiscovery)
+        try container.encodeIfPresent(oauthClientId, forKey: .oauthClientId)
     }
 }

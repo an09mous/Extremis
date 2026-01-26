@@ -93,6 +93,7 @@ enum ConnectorError: LocalizedError, Equatable {
     case processSpawnFailed(String)
     case protocolError(String)
     case authenticationRequired
+    case oauthDiscoveryFailed(String)
     case unknown(String)
 
     var errorDescription: String? {
@@ -117,6 +118,8 @@ enum ConnectorError: LocalizedError, Equatable {
             return "Protocol error: \(detail)"
         case .authenticationRequired:
             return "Authentication required for this connector"
+        case .oauthDiscoveryFailed(let reason):
+            return "OAuth discovery failed: \(reason)"
         case .unknown(let message):
             return "Connector error: \(message)"
         }

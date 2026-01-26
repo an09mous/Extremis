@@ -14,12 +14,16 @@ struct ConnectorSecrets: Codable, Equatable {
     /// Any additional secret values specific to the connector
     var additionalSecrets: [String: String]
 
+    /// OAuth tokens (optional - only for OAuth-enabled servers)
+    var oauthTokens: OAuthTokens?
+
     // MARK: - Factory
 
     static let empty = ConnectorSecrets(
         secretEnvVars: [:],
         secretHeaders: [:],
-        additionalSecrets: [:]
+        additionalSecrets: [:],
+        oauthTokens: nil
     )
 
     // MARK: - Initialization
@@ -27,23 +31,31 @@ struct ConnectorSecrets: Codable, Equatable {
     init(
         secretEnvVars: [String: String] = [:],
         secretHeaders: [String: String] = [:],
-        additionalSecrets: [String: String] = [:]
+        additionalSecrets: [String: String] = [:],
+        oauthTokens: OAuthTokens? = nil
     ) {
         self.secretEnvVars = secretEnvVars
         self.secretHeaders = secretHeaders
         self.additionalSecrets = additionalSecrets
+        self.oauthTokens = oauthTokens
     }
 
     // MARK: - Convenience
 
     /// Whether any secrets are stored
     var isEmpty: Bool {
-        secretEnvVars.isEmpty && secretHeaders.isEmpty && additionalSecrets.isEmpty
+        secretEnvVars.isEmpty && secretHeaders.isEmpty && additionalSecrets.isEmpty && oauthTokens == nil
     }
 
     /// Total number of secrets
     var count: Int {
-        secretEnvVars.count + secretHeaders.count + additionalSecrets.count
+        secretEnvVars.count + secretHeaders.count + additionalSecrets.count + (oauthTokens != nil ? 1 : 0)
+    }
+
+    /// Whether OAuth tokens are present and valid
+    var hasValidOAuthTokens: Bool {
+        guard let tokens = oauthTokens else { return false }
+        return !tokens.isExpired
     }
 
     /// Merge environment variables with secrets (secrets take precedence)
@@ -101,8 +113,8 @@ enum ConnectorAuthMethod {
     /// API key or token entered manually by user
     case apiKey(ApiKeyAuthConfig)
 
-    // Future: OAuth flow
-    // case oauth(OAuthConfig)
+    /// OAuth 2.1 flow with PKCE
+    case oauth(OAuthConfig)
 }
 
 /// Configuration for API key authentication

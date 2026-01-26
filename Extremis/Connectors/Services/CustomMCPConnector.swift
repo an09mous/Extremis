@@ -38,6 +38,9 @@ final class CustomMCPConnector: Connector, ObservableObject {
     /// Secrets storage for API keys
     private let secretsStorage: ConnectorSecretsStorage
 
+    /// OAuth manager for handling OAuth flows
+    private let oauthManager: OAuthManager
+
     // MARK: - Connector Protocol
 
     nonisolated var id: String {
@@ -54,10 +57,15 @@ final class CustomMCPConnector: Connector, ObservableObject {
 
     // MARK: - Initialization
 
-    init(config: CustomMCPServerConfig, secretsStorage: ConnectorSecretsStorage = .shared) {
+    init(
+        config: CustomMCPServerConfig,
+        secretsStorage: ConnectorSecretsStorage = .shared,
+        oauthManager: OAuthManager = .shared
+    ) {
         self.configID = config.id
         self.config = config
         self.secretsStorage = secretsStorage
+        self.oauthManager = oauthManager
     }
 
     // MARK: - Configuration Updates
@@ -278,7 +286,19 @@ final class CustomMCPConnector: Connector, ObservableObject {
         stdioConfig: StdioConfig
     ) async throws -> Initialize.Result {
         // Build environment with secrets
-        let environment = try buildEnvironment()
+        var environment = try buildEnvironment()
+
+        // If OAuth is configured, get valid tokens and inject into environment
+        if let oauthConfig = stdioConfig.oauth {
+            if let tokens = await oauthManager.getValidTokens(serverID: config.id, config: oauthConfig) {
+                // Inject access token into environment
+                environment[oauthConfig.tokenEnvVarName] = tokens.accessToken
+                connectorLogger.debug("[\(name)] OAuth token injected as \(oauthConfig.tokenEnvVarName)")
+            } else {
+                connectorLogger.warning("[\(name)] OAuth configured but no valid tokens available")
+                throw ConnectorError.authenticationRequired
+            }
+        }
 
         // Create transport configuration
         let transportConfig = ProcessTransport.Configuration(
@@ -318,6 +338,65 @@ final class CustomMCPConnector: Connector, ObservableObject {
             headers = secrets.mergeWithHeaders(headers)
         }
 
+        // Handle OAuth - either manual config or auto-discovery
+        if let oauthConfig = httpConfig.oauth {
+            // Manual OAuth configuration
+            if let tokens = await oauthManager.getValidTokens(serverID: config.id, config: oauthConfig) {
+                headers["Authorization"] = tokens.authorizationHeader
+                connectorLogger.debug("[\(name)] OAuth Authorization header injected (manual config)")
+            } else {
+                connectorLogger.warning("[\(name)] OAuth configured but no valid tokens available")
+                throw ConnectorError.authenticationRequired
+            }
+        } else if httpConfig.usesAutoDiscovery {
+            // MCP OAuth Auto-Discovery
+            connectorLogger.info("[\(name)] Using OAuth auto-discovery...")
+            print("[MCP:\(name)] Using OAuth auto-discovery...")
+
+            // Check if we already have a discovered config stored
+            if let discoveredConfig = oauthManager.getDiscoveredConfig(serverID: config.id) {
+                // We have a previously discovered config
+                if let tokens = await oauthManager.getValidTokens(serverID: config.id, config: discoveredConfig) {
+                    headers["Authorization"] = tokens.authorizationHeader
+                    connectorLogger.debug("[\(name)] OAuth Authorization header injected (auto-discovered)")
+                } else {
+                    connectorLogger.warning("[\(name)] Auto-discovered OAuth but no valid tokens")
+                    throw ConnectorError.authenticationRequired
+                }
+            } else {
+                // Need to discover OAuth endpoints
+                connectorLogger.info("[\(name)] Discovering OAuth endpoints from server...")
+                print("[MCP:\(name)] Discovering OAuth endpoints from server...")
+
+                do {
+                    let discoveredOAuthConfig = try await OAuthDiscoveryService.shared.discoverOAuthConfig(for: httpConfig.url)
+
+                    // Convert to OAuthConfig and store
+                    let oauthConfig = discoveredOAuthConfig.toOAuthConfig(
+                        clientId: httpConfig.oauthClientId ?? ""
+                    )
+
+                    // Store the discovered config
+                    oauthManager.storeDiscoveredConfig(serverID: config.id, config: oauthConfig)
+
+                    connectorLogger.info("[\(name)] OAuth endpoints discovered, authorization required")
+                    print("[MCP:\(name)] OAuth endpoints discovered - authorization required")
+
+                    // Throw to indicate user needs to authorize
+                    throw ConnectorError.authenticationRequired
+
+                } catch let error as OAuthDiscoveryError {
+                    if case .authNotRequired = error {
+                        // Server doesn't require auth, proceed without OAuth
+                        connectorLogger.info("[\(name)] Server does not require authentication")
+                    } else {
+                        connectorLogger.error("[\(name)] OAuth discovery failed: \(error.localizedDescription)")
+                        throw ConnectorError.oauthDiscoveryFailed(error.localizedDescription)
+                    }
+                }
+            }
+        }
+
         // Create HTTP transport configuration
         let transportConfig = HTTPTransport.Configuration(
             url: httpConfig.url,
@@ -348,6 +427,52 @@ final class CustomMCPConnector: Connector, ObservableObject {
     /// Build environment with secrets
     private func buildEnvironment() throws -> [String: String] {
         try secretsStorage.buildEnvironment(for: config)
+    }
+
+    // MARK: - OAuth Helpers
+
+    /// Whether this connector requires OAuth authentication
+    var requiresOAuth: Bool {
+        switch config.transport {
+        case .stdio(let stdioConfig):
+            return stdioConfig.requiresOAuth
+        case .http(let httpConfig):
+            return httpConfig.requiresOAuth
+        }
+    }
+
+    /// Get OAuth configuration if present
+    var oauthConfig: OAuthConfig? {
+        switch config.transport {
+        case .stdio(let stdioConfig):
+            return stdioConfig.oauth
+        case .http(let httpConfig):
+            return httpConfig.oauth
+        }
+    }
+
+    /// OAuth connection status for this connector
+    var oauthStatus: OAuthConnectionStatus {
+        oauthManager.getStatus(serverID: config.id)
+    }
+
+    /// Start OAuth authorization flow
+    func startOAuthFlow() async throws -> OAuthTokens {
+        // Check for discovered config first (from auto-discovery)
+        if let discoveredConfig = oauthManager.getDiscoveredConfig(serverID: config.id) {
+            return try await oauthManager.authorize(serverID: config.id, config: discoveredConfig)
+        }
+
+        // Fall back to manual config
+        guard let manualConfig = oauthConfig else {
+            throw OAuthError.configurationInvalid("No OAuth configuration")
+        }
+        return try await oauthManager.authorize(serverID: config.id, config: manualConfig)
+    }
+
+    /// Disconnect OAuth (revoke tokens)
+    func disconnectOAuth() {
+        oauthManager.disconnect(serverID: config.id)
     }
 
     /// Convert SDK Value (inputSchema) to our JSONSchema
