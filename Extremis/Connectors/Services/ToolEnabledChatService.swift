@@ -161,11 +161,12 @@ final class ToolEnabledChatService {
             let syntheticMessage = ChatMessage.assistant("", toolRounds: roundRecords)
             finalMessages.append(syntheticMessage)
 
-            // Add a user message prompting for summary
-            finalMessages.append(ChatMessage.user(
-                "You've gathered information using tools. Please provide a complete response based on all the information collected.",
-                context: nil
-            ))
+            // Add a user message prompting for summary using template
+            let summaryPrompt = buildToolSummarizationPrompt(
+                toolCount: toolRounds.reduce(0) { $0 + $1.toolCalls.count },
+                roundCount: toolRounds.count
+            )
+            finalMessages.append(ChatMessage.user(summaryPrompt, context: nil))
 
             // Make final call without tools to force a text response
             let summaryResponse = try await provider.generateChat(messages: finalMessages)
@@ -515,16 +516,19 @@ final class ToolEnabledChatService {
                         let syntheticMessage = ChatMessage.assistant("", toolRounds: finalRoundRecords)
                         finalMessages.append(syntheticMessage)
 
-                        // Add a user message prompting for summary
-                        finalMessages.append(ChatMessage.user(
-                            "You've gathered information using tools. Please provide a complete response based on all the information collected.",
-                            context: nil
-                        ))
+                        // Add a user message prompting for summary using template
+                        let summaryPrompt = self.buildToolSummarizationPrompt(
+                            toolCount: toolRounds.reduce(0) { $0 + $1.toolCalls.count },
+                            roundCount: toolRounds.count
+                        )
+                        finalMessages.append(ChatMessage.user(summaryPrompt, context: nil))
 
                         // Make final streaming call without tools to force a text response
+                        // Accumulate the summary text as the final content
                         for try await chunk in provider.generateChatStream(messages: finalMessages) {
                             if shouldStop() { break }
                             continuation.yield(.contentChunk(chunk))
+                            finalTextContent += chunk  // Capture summary as final content
                         }
                     }
 
@@ -675,6 +679,24 @@ final class ToolEnabledChatService {
         }
 
         return results
+    }
+
+    /// Build the summarization prompt from template
+    /// - Parameters:
+    ///   - toolCount: Total number of tool calls executed
+    ///   - roundCount: Number of tool execution rounds
+    /// - Returns: Formatted prompt string
+    private func buildToolSummarizationPrompt(toolCount: Int, roundCount: Int) -> String {
+        do {
+            let template = try PromptTemplateLoader.shared.load(.toolSummarization)
+            return template
+                .replacingOccurrences(of: "{{TOOL_COUNT}}", with: String(toolCount))
+                .replacingOccurrences(of: "{{ROUND_COUNT}}", with: String(roundCount))
+        } catch {
+            // Fallback if template fails to load
+            print("⚠️ Failed to load tool summarization template: \(error)")
+            return "You have executed \(toolCount) tool calls across \(roundCount) rounds. Based ONLY on the tool results you received, provide a response. If the tools returned errors or insufficient data, explain what information is missing. Do NOT make up information."
+        }
     }
 
     /// Detect if an error indicates the model doesn't support tools
