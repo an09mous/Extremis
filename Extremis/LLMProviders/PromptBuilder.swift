@@ -134,6 +134,10 @@ final class PromptBuilder {
     /// - Parameters:
     ///   - messages: Array of chat messages (each may have embedded context)
     /// - Returns: Array of message dictionaries formatted for API
+    ///
+    /// Note: This returns simple string-based messages. Assistant messages with toolRounds
+    /// are included with their text content only. The provider's tool request builder
+    /// must handle expanding toolRounds inline for each assistant message that has them.
     func formatChatMessages(messages: [ChatMessage]) -> [[String: String]] {
         var result: [[String: String]] = []
 
@@ -154,8 +158,14 @@ final class PromptBuilder {
                     "role": message.role.rawValue,
                     "content": formattedContent
                 ])
+            } else if message.role == .assistant {
+                // All assistant messages included - providers handle toolRounds expansion
+                result.append([
+                    "role": message.role.rawValue,
+                    "content": message.content
+                ])
             } else {
-                // Assistant/system messages pass through unchanged
+                // System messages pass through unchanged
                 result.append([
                     "role": message.role.rawValue,
                     "content": message.content

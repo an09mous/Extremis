@@ -17,9 +17,9 @@ struct ChatMessageView: View {
     @State private var isHovering = false
     @State private var showCopied = false
     @State private var showContextSheet = false
-    /// Auto-expand tool history by default so tool calls remain visible after generation stops
-    /// This ensures consistency: tools appear at top during generation, stay visible after
-    @State private var showToolHistory = true
+    /// Collapse tool history by default after generation completes
+    /// User can expand it by clicking the wrench icon if needed
+    @State private var showToolHistory = false
 
     private var isUser: Bool {
         message.role == .user
@@ -187,6 +187,14 @@ struct PersistedToolHistoryView: View {
                             .font(.system(size: 9, weight: .medium))
                             .foregroundColor(.secondary)
                             .padding(.top, index > 0 ? 4 : 0)
+                    }
+
+                    // Show assistant's partial response before tool calls (if any)
+                    if let assistantResponse = round.assistantResponse, !assistantResponse.isEmpty {
+                        Text(assistantResponse)
+                            .font(.system(size: 11))
+                            .foregroundColor(.primary.opacity(0.9))
+                            .padding(.vertical, 2)
                     }
 
                     ForEach(round.toolCalls) { call in

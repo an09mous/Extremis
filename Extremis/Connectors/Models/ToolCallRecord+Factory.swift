@@ -84,11 +84,54 @@ extension ToolExecutionRoundRecord {
     /// Create from internal ToolCall and ToolResult arrays
     static func from(
         toolCalls: [ToolCall],
-        results: [ToolResult]
+        results: [ToolResult],
+        assistantResponse: String? = nil
     ) -> ToolExecutionRoundRecord {
         ToolExecutionRoundRecord(
             toolCalls: toolCalls.map { ToolCallRecord.from($0) },
-            results: results.map { ToolResultRecord.from($0) }
+            results: results.map { ToolResultRecord.from($0) },
+            assistantResponse: assistantResponse
+        )
+    }
+
+    /// Convert a single record to ToolExecutionRound
+    /// Used when we need to process records individually (e.g., to add fallback assistantResponse)
+    func toSingleToolExecutionRound() -> ToolExecutionRound {
+        // Convert ToolCallRecord -> LLMToolCall
+        let llmCalls = toolCalls.map { callRecord in
+            var args: [String: Any] = [:]
+            if let data = callRecord.argumentsJSON.data(using: .utf8),
+               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                args = dict
+            }
+            return LLMToolCall(
+                id: callRecord.id,
+                name: callRecord.toolName,
+                arguments: args
+            )
+        }
+
+        // Convert ToolResultRecord -> ToolResult
+        let toolResults = results.map { resultRecord in
+            let outcome: ToolOutcome
+            if resultRecord.isSuccess {
+                outcome = .success(ToolContent.text(resultRecord.content))
+            } else {
+                outcome = .error(ToolError(message: resultRecord.content))
+            }
+            return ToolResult(
+                callID: resultRecord.callID,
+                toolName: resultRecord.toolName,
+                outcome: outcome,
+                duration: resultRecord.duration,
+                completedAt: resultRecord.completedAt
+            )
+        }
+
+        return ToolExecutionRound(
+            toolCalls: llmCalls,
+            results: toolResults,
+            assistantResponse: assistantResponse
         )
     }
 }
@@ -134,7 +177,11 @@ extension Array where Element == ToolExecutionRoundRecord {
                 )
             }
 
-            return ToolExecutionRound(toolCalls: llmCalls, results: results)
+            return ToolExecutionRound(
+                toolCalls: llmCalls,
+                results: results,
+                assistantResponse: record.assistantResponse
+            )
         }
     }
 }

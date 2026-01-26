@@ -188,6 +188,7 @@ Latest completed feature: `specs/011-tool-approval/` (Human-in-Loop Tool Approva
 | `intent_summarize.hbs` | Magic Mode - summarization | `{{CONTENT}}` |
 | `session_summarization_initial.hbs` | First-time session summary | `{{CONTENT}}` |
 | `session_summarization_update.hbs` | Hierarchical summary updates | `{{CONTENT}}` |
+| `tool_summarization.hbs` | Force summary when max tool rounds reached | `{{TOOL_COUNT}}`, `{{ROUND_COUNT}}` |
 
 **Architecture**: Intent-based prompt injection - templates are selected based on `MessageIntent` enum and injected into user messages. Context is embedded inline with each user message, not in the system prompt.
 

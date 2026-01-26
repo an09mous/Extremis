@@ -22,6 +22,10 @@ enum PromptTemplate: String, CaseIterable {
     /// Hierarchical update of existing summary with new messages
     case sessionSummarizationUpdate = "session_summarization_update"
 
+    // Tool execution templates
+    /// Prompt for summarizing tool results when max rounds is reached
+    case toolSummarization = "tool_summarization"
+
     /// The filename for this template (without extension)
     var filename: String { rawValue }
 }

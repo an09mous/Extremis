@@ -18,6 +18,11 @@ protocol LLMProvider: AnyObject {
     /// Currently selected model
     var currentModel: LLMModel { get }
 
+    /// Whether the current model supports tool/function calling
+    /// Default implementation checks currentModel.capabilities.supportsTools
+    /// Providers can override for dynamic detection (e.g., Ollama)
+    var supportsTools: Bool { get async }
+
     /// Configure the provider with an API key
     /// - Parameter apiKey: The API key to use
     /// - Throws: LLMProviderError.invalidAPIKey if key is invalid
@@ -55,29 +60,37 @@ protocol LLMProvider: AnyObject {
 
     /// Generate a chat response with tool support (non-streaming)
     /// - Parameters:
-    ///   - messages: Array of chat messages in the conversation
+    ///   - messages: Array of chat messages in the conversation (assistant messages may contain toolRounds)
     ///   - tools: Available tools for the LLM to use
-    ///   - toolRounds: History of tool execution rounds (each round pairs tool calls with their results)
     /// - Returns: Response that may contain text and/or tool calls
     /// - Throws: LLMProviderError on failure
     func generateChatWithTools(
         messages: [ChatMessage],
-        tools: [ConnectorTool],
-        toolRounds: [ToolExecutionRound]
+        tools: [ConnectorTool]
     ) async throws -> ToolEnabledGeneration
 
     /// Generate a chat response with tool support (streaming)
     /// Streams text content while also returning tool calls at the end
     /// - Parameters:
-    ///   - messages: Array of chat messages in the conversation
+    ///   - messages: Array of chat messages in the conversation (assistant messages may contain toolRounds)
     ///   - tools: Available tools for the LLM to use
-    ///   - toolRounds: History of tool execution rounds (each round pairs tool calls with their results)
     /// - Returns: Stream of events (text chunks and/or tool calls)
     func generateChatWithToolsStream(
         messages: [ChatMessage],
-        tools: [ConnectorTool],
-        toolRounds: [ToolExecutionRound]
+        tools: [ConnectorTool]
     ) -> AsyncThrowingStream<ToolStreamEvent, Error>
+}
+
+// MARK: - LLMProvider Default Implementations
+
+extension LLMProvider {
+    /// Default implementation: check the model's capabilities.supportsTools flag
+    /// Ollama overrides this for dynamic detection via /api/show
+    var supportsTools: Bool {
+        get async {
+            currentModel.capabilities?.supportsTools ?? true
+        }
+    }
 }
 
 // MARK: - Tool Stream Event
@@ -104,9 +117,15 @@ struct ToolExecutionRound {
     /// Results from executing those tool calls
     let results: [ToolResult]
 
-    init(toolCalls: [LLMToolCall], results: [ToolResult]) {
+    /// Assistant's text response after tool execution completed
+    /// This is the summary/answer the LLM generated after seeing tool results
+    /// Used to rebuild complete conversation history for follow-up messages
+    let assistantResponse: String?
+
+    init(toolCalls: [LLMToolCall], results: [ToolResult], assistantResponse: String? = nil) {
         self.toolCalls = toolCalls
         self.results = results
+        self.assistantResponse = assistantResponse
     }
 }
 

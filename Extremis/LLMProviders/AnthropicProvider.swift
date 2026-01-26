@@ -186,14 +186,13 @@ final class AnthropicProvider: LLMProvider {
 
     func generateChatWithTools(
         messages: [ChatMessage],
-        tools: [ConnectorTool],
-        toolRounds: [ToolExecutionRound]
+        tools: [ConnectorTool]
     ) async throws -> ToolEnabledGeneration {
         guard let apiKey = apiKey else {
             throw LLMProviderError.notConfigured(provider: .anthropic)
         }
 
-        let request = try buildToolRequest(apiKey: apiKey, messages: messages, tools: tools, toolRounds: toolRounds)
+        let request = try buildToolRequest(apiKey: apiKey, messages: messages, tools: tools)
         let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -207,8 +206,7 @@ final class AnthropicProvider: LLMProvider {
 
     func generateChatWithToolsStream(
         messages: [ChatMessage],
-        tools: [ConnectorTool],
-        toolRounds: [ToolExecutionRound]
+        tools: [ConnectorTool]
     ) -> AsyncThrowingStream<ToolStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             Task {
@@ -220,8 +218,7 @@ final class AnthropicProvider: LLMProvider {
                     let request = try self.buildToolStreamRequest(
                         apiKey: apiKey,
                         messages: messages,
-                        tools: tools,
-                        toolRounds: toolRounds
+                        tools: tools
                     )
 
                     let (bytes, response) = try await self.session.bytes(for: request)
@@ -427,8 +424,7 @@ final class AnthropicProvider: LLMProvider {
     private func buildToolRequest(
         apiKey: String,
         messages: [ChatMessage],
-        tools: [ConnectorTool],
-        toolRounds: [ToolExecutionRound]
+        tools: [ConnectorTool]
     ) throws -> URLRequest {
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         request.httpMethod = "POST"
@@ -436,46 +432,8 @@ final class AnthropicProvider: LLMProvider {
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        // Use formatChatMessages() which handles context formatting
-        let allMessages = PromptBuilder.shared.formatChatMessages(messages: messages)
-
-        // Extract system prompt for Anthropic's separate system parameter
-        let systemPrompt = allMessages.first { $0["role"] == "system" }?["content"] ?? ""
-
-        // Build messages array - filter system messages
-        var anthropicMessages: [[String: Any]] = allMessages.filter { $0["role"] != "system" }
-
-        // Append all tool execution rounds to build complete conversation history
-        // Anthropic requires: user message -> assistant message with tool_use -> user message with tool_result (for each round)
-        for round in toolRounds {
-            // Build assistant message with tool_use content blocks
-            let toolUseBlocks: [[String: Any]] = round.toolCalls.map { call in
-                [
-                    "type": "tool_use",
-                    "id": call.id,
-                    "name": call.name,
-                    "input": call.arguments
-                ]
-            }
-            anthropicMessages.append([
-                "role": "assistant",
-                "content": toolUseBlocks
-            ])
-
-            // Build user message with tool_result content blocks (multiple results in one message)
-            let toolResultBlocks: [[String: Any]] = round.results.map { result in
-                [
-                    "type": "tool_result",
-                    "tool_use_id": result.callID,
-                    "content": result.content?.contentForLLM ?? (result.error?.message ?? "No result"),
-                    "is_error": result.isError
-                ] as [String: Any]
-            }
-            anthropicMessages.append([
-                "role": "user",
-                "content": toolResultBlocks
-            ])
-        }
+        // Format messages with inline tool round expansion
+        let (systemPrompt, anthropicMessages) = formatMessagesWithToolRounds(messages: messages)
 
         var body: [String: Any] = [
             "model": currentModel.id,
@@ -491,6 +449,77 @@ final class AnthropicProvider: LLMProvider {
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
+    }
+
+    /// Format messages with tool rounds expanded inline in correct chronological order
+    /// - Parameter messages: Chat messages (may contain tool rounds in assistant messages)
+    /// - Returns: Tuple of (system prompt, formatted messages array) for Anthropic API
+    private func formatMessagesWithToolRounds(messages: [ChatMessage]) -> (systemPrompt: String, messages: [[String: Any]]) {
+        var result: [[String: Any]] = []
+        let systemPrompt = PromptBuilder.shared.buildSystemPrompt()
+
+        // Process messages in chronological order
+        for message in messages {
+            switch message.role {
+            case .user:
+                let formattedContent = PromptBuilder.shared.formatUserMessageWithContext(
+                    message.content,
+                    context: message.context,
+                    intent: message.intent
+                )
+                result.append(["role": "user", "content": formattedContent])
+
+            case .assistant:
+                if let toolRounds = message.toolRounds, !toolRounds.isEmpty {
+                    // Expand tool rounds inline for Anthropic format
+                    // Each round: assistantResponse (optional) → tool_use → tool_result
+                    for record in toolRounds {
+                        // Add partial text BEFORE tool_use (if any)
+                        if let response = record.assistantResponse, !response.isEmpty {
+                            result.append(["role": "assistant", "content": response])
+                        }
+
+                        let toolUseBlocks: [[String: Any]] = record.toolCalls.map { call in
+                            var args: [String: Any] = [:]
+                            if let data = call.argumentsJSON.data(using: .utf8),
+                               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                                args = dict
+                            }
+                            return [
+                                "type": "tool_use",
+                                "id": call.id,
+                                "name": call.toolName,
+                                "input": args
+                            ]
+                        }
+                        result.append(["role": "assistant", "content": toolUseBlocks])
+
+                        let toolResultBlocks: [[String: Any]] = record.results.map { resultRecord in
+                            [
+                                "type": "tool_result",
+                                "tool_use_id": resultRecord.callID,
+                                "content": resultRecord.content,
+                                "is_error": !resultRecord.isSuccess
+                            ] as [String: Any]
+                        }
+                        result.append(["role": "user", "content": toolResultBlocks])
+                    }
+
+                    // Add final response AFTER all tool rounds (the LLM's response when no more tools were called)
+                    if !message.content.isEmpty {
+                        result.append(["role": "assistant", "content": message.content])
+                    }
+                } else {
+                    result.append(["role": "assistant", "content": message.content])
+                }
+
+            case .system:
+                // Anthropic uses separate system parameter, skip inline system messages
+                break
+            }
+        }
+
+        return (systemPrompt, result)
     }
 
     /// Parse a tool-enabled response
@@ -530,8 +559,7 @@ final class AnthropicProvider: LLMProvider {
     private func buildToolStreamRequest(
         apiKey: String,
         messages: [ChatMessage],
-        tools: [ConnectorTool],
-        toolRounds: [ToolExecutionRound]
+        tools: [ConnectorTool]
     ) throws -> URLRequest {
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         request.httpMethod = "POST"
@@ -539,37 +567,8 @@ final class AnthropicProvider: LLMProvider {
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let allMessages = PromptBuilder.shared.formatChatMessages(messages: messages)
-        let systemPrompt = allMessages.first { $0["role"] == "system" }?["content"] ?? ""
-        var anthropicMessages: [[String: Any]] = allMessages.filter { $0["role"] != "system" }
-
-        for round in toolRounds {
-            let toolUseBlocks: [[String: Any]] = round.toolCalls.map { call in
-                [
-                    "type": "tool_use",
-                    "id": call.id,
-                    "name": call.name,
-                    "input": call.arguments
-                ]
-            }
-            anthropicMessages.append([
-                "role": "assistant",
-                "content": toolUseBlocks
-            ])
-
-            let toolResultBlocks: [[String: Any]] = round.results.map { result in
-                [
-                    "type": "tool_result",
-                    "tool_use_id": result.callID,
-                    "content": result.content?.contentForLLM ?? (result.error?.message ?? "No result"),
-                    "is_error": result.isError
-                ] as [String: Any]
-            }
-            anthropicMessages.append([
-                "role": "user",
-                "content": toolResultBlocks
-            ])
-        }
+        // Use shared method for correct chronological message ordering
+        let (systemPrompt, anthropicMessages) = formatMessagesWithToolRounds(messages: messages)
 
         var body: [String: Any] = [
             "model": currentModel.id,

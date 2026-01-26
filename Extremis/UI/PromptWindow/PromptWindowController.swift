@@ -1046,8 +1046,11 @@ final class PromptViewModel: ObservableObject {
         }
 
         // Declare outside do block so catch blocks can access them
-        var chunks: [String] = []
+        var chunks: [String] = []  // For UI streaming (all text including partial responses)
         var completedToolRounds: [ToolExecutionRoundRecord] = []
+        // Final content from the service - only the text AFTER all tools complete
+        // This is what gets persisted in message.content (partial text is in toolRounds[].assistantResponse)
+        var finalContentFromService: String = ""
 
         do {
             // Clear any previous tool calls
@@ -1142,10 +1145,17 @@ final class PromptViewModel: ObservableObject {
                     completedToolRounds.append(roundRecord)
                     print("🔧 Tool round completed: \(calls.count) calls, total rounds: \(completedToolRounds.count)")
 
-                case .generationComplete(let toolRounds):
+                case .generationComplete(let toolRounds, let finalContent):
                     // Final confirmation - use the authoritative list from the service
                     completedToolRounds = toolRounds
-                    print("🔧 Generation complete event received with \(toolRounds.count) tool rounds")
+                    // Capture the final content (only the text AFTER all tools complete)
+                    // This is separate from chunks which contains ALL streamed text for UI
+                    finalContentFromService = finalContent
+                    // If there's final content from the service that wasn't chunked, add it for UI display
+                    if !finalContent.isEmpty && !chunks.contains(where: { $0.contains(finalContent.prefix(50)) }) {
+                        chunks.append(finalContent)
+                    }
+                    print("🔧 Generation complete event received with \(toolRounds.count) tool rounds, finalContent: \(finalContent.prefix(50))...")
 
                 case .generationInterrupted(_, let partialRounds):
                     // Generation was interrupted but we have partial results
@@ -1157,15 +1167,19 @@ final class PromptViewModel: ObservableObject {
             }
 
             // Add assistant response to session with tool execution history
-            let finalContent = chunks.joined()
+            // For UI display: chunks.joined() shows all streamed text
+            // For persistence: Use finalContentFromService (only text AFTER all tools complete)
+            // Partial text BEFORE tool calls is stored in toolRounds[].assistantResponse
+            let displayContent = chunks.joined()
 
             // Check if we were cancelled - providers finish stream normally on cancellation
             // so we need to check here and show appropriate message
             if Task.isCancelled {
-                if !finalContent.isEmpty || !completedToolRounds.isEmpty {
+                if !displayContent.isEmpty || !completedToolRounds.isEmpty {
                     let toolRoundsToSave = completedToolRounds.isEmpty ? nil : completedToolRounds
-                    sess.addAssistantMessage(finalContent, toolRounds: toolRoundsToSave)
-                    self.response = finalContent
+                    // On cancellation, save what we have (may include partial text)
+                    sess.addAssistantMessage(displayContent, toolRounds: toolRoundsToSave)
+                    self.response = displayContent
                     print("🔧 Generation cancelled (normal finish) - saved partial content")
                 } else {
                     let stoppedMessage = "[Generation stopped]"
@@ -1180,20 +1194,31 @@ final class PromptViewModel: ObservableObject {
             }
 
             // Save message if we have content OR tool rounds (tools may produce no text response)
-            if !finalContent.isEmpty || !completedToolRounds.isEmpty {
+            if !displayContent.isEmpty || !completedToolRounds.isEmpty {
                 let toolRoundsToSave = completedToolRounds.isEmpty ? nil : completedToolRounds
 
-                // If no text content but we have tool rounds, show a placeholder
-                let contentToSave = finalContent.isEmpty && !completedToolRounds.isEmpty
-                    ? "[Tool execution completed - see results above]"
-                    : finalContent
+                // For persistence: when we have tool rounds, ONLY save the final response text
+                // The partial text from each round is already in toolRounds[].assistantResponse
+                // This prevents duplicate text when expanding tool rounds for LLM API calls
+                let contentToSave: String
+                if !completedToolRounds.isEmpty {
+                    // Have tool rounds - use only the final response (not accumulated chunks)
+                    if finalContentFromService.isEmpty {
+                        contentToSave = ""  // No final text, that's fine - partials are in toolRounds
+                    } else {
+                        contentToSave = finalContentFromService
+                    }
+                } else {
+                    // No tool rounds - save all the text (regular response)
+                    contentToSave = displayContent
+                }
 
                 sess.addAssistantMessage(contentToSave, toolRounds: toolRoundsToSave)
-                self.response = contentToSave
+                self.response = displayContent  // UI shows all text
 
                 if !completedToolRounds.isEmpty {
                     let totalCalls = completedToolRounds.reduce(0) { $0 + $1.toolCalls.count }
-                    print("🔧 Persisted \(completedToolRounds.count) tool rounds (\(totalCalls) calls) with assistant message")
+                    print("🔧 Persisted \(completedToolRounds.count) tool rounds (\(totalCalls) calls), finalContent: '\(contentToSave.prefix(50))...'")
                 }
             }
             sess.clearStreamingContent()

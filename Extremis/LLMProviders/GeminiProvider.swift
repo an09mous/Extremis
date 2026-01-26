@@ -185,14 +185,13 @@ final class GeminiProvider: LLMProvider {
 
     func generateChatWithTools(
         messages: [ChatMessage],
-        tools: [ConnectorTool],
-        toolRounds: [ToolExecutionRound]
+        tools: [ConnectorTool]
     ) async throws -> ToolEnabledGeneration {
         guard let apiKey = apiKey else {
             throw LLMProviderError.notConfigured(provider: .gemini)
         }
 
-        let request = try buildToolRequest(apiKey: apiKey, messages: messages, tools: tools, toolRounds: toolRounds)
+        let request = try buildToolRequest(apiKey: apiKey, messages: messages, tools: tools)
         let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -206,8 +205,7 @@ final class GeminiProvider: LLMProvider {
 
     func generateChatWithToolsStream(
         messages: [ChatMessage],
-        tools: [ConnectorTool],
-        toolRounds: [ToolExecutionRound]
+        tools: [ConnectorTool]
     ) -> AsyncThrowingStream<ToolStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             Task {
@@ -220,8 +218,7 @@ final class GeminiProvider: LLMProvider {
                     let request = try self.buildToolStreamRequest(
                         apiKey: apiKey,
                         messages: messages,
-                        tools: tools,
-                        toolRounds: toolRounds
+                        tools: tools
                     )
 
                     let (bytes, response) = try await self.session.bytes(for: request)
@@ -382,6 +379,109 @@ final class GeminiProvider: LLMProvider {
         return contents
     }
 
+    /// Format messages with tool rounds expanded inline in correct chronological order
+    /// - Parameters:
+    ///   - messages: Chat messages (may contain historical tool rounds in assistant messages)
+    ///   - currentToolRounds: Tool rounds from the current generation (appended at end)
+    /// - Returns: Formatted contents array for Gemini API
+    private func formatMessagesWithToolRounds(
+        messages: [ChatMessage]
+    ) -> [[String: Any]] {
+        var contents: [[String: Any]] = []
+        let systemPrompt = PromptBuilder.shared.buildSystemPrompt()
+        var systemPrepended = false
+
+        // Process messages in chronological order
+        for message in messages {
+            switch message.role {
+            case .user:
+                var formattedContent = PromptBuilder.shared.formatUserMessageWithContext(
+                    message.content,
+                    context: message.context,
+                    intent: message.intent
+                )
+
+                // Prepend system prompt to first user message
+                if !systemPrepended {
+                    formattedContent = systemPrompt + "\n\n" + formattedContent
+                    systemPrepended = true
+                }
+
+                contents.append([
+                    "role": "user",
+                    "parts": [["text": formattedContent]]
+                ])
+
+            case .assistant:
+                if let toolRounds = message.toolRounds, !toolRounds.isEmpty {
+                    // Expand tool rounds inline for Gemini format
+                    // Each round: assistantResponse (optional) → functionCall → functionResponse
+                    for record in toolRounds {
+                        // Add partial text BEFORE functionCall (if any)
+                        if let response = record.assistantResponse, !response.isEmpty {
+                            contents.append([
+                                "role": "model",
+                                "parts": [["text": response]]
+                            ])
+                        }
+
+                        let functionCallParts: [[String: Any]] = record.toolCalls.map { call in
+                            var args: [String: Any] = [:]
+                            if let data = call.argumentsJSON.data(using: .utf8),
+                               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                                args = dict
+                            }
+                            return [
+                                "functionCall": [
+                                    "name": call.toolName,
+                                    "args": args
+                                ] as [String: Any]
+                            ]
+                        }
+                        contents.append([
+                            "role": "model",
+                            "parts": functionCallParts
+                        ])
+
+                        let functionResponseParts: [[String: Any]] = record.results.map { resultRecord in
+                            [
+                                "functionResponse": [
+                                    "name": resultRecord.toolName,
+                                    "response": [
+                                        "result": resultRecord.content
+                                    ] as [String: Any]
+                                ] as [String: Any]
+                            ]
+                        }
+                        contents.append([
+                            "role": "function",
+                            "parts": functionResponseParts
+                        ])
+                    }
+
+                    // Add final response AFTER all tool rounds (the LLM's response when no more tools were called)
+                    if !message.content.isEmpty {
+                        contents.append([
+                            "role": "model",
+                            "parts": [["text": message.content]]
+                        ])
+                    }
+                } else {
+                    contents.append([
+                        "role": "model",
+                        "parts": [["text": message.content]]
+                    ])
+                }
+
+            case .system:
+                // Gemini doesn't support system role - prepend to first user message (handled above)
+                break
+            }
+        }
+
+        return contents
+    }
+
     /// Log chat messages (controlled by debugLogging flag)
     private func logChatMessages(messages: [ChatMessage], formattedCount: Int) {
         guard debugLogging else { return }
@@ -488,50 +588,15 @@ final class GeminiProvider: LLMProvider {
     private func buildToolRequest(
         apiKey: String,
         messages: [ChatMessage],
-        tools: [ConnectorTool],
-        toolRounds: [ToolExecutionRound]
+        tools: [ConnectorTool]
     ) throws -> URLRequest {
         let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(currentModel.id):generateContent?key=\(apiKey)"
         var request = URLRequest(url: URL(string: urlString)!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        // Format messages for Gemini
-        var contents = formatMessagesForGemini(messages: messages)
-
-        // Append all tool execution rounds to build complete conversation history
-        // Gemini requires: user content -> model content with functionCall -> function content with functionResponse (for each round)
-        for round in toolRounds {
-            // Add model message with functionCall parts
-            let functionCallParts: [[String: Any]] = round.toolCalls.map { call in
-                [
-                    "functionCall": [
-                        "name": call.name,
-                        "args": call.arguments
-                    ] as [String: Any]
-                ]
-            }
-            contents.append([
-                "role": "model",
-                "parts": functionCallParts
-            ])
-
-            // Add function response parts (all in one content object)
-            let functionResponseParts: [[String: Any]] = round.results.map { result in
-                [
-                    "functionResponse": [
-                        "name": result.toolName,
-                        "response": [
-                            "result": result.content?.contentForLLM ?? (result.error?.message ?? "No result")
-                        ] as [String: Any]
-                    ] as [String: Any]
-                ]
-            }
-            contents.append([
-                "role": "function",
-                "parts": functionResponseParts
-            ])
-        }
+        // Use shared method for correct chronological message ordering
+        let contents = formatMessagesWithToolRounds(messages: messages)
 
         var body: [String: Any] = [
             "contents": contents,
@@ -553,8 +618,7 @@ final class GeminiProvider: LLMProvider {
     private func buildToolStreamRequest(
         apiKey: String,
         messages: [ChatMessage],
-        tools: [ConnectorTool],
-        toolRounds: [ToolExecutionRound]
+        tools: [ConnectorTool]
     ) throws -> URLRequest {
         // Use streamGenerateContent for streaming
         let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(currentModel.id):streamGenerateContent?key=\(apiKey)"
@@ -562,39 +626,8 @@ final class GeminiProvider: LLMProvider {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        // Format messages for Gemini
-        var contents = formatMessagesForGemini(messages: messages)
-
-        // Append all tool execution rounds
-        for round in toolRounds {
-            let functionCallParts: [[String: Any]] = round.toolCalls.map { call in
-                [
-                    "functionCall": [
-                        "name": call.name,
-                        "args": call.arguments
-                    ] as [String: Any]
-                ]
-            }
-            contents.append([
-                "role": "model",
-                "parts": functionCallParts
-            ])
-
-            let functionResponseParts: [[String: Any]] = round.results.map { result in
-                [
-                    "functionResponse": [
-                        "name": result.toolName,
-                        "response": [
-                            "result": result.content?.contentForLLM ?? (result.error?.message ?? "No result")
-                        ] as [String: Any]
-                    ] as [String: Any]
-                ]
-            }
-            contents.append([
-                "role": "function",
-                "parts": functionResponseParts
-            ])
-        }
+        // Use shared method for correct chronological message ordering
+        let contents = formatMessagesWithToolRounds(messages: messages)
 
         var body: [String: Any] = [
             "contents": contents,
