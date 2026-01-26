@@ -145,6 +145,13 @@ struct ToolResultRecord: Codable, Identifiable, Equatable {
 struct ToolExecutionRoundRecord: Codable, Equatable {
     let toolCalls: [ToolCallRecord]
     let results: [ToolResultRecord]
+    let assistantResponse: String?
+
+    init(toolCalls: [ToolCallRecord], results: [ToolResultRecord], assistantResponse: String? = nil) {
+        self.toolCalls = toolCalls
+        self.results = results
+        self.assistantResponse = assistantResponse
+    }
 
     var allSucceeded: Bool {
         results.allSatisfy { $0.isSuccess }
@@ -504,6 +511,112 @@ func testEmptyRoundsHandling() {
     TestRunner.assertEqual(emptyResultRound.totalDuration, 0, "Empty results has 0 duration")
 }
 
+func testAssistantResponsePersistence() {
+    TestRunner.suite("Assistant Response Persistence")
+
+    let toolCall = ToolCallRecord(
+        id: "call_1",
+        toolName: "search",
+        connectorID: "mcp-server",
+        argumentsJSON: "{\"q\":\"test\"}",
+        requestedAt: Date()
+    )
+
+    let result = ToolResultRecord(
+        callID: "call_1",
+        toolName: "search",
+        isSuccess: true,
+        content: "Found 5 results",
+        duration: 0.5,
+        completedAt: Date()
+    )
+
+    // Test round with assistant response
+    let roundWithResponse = ToolExecutionRoundRecord(
+        toolCalls: [toolCall],
+        results: [result],
+        assistantResponse: "I found 5 results matching your query. Here's a summary..."
+    )
+
+    // Encode
+    guard let encoded = try? JSONEncoder().encode(roundWithResponse) else {
+        TestRunner.assertTrue(false, "Encoding round with assistantResponse should succeed")
+        return
+    }
+    TestRunner.assertTrue(true, "Encoding round with assistantResponse succeeds")
+
+    // Decode
+    guard let decoded = try? JSONDecoder().decode(ToolExecutionRoundRecord.self, from: encoded) else {
+        TestRunner.assertTrue(false, "Decoding round with assistantResponse should succeed")
+        return
+    }
+    TestRunner.assertTrue(true, "Decoding round with assistantResponse succeeds")
+
+    // Verify assistantResponse preserved
+    TestRunner.assertNotNil(decoded.assistantResponse, "assistantResponse is present after decoding")
+    TestRunner.assertEqual(decoded.assistantResponse!, roundWithResponse.assistantResponse!, "assistantResponse content preserved")
+
+    // Test round without assistant response (nil)
+    let roundWithoutResponse = ToolExecutionRoundRecord(
+        toolCalls: [toolCall],
+        results: [result],
+        assistantResponse: nil
+    )
+
+    guard let encodedNil = try? JSONEncoder().encode(roundWithoutResponse) else {
+        TestRunner.assertTrue(false, "Encoding round without assistantResponse should succeed")
+        return
+    }
+    TestRunner.assertTrue(true, "Encoding round without assistantResponse succeeds")
+
+    guard let decodedNil = try? JSONDecoder().decode(ToolExecutionRoundRecord.self, from: encodedNil) else {
+        TestRunner.assertTrue(false, "Decoding round without assistantResponse should succeed")
+        return
+    }
+    TestRunner.assertTrue(true, "Decoding round without assistantResponse succeeds")
+    TestRunner.assertNil(decodedNil.assistantResponse, "nil assistantResponse preserved")
+}
+
+func testBackwardCompatibilityWithoutAssistantResponse() {
+    TestRunner.suite("Backward Compatibility Without Assistant Response")
+
+    // Simulate old JSON format without assistantResponse field
+    let oldFormatJSON = """
+    {
+        "toolCalls": [{
+            "id": "call_1",
+            "toolName": "search",
+            "connectorID": "mcp",
+            "argumentsJSON": "{}",
+            "requestedAt": 0
+        }],
+        "results": [{
+            "callID": "call_1",
+            "toolName": "search",
+            "isSuccess": true,
+            "content": "results",
+            "duration": 0.5,
+            "completedAt": 0
+        }]
+    }
+    """
+
+    guard let data = oldFormatJSON.data(using: .utf8) else {
+        TestRunner.assertTrue(false, "Creating JSON data should succeed")
+        return
+    }
+
+    // Decode old format - assistantResponse should be nil
+    guard let decoded = try? JSONDecoder().decode(ToolExecutionRoundRecord.self, from: data) else {
+        TestRunner.assertTrue(false, "Decoding old format should succeed")
+        return
+    }
+    TestRunner.assertTrue(true, "Old format without assistantResponse decodes successfully")
+    TestRunner.assertNil(decoded.assistantResponse, "Missing assistantResponse defaults to nil")
+    TestRunner.assertEqual(decoded.toolCalls.count, 1, "Tool calls preserved from old format")
+    TestRunner.assertEqual(decoded.results.count, 1, "Results preserved from old format")
+}
+
 // MARK: - Main
 
 @main
@@ -523,6 +636,8 @@ struct ToolPersistenceTests {
         testDisplaySummaryTruncation()
         testMultipleRoundsPersistence()
         testEmptyRoundsHandling()
+        testAssistantResponsePersistence()
+        testBackwardCompatibilityWithoutAssistantResponse()
 
         TestRunner.printSummary()
 

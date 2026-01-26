@@ -22,7 +22,7 @@ final class ToolEnabledChatService {
 
     /// Maximum number of tool execution rounds before forcing completion
     /// Prevents infinite loops if LLM keeps requesting tools
-    private let maxToolRounds: Int = 10
+    private let maxToolRounds: Int = 50
 
     // MARK: - Initialization
 
@@ -71,13 +71,28 @@ final class ToolEnabledChatService {
             rounds += 1
             print("🔧 Tool round \(rounds) starting...")
 
-            // Call LLM with tools and full tool execution history
+            // Build messages for this round
+            // If we have tool rounds from previous iterations, create a synthetic assistant message
+            // Note: message.content is empty - all text is carried in each round's assistantResponse
+            var messagesForProvider = messages
+            if !toolRounds.isEmpty {
+                let roundRecords = toolRounds.map { round in
+                    ToolExecutionRoundRecord(
+                        toolCalls: round.toolCalls.map { ToolCallRecord.from($0, connectorID: "") },
+                        results: round.results.map { ToolResultRecord.from($0) },
+                        assistantResponse: round.assistantResponse
+                    )
+                }
+                let syntheticMessage = ChatMessage.assistant("", toolRounds: roundRecords)
+                messagesForProvider.append(syntheticMessage)
+            }
+
+            // Call LLM with tools
             let generation: ToolEnabledGeneration
             do {
                 generation = try await provider.generateChatWithTools(
-                    messages: messages,
-                    tools: availableTools,
-                    toolRounds: toolRounds
+                    messages: messagesForProvider,
+                    tools: availableTools
                 )
             } catch let error as LLMProviderError where isToolCapabilityError(error) {
                 // Tool capability error - fall back to regular chat
@@ -86,8 +101,10 @@ final class ToolEnabledChatService {
             }
 
             // Accumulate any text content
+            var roundText = ""
             if let content = generation.content {
                 finalContent += content
+                roundText = content
             }
 
             // If no tool calls, we're done
@@ -118,16 +135,41 @@ final class ToolEnabledChatService {
             )
 
             // Add this round to history (pairs tool calls with their results)
+            // Include the partial text response from this round
             toolRounds.append(ToolExecutionRound(
                 toolCalls: generation.toolCalls,
-                results: results
+                results: results,
+                assistantResponse: roundText.isEmpty ? nil : roundText
             ))
 
             print("🔧 Round \(rounds) complete: \(results.count) tool results")
         }
 
-        if rounds >= maxToolRounds {
-            print("⚠️ Reached maximum tool rounds (\(maxToolRounds))")
+        // If we hit the max rounds limit, make one final LLM call without tools to get a summary
+        if rounds >= maxToolRounds && !toolRounds.isEmpty {
+            print("⚠️ Reached maximum tool rounds (\(maxToolRounds)) - making final summarization call")
+
+            // Build final messages with all tool rounds
+            var finalMessages = messages
+            let roundRecords = toolRounds.map { round in
+                ToolExecutionRoundRecord(
+                    toolCalls: round.toolCalls.map { ToolCallRecord.from($0, connectorID: "") },
+                    results: round.results.map { ToolResultRecord.from($0) },
+                    assistantResponse: round.assistantResponse
+                )
+            }
+            let syntheticMessage = ChatMessage.assistant("", toolRounds: roundRecords)
+            finalMessages.append(syntheticMessage)
+
+            // Add a user message prompting for summary
+            finalMessages.append(ChatMessage.user(
+                "You've gathered information using tools. Please provide a complete response based on all the information collected.",
+                context: nil
+            ))
+
+            // Make final call without tools to force a text response
+            let summaryResponse = try await provider.generateChat(messages: finalMessages)
+            finalContent += summaryResponse.content
         }
 
         return finalContent
@@ -173,7 +215,7 @@ final class ToolEnabledChatService {
                 }
 
                 // Track resolved tool calls for persistence - declared outside do block for catch access
-                var resolvedToolRounds: [(toolCalls: [ToolCall], results: [ToolResult])] = []
+                var resolvedToolRounds: [(toolCalls: [ToolCall], results: [ToolResult], assistantResponse: String?)] = []
 
                 do {
                     // Get available tools
@@ -185,7 +227,7 @@ final class ToolEnabledChatService {
                             continuation.yield(.contentChunk(chunk))
                         }
                         // No tools used, emit empty completion
-                        continuation.yield(.generationComplete(toolRounds: []))
+                        continuation.yield(.generationComplete(toolRounds: [], finalContent: ""))
                         continuation.finish()
                         return
                     }
@@ -197,22 +239,18 @@ final class ToolEnabledChatService {
                         for try await chunk in provider.generateChatStream(messages: messages) {
                             continuation.yield(.contentChunk(chunk))
                         }
-                        continuation.yield(.generationComplete(toolRounds: []))
+                        continuation.yield(.generationComplete(toolRounds: [], finalContent: ""))
                         continuation.finish()
                         return
                     }
 
-                    // Extract historical tool rounds from persisted messages
-                    // This ensures LLM has context of previous tool executions in the conversation
-                    let historicalToolRounds = self.extractHistoricalToolRounds(from: messages)
-                    if !historicalToolRounds.isEmpty {
-                        print("🔧 Found \(historicalToolRounds.count) historical tool rounds from previous messages")
-                    }
-
                     // Tool execution loop
-                    // Start with historical rounds for proper conversation context
-                    var toolRounds: [ToolExecutionRound] = historicalToolRounds
+                    // Current tool rounds are built as synthetic messages before each provider call
+                    var toolRounds: [ToolExecutionRound] = []
                     var rounds = 0
+
+                    // Track final text content (response after last tool execution, when no more tools are called)
+                    var finalTextContent = ""
 
                     // Track if "Allow All Once" was used - skip approval for rest of this generation
                     var allowAllOnceActive = false
@@ -229,13 +267,30 @@ final class ToolEnabledChatService {
                         rounds += 1
                         print("🔧 Tool round \(rounds) starting...")
 
+                        // Build messages for this round
+                        // If we have tool rounds from previous iterations, create a synthetic assistant message
+                        var messagesForProvider = messages
+                        if !toolRounds.isEmpty {
+                            // Convert current tool rounds to records for the synthetic message
+                            // Note: message.content is empty - all text is carried in each round's assistantResponse
+                            let roundRecords = toolRounds.map { round in
+                                ToolExecutionRoundRecord(
+                                    toolCalls: round.toolCalls.map { ToolCallRecord.from($0, connectorID: "") },
+                                    results: round.results.map { ToolResultRecord.from($0) },
+                                    assistantResponse: round.assistantResponse
+                                )
+                            }
+                            let syntheticMessage = ChatMessage.assistant("", toolRounds: roundRecords)
+                            messagesForProvider.append(syntheticMessage)
+                        }
+
                         // Call LLM with tools using streaming API
                         var streamedToolCalls: [LLMToolCall] = []
+                        var roundText = ""  // Track partial text for this round
 
                         for try await event in provider.generateChatWithToolsStream(
-                            messages: messages,
-                            tools: availableTools,
-                            toolRounds: toolRounds
+                            messages: messagesForProvider,
+                            tools: availableTools
                         ) {
                             // Check cancellation during streaming
                             if shouldStop() {
@@ -245,6 +300,7 @@ final class ToolEnabledChatService {
                             switch event {
                             case .textChunk(let text):
                                 continuation.yield(.contentChunk(text))
+                                roundText += text  // Accumulate partial text
                             case .complete(let toolCalls):
                                 streamedToolCalls = toolCalls
                             }
@@ -256,9 +312,10 @@ final class ToolEnabledChatService {
                             break
                         }
 
-                        // If no tool calls, we're done
+                        // If no tool calls, we're done - capture the final text response
                         if streamedToolCalls.isEmpty {
                             print("🔧 Round \(rounds): No tool calls, generation complete")
+                            finalTextContent = roundText
                             break
                         }
 
@@ -387,10 +444,11 @@ final class ToolEnabledChatService {
 
                             let deniedRound = ToolExecutionRound(
                                 toolCalls: streamedToolCalls,
-                                results: allResults
+                                results: allResults,
+                                assistantResponse: roundText.isEmpty ? nil : roundText
                             )
                             toolRounds.append(deniedRound)
-                            resolvedToolRounds.append((toolCalls: toolCalls, results: allResults))
+                            resolvedToolRounds.append((toolCalls: toolCalls, results: allResults, assistantResponse: roundText.isEmpty ? nil : roundText))
 
                             // Emit round completed and stop
                             continuation.yield(.toolRoundCompleted(toolCalls: toolCalls, results: allResults))
@@ -426,26 +484,57 @@ final class ToolEnabledChatService {
                         let results = allResults
 
                         // Add this round to history (pairs tool calls with their results)
+                        // Include any partial text streamed before tool calls
                         toolRounds.append(ToolExecutionRound(
                             toolCalls: streamedToolCalls,
-                            results: results
+                            results: results,
+                            assistantResponse: roundText.isEmpty ? nil : roundText
                         ))
 
-                        // Track resolved calls for persistence
-                        resolvedToolRounds.append((toolCalls: toolCalls, results: results))
+                        // Track resolved calls for persistence (with assistant response)
+                        resolvedToolRounds.append((toolCalls: toolCalls, results: results, assistantResponse: roundText.isEmpty ? nil : roundText))
 
                         // Emit round completed event for persistence tracking
                         continuation.yield(.toolRoundCompleted(toolCalls: toolCalls, results: results))
                         print("🔧 Round \(rounds) complete: executed \(results.count) tools")
                     }
 
+                    // If we hit the max rounds limit, make one final LLM call without tools to get a summary
+                    if rounds >= self.maxToolRounds && !toolRounds.isEmpty && !shouldStop() {
+                        print("⚠️ Reached maximum tool rounds (\(self.maxToolRounds)) - making final summarization call")
+
+                        // Build final messages with all tool rounds
+                        var finalMessages = messages
+                        let finalRoundRecords = toolRounds.map { round in
+                            ToolExecutionRoundRecord(
+                                toolCalls: round.toolCalls.map { ToolCallRecord.from($0, connectorID: "") },
+                                results: round.results.map { ToolResultRecord.from($0) },
+                                assistantResponse: round.assistantResponse
+                            )
+                        }
+                        let syntheticMessage = ChatMessage.assistant("", toolRounds: finalRoundRecords)
+                        finalMessages.append(syntheticMessage)
+
+                        // Add a user message prompting for summary
+                        finalMessages.append(ChatMessage.user(
+                            "You've gathered information using tools. Please provide a complete response based on all the information collected.",
+                            context: nil
+                        ))
+
+                        // Make final streaming call without tools to force a text response
+                        for try await chunk in provider.generateChatStream(messages: finalMessages) {
+                            if shouldStop() { break }
+                            continuation.yield(.contentChunk(chunk))
+                        }
+                    }
+
                     print("🔧 Generation finished after \(rounds) round(s), \(resolvedToolRounds.count) new tool rounds")
 
                     // Convert to persistence records and emit completion
                     let roundRecords = resolvedToolRounds.map { round in
-                        ToolExecutionRoundRecord.from(toolCalls: round.toolCalls, results: round.results)
+                        ToolExecutionRoundRecord.from(toolCalls: round.toolCalls, results: round.results, assistantResponse: round.assistantResponse)
                     }
-                    continuation.yield(.generationComplete(toolRounds: roundRecords))
+                    continuation.yield(.generationComplete(toolRounds: roundRecords, finalContent: finalTextContent))
 
                     continuation.finish()
                 } catch let error as LLMProviderError {
@@ -456,7 +545,7 @@ final class ToolEnabledChatService {
                             for try await chunk in provider.generateChatStream(messages: messages) {
                                 continuation.yield(.contentChunk(chunk))
                             }
-                            continuation.yield(.generationComplete(toolRounds: []))
+                            continuation.yield(.generationComplete(toolRounds: [], finalContent: ""))
                             continuation.finish()
                             return
                         } catch {
@@ -469,7 +558,7 @@ final class ToolEnabledChatService {
                     // This ensures any completed tool rounds are persisted
                     if !resolvedToolRounds.isEmpty {
                         let partialRecords = resolvedToolRounds.map { round in
-                            ToolExecutionRoundRecord.from(toolCalls: round.toolCalls, results: round.results)
+                            ToolExecutionRoundRecord.from(toolCalls: round.toolCalls, results: round.results, assistantResponse: round.assistantResponse)
                         }
                         continuation.yield(.generationInterrupted(error: error, partialToolRounds: partialRecords))
                     }
@@ -478,7 +567,7 @@ final class ToolEnabledChatService {
                     // Non-LLMProviderError - emit partial results and throw
                     if !resolvedToolRounds.isEmpty {
                         let partialRecords = resolvedToolRounds.map { round in
-                            ToolExecutionRoundRecord.from(toolCalls: round.toolCalls, results: round.results)
+                            ToolExecutionRoundRecord.from(toolCalls: round.toolCalls, results: round.results, assistantResponse: round.assistantResponse)
                         }
                         continuation.yield(.generationInterrupted(error: error, partialToolRounds: partialRecords))
                     }
@@ -612,26 +701,6 @@ final class ToolEnabledChatService {
         }
     }
 
-    /// Extract historical tool rounds from persisted messages
-    /// This reconstructs ToolExecutionRound from messages that have toolRounds
-    private func extractHistoricalToolRounds(from messages: [ChatMessage]) -> [ToolExecutionRound] {
-        var allRounds: [ToolExecutionRound] = []
-
-        for message in messages {
-            // Only assistant messages can have tool rounds
-            guard message.role == .assistant,
-                  let toolRounds = message.toolRounds,
-                  !toolRounds.isEmpty else {
-                continue
-            }
-
-            // Convert persisted records to ToolExecutionRound
-            let rounds = toolRounds.toToolExecutionRounds()
-            allRounds.append(contentsOf: rounds)
-        }
-
-        return allRounds
-    }
 }
 
 // MARK: - Generation Events
@@ -655,8 +724,9 @@ enum ToolEnabledGenerationEvent {
     /// Contains the resolved ToolCalls and their results
     case toolRoundCompleted(toolCalls: [ToolCall], results: [ToolResult])
 
-    /// Generation completed - provides all tool rounds for persistence
-    case generationComplete(toolRounds: [ToolExecutionRoundRecord])
+    /// Generation completed - provides all tool rounds and final text content for persistence
+    /// finalContent is the LLM's final text response after all tool execution (when no more tools are called)
+    case generationComplete(toolRounds: [ToolExecutionRoundRecord], finalContent: String)
 
     /// Generation was interrupted - provides partial tool rounds that completed
     case generationInterrupted(error: Error, partialToolRounds: [ToolExecutionRoundRecord])

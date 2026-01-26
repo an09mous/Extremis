@@ -204,14 +204,13 @@ final class OllamaProvider: LLMProvider, ObservableObject {
 
     func generateChatWithTools(
         messages: [ChatMessage],
-        tools: [ConnectorTool],
-        toolRounds: [ToolExecutionRound]
+        tools: [ConnectorTool]
     ) async throws -> ToolEnabledGeneration {
         guard serverConnected else {
             throw LLMProviderError.notConfigured(provider: .ollama)
         }
 
-        let request = try buildToolRequest(messages: messages, tools: tools, toolRounds: toolRounds)
+        let request = try buildToolRequest(messages: messages, tools: tools)
         let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -225,8 +224,7 @@ final class OllamaProvider: LLMProvider, ObservableObject {
 
     func generateChatWithToolsStream(
         messages: [ChatMessage],
-        tools: [ConnectorTool],
-        toolRounds: [ToolExecutionRound]
+        tools: [ConnectorTool]
     ) -> AsyncThrowingStream<ToolStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             Task {
@@ -237,8 +235,7 @@ final class OllamaProvider: LLMProvider, ObservableObject {
 
                     let request = try self.buildToolStreamRequest(
                         messages: messages,
-                        tools: tools,
-                        toolRounds: toolRounds
+                        tools: tools
                     )
 
                     let (bytes, response) = try await self.session.bytes(for: request)
@@ -543,41 +540,14 @@ final class OllamaProvider: LLMProvider, ObservableObject {
     /// Build a request with tools (OpenAI-compatible format)
     private func buildToolRequest(
         messages: [ChatMessage],
-        tools: [ConnectorTool],
-        toolRounds: [ToolExecutionRound]
+        tools: [ConnectorTool]
     ) throws -> URLRequest {
         var request = URLRequest(url: URL(string: "\(baseURL)/v1/chat/completions")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        // Format chat messages - cast to [String: Any] for tool result compatibility
-        var formattedMessages: [[String: Any]] = PromptBuilder.shared.formatChatMessages(messages: messages).map { $0 as [String: Any] }
-
-        // Append all tool execution rounds to build complete conversation history
-        // OpenAI-compatible format requires: user message -> assistant message with tool_calls -> tool messages (for each round)
-        for round in toolRounds {
-            // Add assistant message with tool_calls
-            let toolCallsFormatted: [[String: Any]] = round.toolCalls.map { call in
-                [
-                    "id": call.id,
-                    "type": "function",
-                    "function": [
-                        "name": call.name,
-                        "arguments": (try? JSONSerialization.data(withJSONObject: call.arguments))
-                            .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-                    ] as [String: Any]
-                ]
-            }
-            formattedMessages.append([
-                "role": "assistant",
-                "tool_calls": toolCallsFormatted
-            ])
-
-            // Append tool results as tool role messages
-            for result in round.results {
-                formattedMessages.append(ToolSchemaConverter.formatOpenAIToolResult(callID: result.callID, result: result))
-            }
-        }
+        // Format messages with inline tool round expansion
+        let formattedMessages = formatMessagesWithToolRounds(messages: messages)
 
         var body: [String: Any] = [
             "model": currentModel.id,
@@ -592,6 +562,81 @@ final class OllamaProvider: LLMProvider, ObservableObject {
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
+    }
+
+    /// Format messages with tool rounds expanded inline in correct chronological order
+    /// - Parameter messages: Chat messages (may contain tool rounds in assistant messages)
+    /// - Returns: Formatted messages array for OpenAI-compatible API
+    private func formatMessagesWithToolRounds(messages: [ChatMessage]) -> [[String: Any]] {
+        var result: [[String: Any]] = []
+
+        // Add system prompt
+        let systemPrompt = PromptBuilder.shared.buildSystemPrompt()
+        result.append(["role": "system", "content": systemPrompt])
+
+        // Process messages in chronological order
+        for message in messages {
+            switch message.role {
+            case .user:
+                let formattedContent = PromptBuilder.shared.formatUserMessageWithContext(
+                    message.content,
+                    context: message.context,
+                    intent: message.intent
+                )
+                result.append(["role": "user", "content": formattedContent])
+
+            case .assistant:
+                if let toolRounds = message.toolRounds, !toolRounds.isEmpty {
+                    // Expand tool rounds inline
+                    // Each round: assistantResponse (optional) → tool_calls → tool results
+                    for record in toolRounds {
+                        // Add partial text BEFORE tool_calls (if any)
+                        if let response = record.assistantResponse, !response.isEmpty {
+                            result.append(["role": "assistant", "content": response])
+                        }
+
+                        let toolCallsFormatted: [[String: Any]] = record.toolCalls.map { call in
+                            var args: [String: Any] = [:]
+                            if let data = call.argumentsJSON.data(using: .utf8),
+                               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                                args = dict
+                            }
+                            return [
+                                "id": call.id,
+                                "type": "function",
+                                "function": [
+                                    "name": call.toolName,
+                                    "arguments": (try? JSONSerialization.data(withJSONObject: args))
+                                        .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+                                ] as [String: Any]
+                            ]
+                        }
+                        result.append(["role": "assistant", "tool_calls": toolCallsFormatted])
+
+                        for resultRecord in record.results {
+                            let content = resultRecord.isSuccess ? resultRecord.content : "Error: \(resultRecord.content)"
+                            result.append([
+                                "role": "tool",
+                                "tool_call_id": resultRecord.callID,
+                                "content": content
+                            ])
+                        }
+                    }
+
+                    // Add final response AFTER all tool rounds (the LLM's response when no more tools were called)
+                    if !message.content.isEmpty {
+                        result.append(["role": "assistant", "content": message.content])
+                    }
+                } else {
+                    result.append(["role": "assistant", "content": message.content])
+                }
+
+            case .system:
+                result.append(["role": "system", "content": message.content])
+            }
+        }
+
+        return result
     }
 
     /// Parse a tool-enabled response (OpenAI-compatible format)
@@ -634,36 +679,14 @@ final class OllamaProvider: LLMProvider, ObservableObject {
     /// Build a streaming request with tools (OpenAI-compatible format)
     private func buildToolStreamRequest(
         messages: [ChatMessage],
-        tools: [ConnectorTool],
-        toolRounds: [ToolExecutionRound]
+        tools: [ConnectorTool]
     ) throws -> URLRequest {
         var request = URLRequest(url: URL(string: "\(baseURL)/v1/chat/completions")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        var formattedMessages: [[String: Any]] = PromptBuilder.shared.formatChatMessages(messages: messages).map { $0 as [String: Any] }
-
-        for round in toolRounds {
-            let toolCallsFormatted: [[String: Any]] = round.toolCalls.map { call in
-                [
-                    "id": call.id,
-                    "type": "function",
-                    "function": [
-                        "name": call.name,
-                        "arguments": (try? JSONSerialization.data(withJSONObject: call.arguments))
-                            .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-                    ] as [String: Any]
-                ]
-            }
-            formattedMessages.append([
-                "role": "assistant",
-                "tool_calls": toolCallsFormatted
-            ])
-
-            for result in round.results {
-                formattedMessages.append(ToolSchemaConverter.formatOpenAIToolResult(callID: result.callID, result: result))
-            }
-        }
+        // Use shared formatting with inline tool round expansion
+        let formattedMessages = formatMessagesWithToolRounds(messages: messages)
 
         var body: [String: Any] = [
             "model": currentModel.id,
@@ -694,9 +717,6 @@ final class OllamaProvider: LLMProvider, ObservableObject {
         }
         if !tools.isEmpty {
             print("   Tools: \(tools.count) available")
-        }
-        if !toolRounds.isEmpty {
-            print("   Tool rounds: \(toolRounds.count) (historical context)")
         }
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)

@@ -129,11 +129,16 @@ struct ToolExecutionRoundRecord: Codable, Equatable, Sendable {
     /// Results from executing those calls
     let results: [ToolResultRecord]
 
+    /// Assistant's text response after this tool round completed
+    /// Used to rebuild complete conversation history for follow-up messages
+    let assistantResponse: String?
+
     // MARK: - Initialization
 
-    init(toolCalls: [ToolCallRecord], results: [ToolResultRecord]) {
+    init(toolCalls: [ToolCallRecord], results: [ToolResultRecord], assistantResponse: String? = nil) {
         self.toolCalls = toolCalls
         self.results = results
+        self.assistantResponse = assistantResponse
     }
 
     // MARK: - Computed Properties
