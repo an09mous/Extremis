@@ -2,10 +2,16 @@
 
 A context-aware AI assistant for macOS that lives in your menu bar. Press a global hotkey anywhere to chat, transform text, execute tools, and get things done — all with full awareness of your current app, window, and selection.
 
+<img width="597" height="471" alt="image" src="https://github.com/user-attachments/assets/23b4feec-2c11-481c-969a-589c660b4b6f" />
+
+
 ## Features
 
 **Instant Access**
-- **Global Hotkeys** - Summon AI from any app with `Option+Space` or `Option+Tab`
+- **Global Hotkeys**
+   - Summon Extremis from any app with `Option+Space`
+   - Summarize any selected text with `Option+tab`
+
 - **Context-Aware** - Automatically captures app name, window title, URLs, and selected text
 - **Smart Text Insertion** - Results insert directly at your cursor
 
@@ -15,17 +21,25 @@ A context-aware AI assistant for macOS that lives in your menu bar. Press a glob
 - **Context Window Management** - Long chats automatically summarized to stay within limits
 - **Real-time Streaming** - See responses as they're generated
 
+<img width="604" height="478" alt="image" src="https://github.com/user-attachments/assets/9f13e9b6-c3b2-4f82-ae91-0c3903ec81d2" />
+
 **Tool Execution (MCP)**
 - Connect external tools via Model Context Protocol
 - Multi-turn agentic loops - AI can chain multiple tool calls
 - Human-in-loop approval with session memory
 - Works with any MCP-compatible server (filesystem, GitHub, databases, etc.)
 
+<img width="495" height="459" alt="image" src="https://github.com/user-attachments/assets/2de96c4c-8a81-41d7-8b1a-c976feede92f" />
+
+
 **Multi-Provider Support**
 - OpenAI (GPT-4o, GPT-4o Mini, GPT-4 Turbo, GPT-4)
 - Anthropic (Claude Sonnet 4.5, Claude Haiku 4.5, Claude Opus 4.5)
 - Google Gemini (Gemini 3 Flash Preview, Gemini 2.5 Flash, Gemini 2.0 Flash)
 - Ollama (Local models - Llama, Mistral, etc.)
+
+<img width="496" height="466" alt="image" src="https://github.com/user-attachments/assets/e528395c-6a4d-47a9-af72-baae6462b2e1" />
+
 
 ## Requirements
 
@@ -34,23 +48,29 @@ A context-aware AI assistant for macOS that lives in your menu bar. Press a glob
 
 ## Installation
 
-### Download (Recommended)
-
-Download the latest build from [GitHub Actions](https://github.com/yourusername/Extremis/actions):
-
-1. Go to the latest successful build on the `main` branch
-2. Download **Extremis.dmg** from the Artifacts section
-3. Open the DMG and drag Extremis to Applications
-4. Launch from Applications (right-click → Open on first launch to bypass Gatekeeper)
-
-### Build from Source
+### Build from Source (Recommended)
 
 ```bash
-git clone https://github.com/yourusername/Extremis.git
+git clone https://github.com/an09mous/Extremis.git
 cd Extremis/Extremis
-swift build
-swift run
+swift build -c release
+cp -r .build/release/Extremis.app /Applications/
 ```
+
+### Download Pre-built
+
+Download the latest release from [GitHub Releases](https://github.com/an09mous/Extremis/releases):
+
+1. Download **Extremis.dmg** from the latest release
+2. Open the DMG and drag Extremis to Applications
+3. Launch from Applications
+
+**macOS Gatekeeper Warning:** Since Extremis isn't notarized with Apple, you may see:
+- *"Extremis can't be opened"* → Right-click → Open → Click "Open" in the dialog
+- *"Extremis is damaged and can't be opened"* → Run this in Terminal:
+  ```bash
+  xattr -cr /Applications/Extremis.app
+  ```
 
 ## Permissions
 
