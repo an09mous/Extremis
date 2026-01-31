@@ -401,8 +401,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func handleHotkeyActivation() {
         print("⌨️ Hotkey activated!")
 
-        // Always hide first to ensure clean state, then capture fresh context
-        promptWindowController.hidePrompt()
+        // Only hide if there's no background generation running
+        // If generation is running, we want to resume it (decision made in showPromptInternal based on selection)
+        if !SessionManager.shared.isAnySessionGenerating {
+            promptWindowController.hidePrompt()
+        }
 
         Task { @MainActor in
             // Small delay to let the previous window close and focus return

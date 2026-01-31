@@ -1,237 +1,150 @@
 # Extremis
 
-A context-aware LLM writing assistant for macOS. Press a global hotkey anywhere to get AI-powered text generation with full context from your active application.
+A context-aware AI assistant for macOS that lives in your menu bar. Press a global hotkey anywhere to chat, transform text, execute tools, and get things done — all with full awareness of your current app, window, and selection.
 
 ## Features
 
-- **Global Hotkeys**
-  - `Option+Space` - Quick Mode (with selection) or Chat Mode (without selection)
-  - `Option+Tab` - Magic Mode: auto-summarize selected text (no-op without selection)
-- **Context-Aware** - Captures app context (name, window title) and selected text
-- **Quick Summarization** - Summarize selected text instantly with one keystroke
-- **Multi-turn Chat** - Continue chatting with AI for refinements and follow-ups
-- **Session Management** - Multiple chat sessions with automatic persistence across restarts
-- **Context Window Management** - Long conversations are automatically summarized to fit context windows
-- **Context Inspector** - View captured context (app, window, URL, metadata) before sending
-- **Multi-Provider LLM Support**
-  - OpenAI (GPT-4o, GPT-4o Mini, GPT-4 Turbo, GPT-4)
-  - Anthropic (Claude Sonnet 4.5, Claude Haiku 4.5, Claude Opus 4.5)
-  - Google Gemini (Gemini 2.5 Flash, Gemini 2.5 Pro, Gemini 2.0 Flash)
-  - Ollama (Local models - Llama, Mistral, etc.)
-- **MCP Server Support** - Connect external tools via Model Context Protocol
-  - Tool execution with multi-turn loops
-  - Automatic tool discovery from MCP servers
-  - Partial result persistence on interruption
-  - **Human-in-loop tool approval** with session memory
-- **Real-time Streaming** - Responses appear character-by-character as they're generated
-- **Smart Text Insertion** - Generated text automatically inserted at cursor
-- **Privacy-First** - Uses Accessibility APIs for context, no screenshots
-- **Menu Bar App** - Runs quietly in your menu bar, shows active provider/model
+**Instant Access**
+- **Global Hotkeys** - Summon AI from any app with `Option+Space` or `Option+Tab`
+- **Context-Aware** - Automatically captures app name, window title, URLs, and selected text
+- **Smart Text Insertion** - Results insert directly at your cursor
+
+**Powerful Conversations**
+- **Multi-turn Chat** - Have full conversations with follow-ups and refinements
+- **Session Persistence** - Conversations saved automatically, pick up where you left off
+- **Context Window Management** - Long chats automatically summarized to stay within limits
+- **Real-time Streaming** - See responses as they're generated
+
+**Tool Execution (MCP)**
+- Connect external tools via Model Context Protocol
+- Multi-turn agentic loops - AI can chain multiple tool calls
+- Human-in-loop approval with session memory
+- Works with any MCP-compatible server (filesystem, GitHub, databases, etc.)
+
+**Multi-Provider Support**
+- OpenAI (GPT-4o, GPT-4o Mini, GPT-4 Turbo, GPT-4)
+- Anthropic (Claude Sonnet 4.5, Claude Haiku 4.5, Claude Opus 4.5)
+- Google Gemini (Gemini 3 Flash Preview, Gemini 2.5 Flash, Gemini 2.0 Flash)
+- Ollama (Local models - Llama, Mistral, etc.)
 
 ## Requirements
 
 - macOS 13.0 (Ventura) or later
-- Swift 5.9+
-- Accessibility permission
-- API key for at least one LLM provider (or Ollama running locally)
+- API key for at least one LLM provider (or Ollama for local models)
 
 ## Installation
 
+### Download (Recommended)
+
+Download the latest build from [GitHub Actions](https://github.com/yourusername/Extremis/actions):
+
+1. Go to the latest successful build on the `main` branch
+2. Download **Extremis.dmg** from the Artifacts section
+3. Open the DMG and drag Extremis to Applications
+4. Launch from Applications (right-click → Open on first launch to bypass Gatekeeper)
+
+### Build from Source
+
 ```bash
-# Clone and build
 git clone https://github.com/yourusername/Extremis.git
 cd Extremis/Extremis
 swift build
 swift run
 ```
 
+## Permissions
+
+Extremis requires the following permissions to function:
+
+### Accessibility (Required)
+
+**Why:** Extremis uses macOS Accessibility APIs to:
+- Read selected text from any application
+- Detect the current app, window title, and focused element
+- Insert generated text at your cursor position
+
+**How to grant:** System Settings → Privacy & Security → Accessibility → Enable Extremis
+
+Without this permission, Extremis cannot capture context or insert text.
+
+### Keychain (Automatic)
+
+**Why:** API keys are stored securely in the macOS Keychain rather than plain text files.
+
+**How it works:** macOS will prompt you to allow Keychain access on first use. Click "Always Allow" to avoid repeated prompts.
+
 ## Setup
 
 ### 1. Grant Accessibility Permission
 
-On first launch, go to **System Settings → Privacy & Security → Accessibility** and enable Extremis.
+On first launch, go to **System Settings → Privacy & Security → Accessibility** and enable Extremis. You may need to restart Extremis after granting permission.
 
-### 2. Configure LLM Provider
+### 2. Configure an LLM Provider
 
-**Ollama is the default provider** - perfect for privacy-conscious users who want to run models locally.
+Click the menu bar icon → **Preferences** → **Providers** tab.
 
-#### Using Ollama (Default - Local Models)
+| Provider | Get API Key |
+|----------|-------------|
+| OpenAI | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
+| Anthropic | [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) |
+| Google Gemini | [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) |
+| Ollama | No key needed - [ollama.ai](https://ollama.ai) |
 
-1. Install Ollama from https://ollama.ai
-2. Pull a model: `ollama pull llama3.2` or `ollama pull mistral`
-3. Start Ollama (it runs on `http://127.0.0.1:11434` by default)
-4. Extremis will automatically detect available models
-5. Select your preferred model in Preferences → Providers → Ollama
-
-#### Using Cloud Providers (Optional)
-
-If you prefer cloud-based models:
-
-1. Click the **sparkles icon** in your menu bar
-2. Select **Preferences...**
-3. Go to **Providers** tab
-4. Enter your API key for any provider and click **Save**
-5. Click **Use** to make it the active provider
-
-| Provider | URL |
-|----------|-----|
-| OpenAI | https://platform.openai.com/api-keys |
-| Anthropic | https://console.anthropic.com/settings/keys |
-| Google Gemini | https://aistudio.google.com/app/apikey |
+For Ollama: Install from ollama.ai, run `ollama pull llama3.2`, and Extremis auto-detects it.
 
 ## Usage
 
-### Quick Mode / Chat Mode (`Option+Space`)
+### `Option+Space` - Quick Mode / Chat Mode
 
-The hotkey behavior depends on whether you have text selected:
+| Context | Mode | What It Does |
+|---------|------|--------------|
+| Text selected | Quick Mode | Transform or summarize selected text |
+| No selection | Chat Mode | Open conversational chat interface |
 
-**With text selected (Quick Mode):**
-1. Press `Option+Space` with text selected
-2. Click **Summarize** for instant summary, or type an instruction to transform the text
-3. Press `Cmd+Enter` to insert or `Cmd+C` to copy
+**Quick Mode**: Select text → `Option+Space` → Type instruction or click Summarize → `Cmd+Enter` to insert
 
-**Without selection (Chat Mode):**
-1. Press `Option+Space` without any text selected
-2. A conversational chat interface opens
-3. Type your question or request and press Enter
-4. Continue the conversation with follow-up questions
+**Chat Mode**: `Option+Space` (no selection) → Type your question → Continue conversation
 
-| Context | Mode | Available Actions |
-|---------|------|------------------|
-| Text selected | Quick Mode | Summarize, Transform (with instruction), Copy, Insert |
-| No selection | Chat Mode | Conversational interface, multi-turn chat |
+### `Option+Tab` - Magic Mode
 
-### Magic Mode (`Option+Tab`)
+Instantly summarize selected text with one keystroke. Does nothing without a selection.
 
-Smart summarization mode:
+### MCP Tools (Optional)
 
-- **Text selected** → Auto-summarize the selection instantly
-- **No selection** → No-op (does nothing silently)
+Configure external tools in `~/Library/Application Support/Extremis/mcp-servers.json`:
 
-A floating indicator appears while generating, and text is automatically inserted when ready.
-
-### MCP Server Tools
-
-Extremis can connect to MCP (Model Context Protocol) servers to extend the AI's capabilities with external tools:
-
-1. Configure servers in `~/Library/Application Support/Extremis/mcp-servers.json`:
-   ```json
-   {
-     "servers": {
-       "filesystem": {
-         "command": "npx",
-         "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
-       }
-     }
-   }
-   ```
-
-2. Restart Extremis - servers connect automatically
-3. Tools appear in chat when the LLM decides to use them
-4. Tool execution shows progress indicators in the UI
-
-**Supported transports**: stdio (subprocess)
-
-### Tool Approval
-
-Extremis includes a human-in-loop approval system for MCP tool execution. You'll be prompted to approve or deny tools before they run.
-
-**Keyboard shortcuts:**
-- `Option+Return` - Allow all pending tools
-- `Option+Escape` - Deny all pending tools
-- `Return` - Allow focused tool
-- `Escape` - Deny focused tool
-
-**Session memory:**
-
-Check "Remember for this session" when approving to automatically approve the same tool for the rest of the session without being asked again.
-
-### Summarization
-
-Extremis can quickly summarize text in multiple ways:
-
-- **Click Summarize button** in Quick Mode
-- **Press `Option+Tab` with text selected** for instant summarization
-
-The LLM receives full context including:
-- Application name and window title
-- URL (for browser apps)
-- App-specific metadata (Slack channel, Gmail subject, etc.)
-
-## Context Capture
-
-Extremis uses a hybrid approach to detect text selection:
-
-1. **Accessibility API (Fast Path)** - Uses macOS AX APIs to read selected text directly
-2. **Clipboard Fallback** - For apps where AX doesn't work (like Electron apps), temporarily copies selection via `Cmd+C`
-
-### How It Works
-
-1. Check for selected text via Accessibility API
-2. If AX fails, save clipboard → send `Cmd+C` → check clipboard → restore clipboard
-3. Includes heuristics to detect IDE "copy line" behavior (single line + trailing newline)
-
-This approach:
-- Works in **all applications** (VS Code, browsers, native apps)
-- **Restores clipboard** after detection
-- **Privacy-focused** - only reads text you explicitly select
-
-### Application-Specific Metadata
-
-Context metadata varies by app:
-
-| Application | Additional Context |
-|-------------|-------------------|
-| **Browsers** | Window title, page URL |
-| **Slack** | Channel name, channel type |
-| **Others** | Focused element info, window title |
-
-## Architecture
-
-```
-Extremis/
-├── App/                    # App entry point and lifecycle
-├── Core/
-│   ├── Models/            # Data models (Context, ChatMessage, Preferences)
-│   │   └── Persistence/   # Session storage models (PersistedSession, SessionIndex)
-│   ├── Protocols/         # Protocol definitions (LLMProvider, SessionStorage, Connector)
-│   └── Services/          # Business logic services
-│       ├── SessionManager        # Session lifecycle and persistence
-│       ├── SummarizationManager  # Long conversation summarization
-│       ├── HotkeyManager         # Global hotkey registration
-│       ├── ContextOrchestrator   # Context extraction coordination
-│       └── JSONSessionStorage    # File-based session persistence
-├── Connectors/            # MCP server integration
-│   ├── Models/            # ConnectorTool, ToolCall, ToolResult, JSONSchema
-│   ├── Services/          # ConnectorRegistry, ToolExecutor, ToolEnabledChatService
-│   └── Transport/         # ProcessTransport (stdio subprocess communication)
-├── Extractors/            # Context extractors
-│   ├── GenericExtractor   # Fallback for any app
-│   ├── BrowserExtractor   # All browsers via AX APIs
-│   └── SlackExtractor     # Slack desktop + web
-├── LLMProviders/          # OpenAI, Anthropic, Gemini, Ollama
-│   ├── PromptBuilder      # Intent-based prompt formatting
-│   └── PromptTemplateLoader # Handlebars template loading
-├── UI/
-│   ├── PromptWindow/      # Main floating panel and chat UI
-│   ├── Preferences/       # Settings tabs
-│   └── Components/        # Reusable UI components
-└── Utilities/             # Helper classes
-    ├── KeychainHelper     # Secure API key storage
-    ├── SelectionDetector  # Text selection detection
-    ├── ClipboardManager   # Clipboard operations
-    └── UserDefaultsHelper # Preferences persistence
+```json
+{
+  "servers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+    }
+  }
+}
 ```
 
-## Tech Stack
+**Tool Approval Shortcuts:**
+- `Option+Return` - Allow all tools
+- `Option+Escape` - Deny all tools
+- Check "Remember for this session" to auto-approve repeated tool calls
 
-- **Language**: Swift 5.9+ with Swift Concurrency
-- **UI**: SwiftUI + AppKit (NSPanel)
-- **Frameworks**:
-  - Carbon (global hotkey registration)
-  - ApplicationServices (Accessibility APIs)
-  - Security (Keychain for API key storage)
-  - MCP Swift SDK (Model Context Protocol for tool integration)
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Option+Space` | Open Extremis (Quick/Chat mode) |
+| `Option+Tab` | Magic Mode (instant summarize) |
+| `Cmd+Enter` | Insert generated text |
+| `Cmd+C` | Copy generated text |
+| `Escape` | Close window |
+
+## Privacy
+
+- Uses Accessibility APIs for context capture (no screenshots)
+- Only reads text you explicitly select
+- API keys stored in macOS Keychain
+- Clipboard is restored after selection detection
 
 ## License
 

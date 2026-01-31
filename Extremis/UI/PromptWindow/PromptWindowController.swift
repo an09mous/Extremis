@@ -147,6 +147,20 @@ final class PromptWindowController: NSWindowController {
         // Update SessionManager with the new context so it's saved with messages
         SessionManager.shared.updateCurrentContext(context)
 
+        let hasSelection = context.selectedText?.isEmpty == false
+        let hasBackgroundGeneration = SessionManager.shared.isAnySessionGenerating
+
+        // Check for background generation resumption
+        if hasBackgroundGeneration && !hasSelection && !autoSummarize {
+            // No selection and generation running -> Resume background generation
+            // Don't cancel, just show window with current state
+            print("📋 PromptWindow: Resuming background generation (no selection)")
+            setupPromptUI(with: context)
+            window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
         if autoSummarize, let selectedText = context.selectedText, !selectedText.isEmpty {
             // Auto-summarize path: need to wait for any existing generation to stop first
             // to avoid overlapping tasks
@@ -171,7 +185,8 @@ final class PromptWindowController: NSWindowController {
                 viewModel.summarize(text: capturedText, source: capturedSource, surroundingContext: capturedContext)
             }
         } else {
-            // Normal path: non-blocking cancellation is fine
+            // Normal path: selection present OR no background generation
+            // Cancel any existing generation and prepare fresh
             viewModel.prepareForNewInput()
             setupPromptUI(with: context)
 
@@ -244,10 +259,10 @@ final class PromptWindowController: NSWindowController {
     }
 
     /// Hide the prompt window (preserves session state)
+    /// Generation continues in background if running
     func hidePrompt() {
-        print("📋 PromptWindow: Hiding (session preserved)")
-        viewModel.cancelGeneration()
-        // Don't reset - preserve session state for continuity
+        print("📋 PromptWindow: Hiding (generation continues in background)")
+        // DO NOT cancel generation - let it run in background
         // Just clear the transient UI state
         viewModel.clearTransientState()
         currentContext = nil  // Clear the context

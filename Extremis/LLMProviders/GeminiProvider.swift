@@ -573,13 +573,33 @@ final class GeminiProvider: LLMProvider {
     private func handleStatusCode(_ code: Int, data: Data) throws {
         switch code {
         case 200...299: return
-        case 400, 403: throw LLMProviderError.invalidAPIKey
+        case 400:
+            // Parse Gemini error response for more useful error message
+            let errorMessage = parseGeminiError(data) ?? String(data: data, encoding: .utf8) ?? "Bad request"
+            throw LLMProviderError.serverError(statusCode: code, message: errorMessage)
+        case 401:
+            // 401 is the actual authentication error code
+            throw LLMProviderError.invalidAPIKey
+        case 403:
+            // 403 is permission denied (API enabled, quota, etc.) - not invalid key
+            let errorMessage = parseGeminiError(data) ?? String(data: data, encoding: .utf8) ?? "Permission denied"
+            throw LLMProviderError.serverError(statusCode: code, message: errorMessage)
         case 429:
             throw LLMProviderError.rateLimitExceeded(retryAfter: nil)
         default:
-            let message = String(data: data, encoding: .utf8)
+            let message = parseGeminiError(data) ?? String(data: data, encoding: .utf8)
             throw LLMProviderError.serverError(statusCode: code, message: message)
         }
+    }
+
+    /// Parse Gemini API error response to extract human-readable message
+    private func parseGeminiError(_ data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let error = json["error"] as? [String: Any],
+              let message = error["message"] as? String else {
+            return nil
+        }
+        return message
     }
 
     // MARK: - Tool Request Building
