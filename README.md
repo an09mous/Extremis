@@ -34,23 +34,29 @@ A context-aware AI assistant for macOS that lives in your menu bar. Press a glob
 
 ## Installation
 
-### Download (Recommended)
-
-Download the latest build from [GitHub Actions](https://github.com/yourusername/Extremis/actions):
-
-1. Go to the latest successful build on the `main` branch
-2. Download **Extremis.dmg** from the Artifacts section
-3. Open the DMG and drag Extremis to Applications
-4. Launch from Applications (right-click → Open on first launch to bypass Gatekeeper)
-
-### Build from Source
+### Build from Source (Recommended)
 
 ```bash
-git clone https://github.com/yourusername/Extremis.git
+git clone https://github.com/an09mous/Extremis.git
 cd Extremis/Extremis
-swift build
-swift run
+swift build -c release
+cp -r .build/release/Extremis.app /Applications/
 ```
+
+### Download Pre-built
+
+Download the latest release from [GitHub Releases](https://github.com/an09mous/Extremis/releases):
+
+1. Download **Extremis.dmg** from the latest release
+2. Open the DMG and drag Extremis to Applications
+3. Launch from Applications
+
+**macOS Gatekeeper Warning:** Since Extremis isn't notarized with Apple, you may see:
+- *"Extremis can't be opened"* → Right-click → Open → Click "Open" in the dialog
+- *"Extremis is damaged and can't be opened"* → Run this in Terminal:
+  ```bash
+  xattr -cr /Applications/Extremis.app
+  ```
 
 ## Permissions
 
