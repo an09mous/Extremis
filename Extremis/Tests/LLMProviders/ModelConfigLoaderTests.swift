@@ -327,7 +327,7 @@ struct ModelConfigLoaderTests {
 
     static func testGeminiExactModels() {
         let models = ModelConfigLoader.shared.models(for: .gemini)
-        let expectedIds = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"]
+        let expectedIds = ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.0-flash"]
         TestRunner.assertEqual(models.count, expectedIds.count, "Gemini: Exact model count")
         for id in expectedIds {
             TestRunner.assertTrue(models.contains { $0.id == id }, "Gemini: Contains \(id)")
@@ -349,7 +349,7 @@ struct ModelConfigLoaderTests {
     static func testGeminiDefaultModel() {
         let defaultModel = ModelConfigLoader.shared.defaultModel(for: .gemini)
         TestRunner.assertTrue(defaultModel != nil, "Gemini: Default model exists")
-        TestRunner.assertEqual(defaultModel?.id, "gemini-2.5-flash", "Gemini: Default is gemini-2.5-flash")
+        TestRunner.assertEqual(defaultModel?.id, "gemini-3-flash-preview", "Gemini: Default is gemini-3-flash-preview")
     }
 
     static func testAllModelsHaveValidIds() {
