@@ -30,6 +30,10 @@ enum MessageIntent: String, Codable, Equatable {
 
     /// Follow-up message in an existing conversation - no injection needed
     case followUp
+
+    /// User executed a predefined command with a prompt template
+    /// Injects the command's prompt template with context
+    case command
 }
 
 // MARK: - Chat Message

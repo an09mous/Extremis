@@ -61,9 +61,15 @@ struct PreferencesView: View {
                     Label("Connectors", systemImage: "puzzlepiece.extension")
                 }
                 .tag(2)
+
+            CommandsTab()
+                .tabItem {
+                    Label("Commands", systemImage: "command")
+                }
+                .tag(3)
         }
         .padding(20)
-        .frame(minWidth: 500, minHeight: 400)
+        .frame(minWidth: 500, minHeight: 450)
     }
 }
 

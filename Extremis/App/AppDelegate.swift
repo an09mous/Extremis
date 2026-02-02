@@ -55,6 +55,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // Connect to enabled connectors in background (non-blocking)
             connectEnabledConnectors()
 
+            // Load commands (seeds defaults on first launch)
+            CommandManager.shared.loadCommands()
+
             // Restore last session after provider is ready
             await restoreSessionOnLaunch()
         }

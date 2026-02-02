@@ -114,6 +114,9 @@ final class PromptBuilder {
             return .intentInstruct
         case .summarize:
             return .intentSummarize
+        case .command:
+            // Commands use the dedicated command template
+            return .intentCommand
         case .chat, .followUp, .none:
             return .intentChat
         }
