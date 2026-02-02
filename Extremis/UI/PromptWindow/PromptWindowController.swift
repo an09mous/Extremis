@@ -398,6 +398,13 @@ final class PromptViewModel: ObservableObject {
     /// Callback when user approves all tools (one-time, no remember)
     var onApproveAll: (() -> Void)?
 
+    // Command palette state
+    @Published var showCommandPalette: Bool = false
+    @Published var commandFilter: String = ""
+
+    /// Command manager for accessing commands
+    let commandManager = CommandManager.shared
+
     // Persistence properties
     private(set) var sessionId: UUID?
 
@@ -520,8 +527,12 @@ final class PromptViewModel: ObservableObject {
         isChatMode = false  // Reset to simple mode - chat mode enables on follow-up
 
         // Mark that the next message should have context attached
-        // This is the first message since the user spawned Extremis
-        isFirstMessageSinceSpawn = true
+        // Only if this is truly a new session - once we've sent a message with context,
+        // subsequent messages in the same session should not have context re-attached
+        // (context was already attached to the first message of the conversation)
+        if session == nil || (session?.messages.isEmpty ?? true) {
+            isFirstMessageSinceSpawn = true
+        }
 
         // DON'T clear: session, sessionId, response (for history)
         // The session continues across invocations
@@ -894,12 +905,91 @@ final class PromptViewModel: ObservableObject {
         if isFirstMessageSinceSpawn, let ctx = currentContext {
             message = ChatMessage.user(messageText, context: ctx, intent: .chat)
             isFirstMessageSinceSpawn = false  // Consume the flag
-            print("💬 First message since spawn - attaching context from \(ctx.source.applicationName)")
         } else {
             message = ChatMessage.user(messageText)
         }
         sess.addMessage(message)
         chatInputText = ""
+        error = nil
+
+        // Capture session ID for generation tracking
+        let capturedSessionId = sessionId
+
+        // Create and start the generation task via session
+        let task = Task {
+            // Register active generation to block session switching
+            if let sid = capturedSessionId {
+                SessionManager.shared.registerActiveGeneration(sessionId: sid)
+            }
+
+            guard let provider = LLMProviderRegistry.shared.activeProvider else {
+                sess.completeGeneration(error: "No provider configured")
+                if let sid = capturedSessionId {
+                    SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
+                }
+                return
+            }
+
+            // Use tool-enabled generation
+            await self.generateWithToolSupport(
+                session: sess,
+                sessionId: capturedSessionId,
+                provider: provider
+            )
+        }
+
+        // Start generation via session (handles cancellation of any previous task)
+        sess.startGeneration(task: task)
+    }
+
+    // MARK: - Command Execution
+
+    /// Execute a command with the current context
+    /// Records usage and triggers generation with the command's prompt template
+    func executeCommand(_ command: Command) {
+        // Record usage
+        commandManager.recordUsage(id: command.id)
+
+        // Hide command palette
+        showCommandPalette = false
+        commandFilter = ""
+
+        // Use the command's prompt template as the instruction
+        let messageText = command.promptTemplate
+
+        // If no session exists, create one for the command execution
+        if session == nil {
+            let sess = ChatSession(originalContext: currentContext, initialRequest: messageText)
+            session = sess
+            sessionId = UUID()
+
+            // Observe session state changes for UI reactivity
+            observeSessionState(sess)
+
+            SessionManager.shared.setCurrentSession(sess, id: sessionId)
+            print("⚡ Created new session for command: \(command.name)")
+        }
+
+        guard let sess = session else { return }
+
+        // Create message with command intent and context
+        let message: ChatMessage
+        if let ctx = currentContext {
+            message = ChatMessage.user(messageText, context: ctx, intent: .command)
+            // Consume the spawn flag - context is now attached to this command message
+            isFirstMessageSinceSpawn = false
+            print("⚡ Executing command '\(command.name)' with context from \(ctx.source.applicationName)")
+        } else {
+            message = ChatMessage.user(messageText, context: nil, intent: .command)
+            print("⚡ Executing command '\(command.name)' without context")
+        }
+        sess.addMessage(message)
+
+        // Clear input and show response
+        chatInputText = ""
+        instructionText = ""
+        showResponse = true
+        response = ""  // Reset response to clear stale content
         error = nil
 
         // Capture session ID for generation tracking
@@ -1166,9 +1256,14 @@ final class PromptViewModel: ObservableObject {
                     // Capture the final content (only the text AFTER all tools complete)
                     // This is separate from chunks which contains ALL streamed text for UI
                     finalContentFromService = finalContent
-                    // If there's final content from the service that wasn't chunked, add it for UI display
-                    if !finalContent.isEmpty && !chunks.contains(where: { $0.contains(finalContent.prefix(50)) }) {
-                        chunks.append(finalContent)
+                    // If there's final content from the service that wasn't already streamed, add it for UI display
+                    // This only applies when there WERE tool rounds - the text after tools isn't chunked
+                    // When there are NO tool rounds, all text was already streamed as chunks
+                    if !finalContent.isEmpty && !toolRounds.isEmpty {
+                        // Only add if there were tool rounds (meaning finalContent is new, non-chunked text)
+                        if !chunks.contains(where: { $0.contains(finalContent.prefix(50)) }) {
+                            chunks.append(finalContent)
+                        }
                     }
                     print("🔧 Generation complete event received with \(toolRounds.count) tool rounds, finalContent: \(finalContent.prefix(50))...")
 
@@ -1414,21 +1509,34 @@ struct PromptContainerView: View {
                     )
                     .id(sessionManager.currentSessionId)  // Force view recreation on session switch to reset scroll state
                 } else {
-                    // Input view
-                    PromptInputView(
-                        instructionText: $viewModel.instructionText,
-                        isGenerating: $viewModel.isGenerating,
-                        contextInfo: viewModel.contextInfo,
-                        hasContext: viewModel.hasContext,
-                        hasSelection: viewModel.hasSelection,
-                        onSubmit: onGenerate,
-                        onCancel: onCancel,
-                        onSummarize: onSummarize,
-                        onViewContext: viewModel.currentContext != nil ? {
-                            contextForViewer = viewModel.currentContext
-                            showContextViewer = true
-                        } : nil
-                    )
+                    // Input view with pinned commands
+                    VStack(spacing: 0) {
+                        // Pinned commands bar
+                        PinnedCommandsBar(
+                            manager: viewModel.commandManager,
+                            onExecute: { command in
+                                viewModel.executeCommand(command)
+                            }
+                        )
+
+                        PromptInputView(
+                            instructionText: $viewModel.instructionText,
+                            isGenerating: $viewModel.isGenerating,
+                            contextInfo: viewModel.contextInfo,
+                            hasContext: viewModel.hasContext,
+                            hasSelection: viewModel.hasSelection,
+                            onSubmit: onGenerate,
+                            onCancel: onCancel,
+                            onSummarize: onSummarize,
+                            onViewContext: viewModel.currentContext != nil ? {
+                                contextForViewer = viewModel.currentContext
+                                showContextViewer = true
+                            } : nil,
+                            onExecuteCommand: { command in
+                                viewModel.executeCommand(command)
+                            }
+                        )
+                    }
                 }
             }
         }

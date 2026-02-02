@@ -711,8 +711,10 @@ final class OllamaProvider: LLMProvider, ObservableObject {
                 let callID = msg["tool_call_id"] as? String ?? "?"
                 print("   [\(i)] \(role): result for \(callID)")
             } else {
-                let content = (msg["content"] as? String)?.prefix(80) ?? "<no content>"
-                print("   [\(i)] \(role): \(content)...")
+                let content = msg["content"] as? String ?? "<no content>"
+                print("   [\(i)] \(role):")
+                print(content)
+                print("")
             }
         }
         if !tools.isEmpty {

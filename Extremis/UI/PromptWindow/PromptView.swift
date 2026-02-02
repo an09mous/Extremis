@@ -16,6 +16,11 @@ struct PromptInputView: View {
     let onSummarize: () -> Void
     var onViewContext: (() -> Void)? = nil  // Optional callback to view full context
 
+    // Command palette support
+    @StateObject private var commandPaletteVM = CommandPaletteViewModel()
+    @State private var showCommandPalette = false
+    var onExecuteCommand: ((Command) -> Void)? = nil
+
     var body: some View {
         VStack(spacing: 0) {
             // Context indicator
@@ -36,22 +41,47 @@ struct PromptInputView: View {
                 .padding(.horizontal)
                 .padding(.top, 16)
 
-                // Text input - uses custom view that submits on Enter
-                SubmittableTextEditor(
-                    text: $instructionText,
-                    onSubmit: {
-                        if !isGenerating {
-                            onSubmit()
-                        }
+                // Text input with command palette - uses custom view that submits on Enter
+                ZStack(alignment: .topLeading) {
+                    SubmittableTextEditor(
+                        text: $instructionText,
+                        onSubmit: {
+                            if showCommandPalette, let command = commandPaletteVM.selectedCommand() {
+                                selectCommand(command)
+                            } else if !isGenerating {
+                                onSubmit()
+                            }
+                        },
+                        onTextChange: { text in
+                            handleTextChange(text)
+                        },
+                        onArrowUp: showCommandPalette ? { commandPaletteVM.moveSelectionUp() } : nil,
+                        onArrowDown: showCommandPalette ? { commandPaletteVM.moveSelectionDown() } : nil,
+                        onEscape: showCommandPalette ? { showCommandPalette = false } : nil
+                    )
+                    .padding(12)
+                    .background(Color(NSColor.textBackgroundColor))
+                    .cornerRadius(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.accentColor.opacity(0.3), lineWidth: 1)
+                    )
+
+                    // Command palette overlay
+                    if showCommandPalette {
+                        CommandPaletteView(
+                            viewModel: commandPaletteVM,
+                            onSelect: { command in
+                                selectCommand(command)
+                            },
+                            onDismiss: {
+                                showCommandPalette = false
+                            }
+                        )
+                        .offset(y: 50) // Position below text input
+                        .zIndex(100)
                     }
-                )
-                .padding(12)
-                .background(Color(NSColor.textBackgroundColor))
-                .cornerRadius(8)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.accentColor.opacity(0.3), lineWidth: 1)
-                )
+                }
                 .padding(.horizontal)
                 .frame(minHeight: 100)
 
@@ -114,6 +144,25 @@ struct PromptInputView: View {
             return "Generate"
         }
     }
+
+    // MARK: - Command Palette Helpers
+
+    private func handleTextChange(_ text: String) {
+        // Check if text starts with / and doesn't contain spaces (command mode)
+        if text.hasPrefix("/") && !text.contains(" ") {
+            let filter = String(text.dropFirst())
+            commandPaletteVM.setFilter(filter)
+            showCommandPalette = true
+        } else {
+            showCommandPalette = false
+        }
+    }
+
+    private func selectCommand(_ command: Command) {
+        showCommandPalette = false
+        instructionText = ""  // Clear the /command text
+        onExecuteCommand?(command)
+    }
 }
 
 // MARK: - Submittable Text Editor (Enter to submit, Shift+Enter for newline)
@@ -123,6 +172,10 @@ struct SubmittableTextEditor: NSViewRepresentable {
 
     @Binding var text: String
     let onSubmit: () -> Void
+    var onTextChange: ((String) -> Void)? = nil
+    var onArrowUp: (() -> Void)? = nil
+    var onArrowDown: (() -> Void)? = nil
+    var onEscape: (() -> Void)? = nil
 
     func makeNSView(context: NSViewRepresentableContext<SubmittableTextEditor>) -> NSScrollView {
         let scrollView = NSTextView.scrollableTextView()
@@ -157,24 +210,38 @@ struct SubmittableTextEditor: NSViewRepresentable {
         if textView.string != text {
             textView.string = text
         }
+        // Update coordinator with current callbacks
+        context.coordinator.onTextChange = onTextChange
+        context.coordinator.onArrowUp = onArrowUp
+        context.coordinator.onArrowDown = onArrowDown
+        context.coordinator.onEscape = onEscape
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, onSubmit: onSubmit)
+        Coordinator(text: $text, onSubmit: onSubmit, onTextChange: onTextChange, onArrowUp: onArrowUp, onArrowDown: onArrowDown, onEscape: onEscape)
     }
 
     class Coordinator: NSObject, NSTextViewDelegate {
         @Binding var text: String
         let onSubmit: () -> Void
+        var onTextChange: ((String) -> Void)?
+        var onArrowUp: (() -> Void)?
+        var onArrowDown: (() -> Void)?
+        var onEscape: (() -> Void)?
 
-        init(text: Binding<String>, onSubmit: @escaping () -> Void) {
+        init(text: Binding<String>, onSubmit: @escaping () -> Void, onTextChange: ((String) -> Void)?, onArrowUp: (() -> Void)?, onArrowDown: (() -> Void)?, onEscape: (() -> Void)?) {
             _text = text
             self.onSubmit = onSubmit
+            self.onTextChange = onTextChange
+            self.onArrowUp = onArrowUp
+            self.onArrowDown = onArrowDown
+            self.onEscape = onEscape
         }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             text = textView.string
+            onTextChange?(textView.string)
         }
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -193,6 +260,24 @@ struct SubmittableTextEditor: NSViewRepresentable {
                     return true
                 }
             }
+
+            // Handle arrow keys for command palette navigation
+            if commandSelector == #selector(NSResponder.moveUp(_:)), let onArrowUp = onArrowUp {
+                onArrowUp()
+                return true
+            }
+
+            if commandSelector == #selector(NSResponder.moveDown(_:)), let onArrowDown = onArrowDown {
+                onArrowDown()
+                return true
+            }
+
+            // Handle Escape for dismissing command palette
+            if commandSelector == #selector(NSResponder.cancelOperation(_:)), let onEscape = onEscape {
+                onEscape()
+                return true
+            }
+
             return false
         }
     }

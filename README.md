@@ -23,6 +23,12 @@ A context-aware AI assistant for macOS that lives in your menu bar. Press a glob
 
 <img width="604" height="478" alt="image" src="https://github.com/user-attachments/assets/9f13e9b6-c3b2-4f82-ae91-0c3903ec81d2" />
 
+**Quick Commands**
+- **Pinned Commands Bar** - One-click access to your most-used prompts (Proofread, Professionalize, Simplify, Explain Code)
+- **Command Palette** - Type `/` to search and execute any command
+- **Custom Commands** - Create your own reusable prompt templates in Preferences
+- **Context-Aware** - Commands automatically operate on selected text
+
 **Tool Execution (MCP)**
 - Connect external tools via Model Context Protocol
 - Multi-turn agentic loops - AI can chain multiple tool calls

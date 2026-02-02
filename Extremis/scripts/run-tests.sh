@@ -187,6 +187,16 @@ run_test_suite "Model Capability Tests" \
     "$PROJECT_DIR/Tests/Core/ModelCapabilityTests.swift" \
     "Foundation"
 
+# 17. Command Tests (Command model, CommandConfigFile, storage operations)
+run_test_suite "Command Tests" \
+    "$PROJECT_DIR/Tests/Commands/CommandTests.swift" \
+    "Foundation"
+
+# 18. Command Storage Tests (Persistence CRUD operations)
+run_test_suite "Command Storage Tests" \
+    "$PROJECT_DIR/Tests/Commands/CommandStorageTests.swift" \
+    "Foundation"
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------

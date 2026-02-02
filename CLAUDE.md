@@ -35,6 +35,7 @@ Test files are located in `Extremis/Tests/` and organized by module:
 - `Tests/Core/` - Core model and service tests (ChatConversation, SessionManager, etc.)
 - `Tests/LLMProviders/` - Provider and prompt builder tests
 - `Tests/Utilities/` - Utility class tests (Keychain, Clipboard, etc.)
+- `Tests/Commands/` - Command model and storage tests
 
 To run a single test file manually:
 ```bash
@@ -72,6 +73,7 @@ Context is captured via AX metadata (app name, window title) and selected text w
 - `LLMProviders/` - Provider implementations (OpenAI, Anthropic, Gemini, Ollama)
 - `UI/PromptWindow/` - Main floating panel UI
 - `UI/Preferences/` - Settings UI
+- `UI/Commands/` - Command palette and pinned commands bar
 - `Utilities/` - Helpers (KeychainHelper, ClipboardManager, AccessibilityHelpers)
 - `Resources/` - Prompt templates, models.json, assets
 
@@ -86,6 +88,7 @@ Context is captured via AX metadata (app name, window title) and selected text w
 - `ToolExecutor.shared` - Tool call execution
 - `ToolEnabledChatService.shared` - LLM + tool execution orchestration
 - `ToolApprovalManager.shared` - Human-in-loop tool approval
+- `CommandManager.shared` - Command palette and pinned commands management
 
 **Extractor Pattern**: `ContextExtractorRegistry` maps bundle IDs to extractors:
 - `GenericExtractor` - Fallback for all apps
@@ -167,6 +170,10 @@ Latest completed feature: `specs/011-tool-approval/` (Human-in-Loop Tool Approva
 - `Extremis/Core/Services/ToolApprovalManager.swift` - Tool approval coordination
 - `Extremis/Core/Models/ToolApprovalModels.swift` - Approval state models
 - `Extremis/UI/PromptWindow/ToolApprovalView.swift` - Approval UI components
+- `Extremis/Core/Models/Command.swift` - Command model and default commands
+- `Extremis/Core/Services/CommandManager.swift` - Command operations and filtering
+- `Extremis/Core/Services/CommandStorage.swift` - Command persistence (JSON file)
+- `Extremis/UI/Commands/CommandPaletteView.swift` - Command palette UI (triggered by `/`)
 
 ## Configuration & Storage
 
@@ -175,6 +182,7 @@ Latest completed feature: `specs/011-tool-approval/` (Human-in-Loop Tool Approva
 - **Application Support**: `~/Library/Application Support/Extremis/` for session persistence
 - **models.json**: LLM model configurations in Resources/
 - **mcp-servers.json**: MCP server configurations in Application Support (command, args, env)
+- **commands.json**: User commands in Application Support (name, prompt template, pinned state)
 
 ## Prompt Templates
 
@@ -186,6 +194,7 @@ Latest completed feature: `specs/011-tool-approval/` (Human-in-Loop Tool Approva
 | `intent_instruct.hbs` | Quick Mode - selection transforms | `{{CONTENT}}` |
 | `intent_chat.hbs` | Chat Mode - conversational messages | `{{CONTENT}}` |
 | `intent_summarize.hbs` | Magic Mode - summarization | `{{CONTENT}}` |
+| `intent_command.hbs` | Command Mode - execute user-defined commands | `{{CONTENT}}` |
 | `session_summarization_initial.hbs` | First-time session summary | `{{CONTENT}}` |
 | `session_summarization_update.hbs` | Hierarchical summary updates | `{{CONTENT}}` |
 | `tool_summarization.hbs` | Force summary when max tool rounds reached | `{{TOOL_COUNT}}`, `{{ROUND_COUNT}}` |

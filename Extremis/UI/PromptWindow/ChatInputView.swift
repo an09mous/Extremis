@@ -54,7 +54,7 @@ struct ChatInputView: View {
                 autoFocus: autoFocus,
                 isFocused: $isFocused,
                 contentHeight: $contentHeight,
-                onSend: sendIfNotEmpty
+                onSend: { sendIfNotEmpty() }
             )
             .frame(height: textHeight)
 
@@ -259,6 +259,7 @@ struct ScrollableChatTextEditor: NSViewRepresentable {
                     return true  // Always consume Enter to prevent newline insertion
                 }
             }
+
             return false
         }
     }
@@ -365,4 +366,3 @@ struct ChatInputView_Previews: PreviewProvider {
         .frame(width: 400)
     }
 }
-

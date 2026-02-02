@@ -15,6 +15,8 @@ enum PromptTemplate: String, CaseIterable {
     case intentSummarize = "intent_summarize"
     /// Standard chat/follow-up message format
     case intentChat = "intent_chat"
+    /// Rules for executing predefined commands
+    case intentCommand = "intent_command"
 
     // Session summarization templates (for memory management)
     /// First-time session summarization
