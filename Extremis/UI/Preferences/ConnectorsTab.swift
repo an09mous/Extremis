@@ -2,6 +2,7 @@
 // MCP server and connector configuration
 
 import SwiftUI
+import Combine
 
 struct ConnectorsTab: View {
     @StateObject private var viewModel = ConnectorsTabViewModel()
@@ -10,6 +11,7 @@ struct ConnectorsTab: View {
     @State private var showingDeleteConfirmation = false
     @State private var serverToDelete: CustomMCPServerConfig?
     @State private var showingSudoModeConfirmation = false
+    @State private var showingGitHubAuth = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -70,6 +72,33 @@ struct ConnectorsTab: View {
                             onToggleEnabled: { viewModel.toggleShellConnector() },
                             onConnect: { viewModel.connectShellConnector() },
                             onDisconnect: { viewModel.disconnectShellConnector() }
+                        )
+
+                        // GitHub Connector
+                        BuiltInConnectorRow(
+                            name: "GitHub",
+                            description: "Access repositories, issues, and pull requests via Copilot MCP",
+                            icon: "link",
+                            isEnabled: viewModel.isGitHubConnectorEnabled,
+                            connectionState: viewModel.githubConnectionState,
+                            tools: viewModel.githubTools,
+                            onToggleEnabled: { viewModel.toggleGitHubConnector() },
+                            onConnect: { viewModel.connectGitHubConnector() },
+                            onDisconnect: { viewModel.disconnectGitHubConnector() },
+                            onConfigure: { showingGitHubAuth = true }
+                        )
+
+                        // Web Fetch Connector
+                        BuiltInConnectorRow(
+                            name: "Web Fetch",
+                            description: "Fetch and process web content via remote MCP server",
+                            icon: "globe",
+                            isEnabled: viewModel.isWebFetchConnectorEnabled,
+                            connectionState: viewModel.webFetchConnectionState,
+                            tools: viewModel.webFetchTools,
+                            onToggleEnabled: { viewModel.toggleWebFetchConnector() },
+                            onConnect: { viewModel.connectWebFetchConnector() },
+                            onDisconnect: { viewModel.disconnectWebFetchConnector() }
                         )
                     }
                     .padding(.vertical, 8)
@@ -203,6 +232,16 @@ struct ConnectorsTab: View {
         } message: {
             Text("All tools will execute without approval. This bypasses security checks.")
         }
+        .sheet(isPresented: $showingGitHubAuth) {
+            GitHubAuthSheet(
+                existingToken: viewModel.existingGitHubToken,
+                onSave: { token in
+                    viewModel.saveGitHubToken(token)
+                    showingGitHubAuth = false
+                },
+                onCancel: { showingGitHubAuth = false }
+            )
+        }
     }
 
     private var emptyStateView: some View {
@@ -242,6 +281,7 @@ struct BuiltInConnectorRow: View {
     let onToggleEnabled: () -> Void
     let onConnect: () -> Void
     let onDisconnect: () -> Void
+    var onConfigure: (() -> Void)? = nil
 
     @State private var showingTools = false
 
@@ -269,20 +309,30 @@ struct BuiltInConnectorRow: View {
                 Spacer()
 
                 // Action buttons
-                if isEnabled {
-                    if connectionState.isConnected {
-                        Button("Disconnect") {
-                            onDisconnect()
+                HStack(spacing: 8) {
+                    if let onConfigure = onConfigure {
+                        Button(action: onConfigure) {
+                            Image(systemName: "gearshape")
                         }
-                        .font(.caption)
-                    } else if case .connecting = connectionState {
-                        ProgressView()
-                            .scaleEffect(0.6)
-                    } else {
-                        Button("Connect") {
-                            onConnect()
+                        .buttonStyle(.borderless)
+                        .help("Configure")
+                    }
+
+                    if isEnabled {
+                        if connectionState.isConnected {
+                            Button("Disconnect") {
+                                onDisconnect()
+                            }
+                            .font(.caption)
+                        } else if case .connecting = connectionState {
+                            ProgressView()
+                                .scaleEffect(0.6)
+                        } else {
+                            Button("Connect") {
+                                onConnect()
+                            }
+                            .font(.caption)
                         }
-                        .font(.caption)
                     }
                 }
             }
@@ -593,6 +643,17 @@ final class ConnectorsTabViewModel: ObservableObject {
 
     private let configStorage = ConnectorConfigStorage.shared
     private let registry = ConnectorRegistry.shared
+    private var cancellables = Set<AnyCancellable>()
+
+    init() {
+        // Subscribe to registry changes to update UI when connection states change
+        registry.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+    }
 
     // MARK: - Shell Connector Properties
 
@@ -664,6 +725,160 @@ final class ConnectorsTabViewModel: ObservableObject {
     func disconnectShellConnector() {
         Task {
             await registry.disconnect(connectorID: "shell")
+            objectWillChange.send()
+        }
+    }
+
+    // MARK: - GitHub Connector Properties
+
+    var isGitHubConnectorEnabled: Bool {
+        UserDefaults.standard.githubConnectorEnabled
+    }
+
+    var githubConnectionState: ConnectorState {
+        registry.connectionStates["github"] ?? .disconnected
+    }
+
+    var githubTools: [ConnectorTool] {
+        registry.connector(id: "github")?.tools ?? []
+    }
+
+    var hasGitHubToken: Bool {
+        ConnectorSecretsStorage.shared.hasSecrets(forBuiltIn: .github)
+    }
+
+    var existingGitHubToken: String? {
+        guard let secrets = try? ConnectorSecretsStorage.shared.loadSecrets(forBuiltIn: .github) else {
+            return nil
+        }
+        return secrets.additionalSecrets["GITHUB_PERSONAL_ACCESS_TOKEN"]
+    }
+
+    // MARK: - GitHub Connector Actions
+
+    func toggleGitHubConnector() {
+        let newValue = !isGitHubConnectorEnabled
+        UserDefaults.standard.githubConnectorEnabled = newValue
+
+        Task {
+            if newValue {
+                do {
+                    try await registry.connect(connectorID: "github")
+                } catch ConnectorError.authenticationRequired {
+                    statusMessage = "GitHub token required - click Configure"
+                    isError = true
+                } catch {
+                    // Connection failed, but toggle state is saved
+                }
+            } else {
+                await registry.disconnect(connectorID: "github")
+            }
+            objectWillChange.send()
+        }
+
+        if !newValue {
+            statusMessage = "GitHub disabled"
+            isError = false
+        }
+    }
+
+    func connectGitHubConnector() {
+        Task {
+            do {
+                try await registry.connect(connectorID: "github")
+                objectWillChange.send()
+            } catch ConnectorError.authenticationRequired {
+                statusMessage = "GitHub token required - click Configure"
+                isError = true
+            } catch {
+                statusMessage = "Connection failed: \(error.localizedDescription)"
+                isError = true
+            }
+        }
+    }
+
+    func disconnectGitHubConnector() {
+        Task {
+            await registry.disconnect(connectorID: "github")
+            objectWillChange.send()
+        }
+    }
+
+    func saveGitHubToken(_ token: String) {
+        let secrets = ConnectorSecrets(
+            secretEnvVars: [:],
+            secretHeaders: [:],
+            additionalSecrets: ["GITHUB_PERSONAL_ACCESS_TOKEN": token]
+        )
+        do {
+            try ConnectorSecretsStorage.shared.saveSecrets(secrets, forBuiltIn: .github)
+            statusMessage = "GitHub token saved"
+            isError = false
+
+            // If connector is enabled, try to connect with new token
+            if isGitHubConnectorEnabled {
+                connectGitHubConnector()
+            }
+        } catch {
+            statusMessage = "Failed to save token: \(error.localizedDescription)"
+            isError = true
+        }
+    }
+
+    // MARK: - Web Fetch Connector Properties
+
+    var isWebFetchConnectorEnabled: Bool {
+        UserDefaults.standard.webFetchConnectorEnabled
+    }
+
+    var webFetchConnectionState: ConnectorState {
+        registry.connectionStates["webfetch"] ?? .disconnected
+    }
+
+    var webFetchTools: [ConnectorTool] {
+        registry.connector(id: "webfetch")?.tools ?? []
+    }
+
+    // MARK: - Web Fetch Connector Actions
+
+    func toggleWebFetchConnector() {
+        let newValue = !isWebFetchConnectorEnabled
+        UserDefaults.standard.webFetchConnectorEnabled = newValue
+
+        Task {
+            if newValue {
+                do {
+                    try await registry.connect(connectorID: "webfetch")
+                } catch {
+                    // Connection failed, but toggle state is saved
+                }
+            } else {
+                await registry.disconnect(connectorID: "webfetch")
+            }
+            objectWillChange.send()
+        }
+
+        if !newValue {
+            statusMessage = "Web Fetch disabled"
+            isError = false
+        }
+    }
+
+    func connectWebFetchConnector() {
+        Task {
+            do {
+                try await registry.connect(connectorID: "webfetch")
+                objectWillChange.send()
+            } catch {
+                statusMessage = "Connection failed: \(error.localizedDescription)"
+                isError = true
+            }
+        }
+    }
+
+    func disconnectWebFetchConnector() {
+        Task {
+            await registry.disconnect(connectorID: "webfetch")
             objectWillChange.send()
         }
     }

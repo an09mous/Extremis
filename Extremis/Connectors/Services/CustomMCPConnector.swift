@@ -127,17 +127,17 @@ final class CustomMCPConnector: Connector, ObservableObject {
             connectorLogger.debug("[\(name)] Discovering tools...")
             print("[MCP:\(name)] Discovering tools...")
 
-            let (sdkTools, _) = try await withTimeout(ConnectorConstants.toolDiscoveryTimeout) {
+            let (sdkTools, _) = try await withMCPTimeout(ConnectorConstants.toolDiscoveryTimeout) {
                 try await newClient.listTools()
             }
             print("[MCP:\(name)] Discovered \(sdkTools.count) tools")
 
-            // Convert SDK tools to ConnectorTool
+            // Convert SDK tools to ConnectorTool using shared helper
             tools = sdkTools.map { sdkTool in
                 ConnectorTool(
                     originalName: sdkTool.name,
                     description: sdkTool.description,
-                    inputSchema: convertToJSONSchema(sdkTool.inputSchema),
+                    inputSchema: convertSDKSchemaToJSONSchema(sdkTool.inputSchema),
                     connectorID: id,
                     connectorName: name
                 )
@@ -215,13 +215,13 @@ final class CustomMCPConnector: Connector, ObservableObject {
         let startTime = Date()
 
         do {
-            // Convert arguments to SDK Value type
-            let sdkArguments = convertToSDKValues(call.arguments)
+            // Convert arguments to SDK Value type using shared helper
+            let sdkArguments = convertArgumentsToSDKValues(call.arguments)
 
-            // Use cancellation-aware timeout wrapper
+            // Use cancellation-aware timeout wrapper using shared helper
             // Note: MCP servers are external processes, so cancellation won't stop them mid-execution.
             // However, we can return early and ignore their result.
-            let (content, isError) = try await withCancellableTimeout(ConnectorConstants.toolExecutionTimeout) {
+            let (content, isError) = try await withCancellableMCPTimeout(ConnectorConstants.toolExecutionTimeout) {
                 try await client.callTool(name: toolOriginalName, arguments: sdkArguments)
             }
 
@@ -240,8 +240,8 @@ final class CustomMCPConnector: Connector, ObservableObject {
             let duration = Date().timeIntervalSince(startTime)
             connectorLogger.info("[\(name)] Tool '\(toolOriginalName)' completed in \(String(format: "%.2f", duration))s")
 
-            // Convert SDK content to ToolResult
-            return convertToolResult(
+            // Convert SDK content to ToolResult using shared helper
+            return convertSDKContentToToolResult(
                 content: content,
                 isError: isError,
                 callID: call.id,
@@ -300,7 +300,7 @@ final class CustomMCPConnector: Connector, ObservableObject {
         connectorLogger.debug("[\(name)] Connecting to MCP server (stdio)...")
         print("[MCP:\(name)] Connecting to MCP server (stdio)...")
 
-        return try await withTimeout(ConnectorConstants.connectionTimeout) {
+        return try await withMCPTimeout(ConnectorConstants.connectionTimeout) {
             try await client.connect(transport: newTransport)
         }
     }
@@ -338,7 +338,7 @@ final class CustomMCPConnector: Connector, ObservableObject {
         connectorLogger.debug("[\(name)] Connecting to MCP server (http)...")
         print("[MCP:\(name)] Connecting to MCP server (http)...")
 
-        return try await withTimeout(ConnectorConstants.connectionTimeout) {
+        return try await withMCPTimeout(ConnectorConstants.connectionTimeout) {
             try await client.connect(transport: newTransport)
         }
     }
@@ -348,218 +348,6 @@ final class CustomMCPConnector: Connector, ObservableObject {
     /// Build environment with secrets
     private func buildEnvironment() throws -> [String: String] {
         try secretsStorage.buildEnvironment(for: config)
-    }
-
-    /// Convert SDK Value (inputSchema) to our JSONSchema
-    private func convertToJSONSchema(_ sdkSchema: Value) -> JSONSchema {
-        // The inputSchema is a Value that represents a JSON Schema object
-        guard case .object(let schemaDict) = sdkSchema else {
-            return JSONSchema(type: "object", properties: [:], required: [])
-        }
-
-        // Extract type (should be "object")
-        let schemaType: String
-        if case .string(let typeStr) = schemaDict["type"] {
-            schemaType = typeStr
-        } else {
-            schemaType = "object"
-        }
-
-        // Extract properties
-        var properties: [String: JSONSchemaProperty] = [:]
-        if case .object(let propsDict) = schemaDict["properties"] {
-            for (key, value) in propsDict {
-                properties[key] = JSONSchemaProperty(
-                    type: extractType(from: value),
-                    description: extractDescription(from: value)
-                )
-            }
-        }
-
-        // Extract required
-        var required: [String] = []
-        if case .array(let reqArray) = schemaDict["required"] {
-            for item in reqArray {
-                if case .string(let reqName) = item {
-                    required.append(reqName)
-                }
-            }
-        }
-
-        return JSONSchema(
-            type: schemaType,
-            properties: properties,
-            required: required
-        )
-    }
-
-    /// Extract type from SDK Value
-    private func extractType(from value: Value) -> String {
-        // Try to extract type from the value structure
-        if case .object(let dict) = value {
-            if case .string(let typeStr) = dict["type"] {
-                return typeStr
-            }
-        }
-        return "string" // Default
-    }
-
-    /// Extract description from SDK Value
-    private func extractDescription(from value: Value) -> String? {
-        if case .object(let dict) = value {
-            if case .string(let desc) = dict["description"] {
-                return desc
-            }
-        }
-        return nil
-    }
-
-    /// Convert our arguments dictionary to SDK Value dictionary
-    private func convertToSDKValues(_ arguments: [String: JSONValue]) -> [String: Value] {
-        var result: [String: Value] = [:]
-        for (key, value) in arguments {
-            result[key] = convertJSONValueToSDKValue(value)
-        }
-        return result
-    }
-
-    /// Convert our JSONValue to SDK Value
-    private func convertJSONValueToSDKValue(_ jsonValue: JSONValue) -> Value {
-        switch jsonValue {
-        case .null:
-            return .null
-        case .bool(let b):
-            return .bool(b)
-        case .int(let i):
-            return .int(i)
-        case .double(let d):
-            return .double(d)
-        case .string(let s):
-            return .string(s)
-        case .array(let arr):
-            return .array(arr.map { convertJSONValueToSDKValue($0) })
-        case .object(let dict):
-            var result: [String: Value] = [:]
-            for (k, v) in dict {
-                result[k] = convertJSONValueToSDKValue(v)
-            }
-            return .object(result)
-        }
-    }
-
-    /// Convert SDK tool result to our ToolResult
-    private func convertToolResult(
-        content: [Tool.Content],
-        isError: Bool?,
-        callID: String,
-        toolName: String,
-        duration: TimeInterval
-    ) -> ToolResult {
-        // Extract text content from SDK Tool.Content enum
-        var textParts: [String] = []
-
-        for item in content {
-            switch item {
-            case .text(let text):
-                // SDK .text case contains the text directly
-                textParts.append(text)
-            case .image(data: _, mimeType: let mimeType, metadata: _):
-                textParts.append("[Image: \(mimeType)]")
-            case .resource(uri: let uri, mimeType: _, text: let text):
-                if let text = text {
-                    textParts.append(text)
-                } else {
-                    textParts.append("[Resource: \(uri)]")
-                }
-            case .audio(data: _, mimeType: let mimeType):
-                textParts.append("[Audio: \(mimeType)]")
-            }
-        }
-
-        let resultText = textParts.joined(separator: "\n")
-
-        if isError == true {
-            return ToolResult.failure(
-                callID: callID,
-                toolName: toolName,
-                error: ToolError(message: resultText.isEmpty ? "Tool execution failed" : resultText),
-                duration: duration
-            )
-        } else {
-            return ToolResult(
-                callID: callID,
-                toolName: toolName,
-                outcome: .success(ToolContent.text(resultText)),
-                duration: duration
-            )
-        }
-    }
-
-    /// Execute with timeout using async let racing
-    nonisolated private func withTimeout<T: Sendable>(
-        _ timeout: TimeInterval,
-        operation: @Sendable @escaping () async throws -> T
-    ) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            // Add the main operation
-            group.addTask {
-                try await operation()
-            }
-
-            // Add the timeout
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                throw ConnectorError.connectionTimeout
-            }
-
-            // Get the first result (either success or timeout)
-            guard let result = try await group.next() else {
-                throw ConnectorError.connectionTimeout
-            }
-
-            // Cancel remaining tasks
-            group.cancelAll()
-
-            return result
-        }
-    }
-
-    /// Execute with timeout and proper cancellation propagation
-    /// When the parent task is cancelled, this throws CancellationError immediately
-    nonisolated private func withCancellableTimeout<T: Sendable>(
-        _ timeout: TimeInterval,
-        operation: @Sendable @escaping () async throws -> T
-    ) async throws -> T {
-        // Check for cancellation before starting
-        try Task.checkCancellation()
-
-        return try await withTaskCancellationHandler {
-            try await withThrowingTaskGroup(of: T.self) { group in
-                // Add the main operation
-                group.addTask {
-                    try await operation()
-                }
-
-                // Add the timeout
-                group.addTask {
-                    try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                    throw ConnectorError.connectionTimeout
-                }
-
-                // Get the first result (either success or timeout)
-                guard let result = try await group.next() else {
-                    throw ConnectorError.connectionTimeout
-                }
-
-                // Cancel remaining tasks
-                group.cancelAll()
-
-                return result
-            }
-        } onCancel: {
-            // When parent is cancelled, we can't stop the external process
-            // but the TaskGroup will be cancelled and throw CancellationError
-        }
     }
 }
 

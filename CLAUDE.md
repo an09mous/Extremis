@@ -67,7 +67,9 @@ Context is captured via AX metadata (app name, window title) and selected text w
 - `Core/Protocols/` - Interfaces (LLMProvider, ContextExtractor, TextInserter, Connector)
 - `Connectors/` - MCP server integration
   - `Models/` - ConnectorTool, ToolCall, ToolResult, JSONSchema
+  - `BuiltIn/` - Built-in connectors (ShellConnector, GitHubConnector, WebFetchConnector)
   - `Services/` - ConnectorRegistry, CustomMCPConnector, ToolExecutor, ToolEnabledChatService
+  - `Utilities/` - Shared helpers (MCPHelpers, ConnectorSettings)
   - `Transport/` - ProcessTransport (stdio subprocess communication)
 - `Extractors/` - App-specific context extractors (Browser, Slack, Generic)
 - `LLMProviders/` - Provider implementations (OpenAI, Anthropic, Gemini, Ollama)
@@ -103,12 +105,18 @@ Context is captured via AX metadata (app name, window title) and selected text w
 
 **MCP Connector Pattern**: MCP servers as tool providers:
 - `Connector` protocol defines lifecycle (connect/disconnect/executeTool)
-- `CustomMCPConnector` wraps MCP SDK client for subprocess servers
+- `CustomMCPConnector` wraps MCP SDK client for user-configured servers (stdio or HTTP)
 - `ProcessTransport` handles stdio communication with child processes
+- `HTTPTransport` handles remote MCP servers over HTTP
 - Tool names are prefixed with connector name for disambiguation (e.g., `github_search_issues`)
 
-**Shell Connector**: Built-in connector for macOS shell command execution:
-- `ShellConnector` - Native connector (not MCP) for shell commands with human-in-loop approval
+**Built-in Connectors**: Pre-configured connectors in `Connectors/BuiltIn/`:
+- `ShellConnector` - Native connector for macOS shell commands with human-in-loop approval
+- `GitHubConnector` - GitHub via Copilot MCP server (requires PAT, disabled by default)
+- `WebFetchConnector` - Web fetching via remote MCP server (no auth, enabled by default)
+- Shared utilities in `Connectors/Utilities/` (MCPHelpers.swift, ConnectorSettings.swift)
+
+**Shell Connector Details**:
 - `ShellCommandClassifier` - Classifies commands by risk level (safe/read/write/destructive/privileged)
 - `ShellCommandExecutor` - Executes commands with optional `sandbox-exec` sandboxing
 - Dangerous commands (rm, mv, pipes, redirects) require individual approval and show red warning badges
@@ -181,7 +189,11 @@ Latest completed feature: `specs/011-tool-approval/` (Human-in-Loop Tool Approva
 - `Extremis/Core/Services/CommandManager.swift` - Command operations and filtering
 - `Extremis/Core/Services/CommandStorage.swift` - Command persistence (JSON file)
 - `Extremis/UI/Commands/CommandPaletteView.swift` - Command palette UI (triggered by `/`)
-- `Extremis/Connectors/Services/ShellConnector.swift` - Built-in shell command connector
+- `Extremis/Connectors/BuiltIn/ShellConnector.swift` - Built-in shell command connector
+- `Extremis/Connectors/BuiltIn/GitHubConnector.swift` - Built-in GitHub connector (Copilot MCP)
+- `Extremis/Connectors/BuiltIn/WebFetchConnector.swift` - Built-in web fetch connector
+- `Extremis/Connectors/Utilities/MCPHelpers.swift` - Shared MCP utilities
+- `Extremis/Connectors/Utilities/ConnectorSettings.swift` - UserDefaults for connector settings
 - `Extremis/Core/Models/ShellCommand.swift` - Shell command risk classification
 - `Extremis/Core/Services/ShellCommandExecutor.swift` - Safe shell execution with sandboxing
 

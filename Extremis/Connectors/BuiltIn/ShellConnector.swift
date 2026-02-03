@@ -191,32 +191,6 @@ final class ShellConnector: Connector, ObservableObject {
     }
 }
 
-// MARK: - UserDefaults Extension
-
-extension UserDefaults {
-    /// Whether the shell connector is enabled
-    /// Defaults to true (enabled by default per user requirement)
-    var shellConnectorEnabled: Bool {
-        get {
-            // Return true if key doesn't exist (default enabled)
-            if object(forKey: "shellConnectorEnabled") == nil {
-                return true
-            }
-            return bool(forKey: "shellConnectorEnabled")
-        }
-        set {
-            set(newValue, forKey: "shellConnectorEnabled")
-        }
-    }
-
-    /// Whether sudo mode is enabled (bypasses all tool approval)
-    /// Defaults to false for security
-    var sudoModeEnabled: Bool {
-        get { bool(forKey: "sudoModeEnabled") }
-        set { set(newValue, forKey: "sudoModeEnabled") }
-    }
-}
-
 // MARK: - ShellExecutionError Equatable
 
 extension ShellExecutionError: Equatable {
