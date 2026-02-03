@@ -36,10 +36,17 @@ struct GeneralTab: View {
                             .onChange(of: launchAtLogin) { newValue in
                                 setLaunchAtLogin(newValue)
                             }
+                            .disabled(!LaunchAtLoginService.shared.isAvailable)
 
-                        Text("Automatically start Extremis when you log in")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        if LaunchAtLoginService.shared.isAvailable {
+                            Text("Automatically start Extremis when you log in")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("Not available during development. Install app to enable.")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        }
                     }
 
                     Divider()
