@@ -36,6 +36,11 @@ A context-aware AI assistant for macOS that lives in your menu bar. Press a glob
 - Human-in-loop approval with session memory
 - Works with any MCP-compatible server (filesystem, databases, etc.)
 
+**Background Notifications**
+- Sound alerts when Extremis needs attention while you work in other apps
+- Notifies on: tool approval needed, response complete, errors
+- Enable in Preferences → General
+
 <img width="495" height="459" alt="image" src="https://github.com/user-attachments/assets/2de96c4c-8a81-41d7-8b1a-c976feede92f" />
 
 
