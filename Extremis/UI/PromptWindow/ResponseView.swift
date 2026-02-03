@@ -265,6 +265,10 @@ struct ResponseView: View {
                 }
                 .transition(.opacity)
                 .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showApprovalView)
+                .onAppear {
+                    // Play notification sound when approval UI actually renders
+                    SoundNotificationService.shared.notify(.approvalNeeded)
+                }
             }
         }
     }

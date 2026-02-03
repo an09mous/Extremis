@@ -5,6 +5,7 @@ import SwiftUI
 
 struct GeneralTab: View {
     @State private var launchAtLogin = false
+    @State private var soundNotificationsEnabled = UserDefaults.standard.soundNotificationsEnabled
 
     var body: some View {
         Form {
@@ -35,8 +36,29 @@ struct GeneralTab: View {
                             .onChange(of: launchAtLogin) { newValue in
                                 setLaunchAtLogin(newValue)
                             }
+                            .disabled(!LaunchAtLoginService.shared.isAvailable)
 
-                        Text("Automatically start Extremis when you log in")
+                        if LaunchAtLoginService.shared.isAvailable {
+                            Text("Automatically start Extremis when you log in")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("Not available during development. Install app to enable.")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        }
+                    }
+
+                    Divider()
+
+                    // Sound Notifications
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("Sound notifications when in background", isOn: $soundNotificationsEnabled)
+                            .onChange(of: soundNotificationsEnabled) { newValue in
+                                UserDefaults.standard.soundNotificationsEnabled = newValue
+                            }
+
+                        Text("Play audio alerts when Extremis needs attention while in background")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -63,12 +85,11 @@ struct GeneralTab: View {
     // MARK: - Private Methods
 
     private func loadCurrentSettings() {
-        launchAtLogin = UserDefaultsHelper.shared.launchAtLogin
+        launchAtLogin = LaunchAtLoginService.shared.isEnabled
     }
 
     private func setLaunchAtLogin(_ enabled: Bool) {
-        UserDefaultsHelper.shared.launchAtLogin = enabled
-        print(enabled ? "✅ Launch at login enabled" : "❌ Launch at login disabled")
+        LaunchAtLoginService.shared.setEnabled(enabled)
     }
 }
 
