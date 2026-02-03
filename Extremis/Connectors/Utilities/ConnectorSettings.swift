@@ -66,4 +66,13 @@ extension UserDefaults {
         get { bool(forKey: "sudoModeEnabled") }
         set { set(newValue, forKey: "sudoModeEnabled") }
     }
+
+    // MARK: - Notification Settings
+
+    /// Whether sound notifications are enabled when app is in background
+    /// Defaults to false
+    var soundNotificationsEnabled: Bool {
+        get { bool(forKey: "soundNotificationsEnabled") }
+        set { set(newValue, forKey: "soundNotificationsEnabled") }
+    }
 }

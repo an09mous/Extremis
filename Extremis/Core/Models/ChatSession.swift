@@ -144,6 +144,13 @@ final class ChatSession: ObservableObject, Identifiable {
         isGenerating = false
         generationError = error
         // Note: streamingContent is cleared by the caller after saving to messages
+
+        // Play notification sound for terminal state (if enabled and in background)
+        if error != nil {
+            SoundNotificationService.shared.notify(.error)
+        } else {
+            SoundNotificationService.shared.notify(.responseComplete)
+        }
     }
 
     /// Update streaming content during generation

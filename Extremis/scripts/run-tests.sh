@@ -222,6 +222,11 @@ run_test_suite "WebFetch Connector Tests" \
     "$PROJECT_DIR/Tests/Connectors/WebFetchConnectorTests.swift" \
     "Foundation"
 
+# 25. Sound Notification Tests (Background sound notifications)
+run_test_suite "Sound Notification Tests" \
+    "$PROJECT_DIR/Tests/Core/SoundNotificationTests.swift" \
+    "Foundation"
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------

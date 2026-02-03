@@ -1695,6 +1695,9 @@ extension PromptWindowController: ToolApprovalUIDelegate {
 
     /// Start processing an approval batch
     private func startApprovalBatch(_ batch: PendingApprovalBatch) {
+        // Note: Sound notification is triggered in ToolApprovalView.onAppear
+        // to ensure it fires when the UI actually renders
+
         currentApprovalBatch = batch
         accumulatedDecisions = [:]
         pendingRequestIds = Set(batch.requests.map(\.id))
