@@ -118,6 +118,24 @@ final class ToolApprovalManager {
             return .empty
         }
 
+        // SUDO MODE: Bypass all approval when enabled
+        if UserDefaults.standard.sudoModeEnabled {
+            print("⚡️ SUDO MODE: Auto-approving \(toolCalls.count) tool call(s)")
+            let decisions = toolCalls.map { toolCall in
+                ApprovalDecision(
+                    toolCall: toolCall,
+                    action: .sessionApproved,
+                    reason: "Sudo mode enabled"
+                )
+            }
+            recordDecisions(decisions, for: sessionId)
+            return ApprovalResult(
+                approvedIds: Set(toolCalls.map(\.id)),
+                decisions: decisions,
+                allowAllOnce: true
+            )
+        }
+
         // Evaluate each tool call
         var sessionApprovedDecisions: [ApprovalDecision] = []
         var pendingRequests: [ToolApprovalRequest] = []

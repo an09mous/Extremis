@@ -208,6 +208,13 @@ extension UserDefaults {
             set(newValue, forKey: "shellConnectorEnabled")
         }
     }
+
+    /// Whether sudo mode is enabled (bypasses all tool approval)
+    /// Defaults to false for security
+    var sudoModeEnabled: Bool {
+        get { bool(forKey: "sudoModeEnabled") }
+        set { set(newValue, forKey: "sudoModeEnabled") }
+    }
 }
 
 // MARK: - ShellExecutionError Equatable

@@ -149,7 +149,8 @@ struct PromptInputView: View {
 
     private func handleTextChange(_ text: String) {
         // Check if text starts with / and doesn't contain spaces (command mode)
-        if text.hasPrefix("/") && !text.contains(" ") {
+        // Only show command palette when there's selected text (commands operate on selection)
+        if hasSelection && text.hasPrefix("/") && !text.contains(" ") {
             let filter = String(text.dropFirst())
             commandPaletteVM.setFilter(filter)
             showCommandPalette = true
