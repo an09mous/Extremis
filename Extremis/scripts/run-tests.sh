@@ -197,6 +197,16 @@ run_test_suite "Command Storage Tests" \
     "$PROJECT_DIR/Tests/Commands/CommandStorageTests.swift" \
     "Foundation"
 
+# 19. Shell Command Tests (Risk classification, validation, pattern matching)
+run_test_suite "Shell Command Tests" \
+    "$PROJECT_DIR/Tests/Tools/Shell/ShellCommandTests.swift" \
+    "Foundation"
+
+# 20. Shell Approval Security Tests (CRITICAL: Pattern matching security)
+run_test_suite "Shell Approval Security Tests" \
+    "$PROJECT_DIR/Tests/Tools/Shell/ShellApprovalSecurityTests.swift" \
+    "Foundation"
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------

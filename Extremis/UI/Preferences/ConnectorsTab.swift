@@ -50,7 +50,7 @@ struct ConnectorsTab: View {
                     }
                     .padding(.vertical, 8)
 
-                    // Built-in Connectors Section (Phase 2 placeholder)
+                    // Built-in Connectors Section
                     Divider()
                         .padding(.vertical, 8)
 
@@ -58,9 +58,18 @@ struct ConnectorsTab: View {
                         Text("Built-in Connectors")
                             .font(.headline)
 
-                        Text("Coming soon: GitHub, Web Search, Jira, and more.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        // Shell Connector
+                        BuiltInConnectorRow(
+                            name: "System Commands",
+                            description: "Execute macOS shell commands with user approval",
+                            icon: "terminal",
+                            isEnabled: viewModel.isShellConnectorEnabled,
+                            connectionState: viewModel.shellConnectionState,
+                            tools: viewModel.shellTools,
+                            onToggleEnabled: { viewModel.toggleShellConnector() },
+                            onConnect: { viewModel.connectShellConnector() },
+                            onDisconnect: { viewModel.disconnectShellConnector() }
+                        )
                     }
                     .padding(.vertical, 8)
                 }
@@ -139,6 +148,167 @@ struct ConnectorsTab: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 20)
+    }
+}
+
+// MARK: - Built-in Connector Row
+
+struct BuiltInConnectorRow: View {
+    let name: String
+    let description: String
+    let icon: String
+    let isEnabled: Bool
+    let connectionState: ConnectorState
+    let tools: [ConnectorTool]
+    let onToggleEnabled: () -> Void
+    let onConnect: () -> Void
+    let onDisconnect: () -> Void
+
+    @State private var showingTools = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Header row
+            HStack {
+                Toggle("", isOn: Binding(
+                    get: { isEnabled },
+                    set: { _ in onToggleEnabled() }
+                ))
+                .toggleStyle(.switch)
+                .labelsHidden()
+
+                Image(systemName: icon)
+                    .foregroundColor(.secondary)
+
+                Text(name)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+
+                // Connection status indicator
+                connectionStatusView
+
+                Spacer()
+
+                // Action buttons
+                if isEnabled {
+                    if connectionState.isConnected {
+                        Button("Disconnect") {
+                            onDisconnect()
+                        }
+                        .font(.caption)
+                    } else if case .connecting = connectionState {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                    } else {
+                        Button("Connect") {
+                            onConnect()
+                        }
+                        .font(.caption)
+                    }
+                }
+            }
+
+            // Description
+            Text(description)
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            // Tools count
+            if connectionState.isConnected && !tools.isEmpty {
+                Button(action: { showingTools.toggle() }) {
+                    Label("\(tools.count) tool\(tools.count == 1 ? "" : "s") available", systemImage: showingTools ? "chevron.down" : "chevron.right")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Collapsible tools list
+            if showingTools && connectionState.isConnected && !tools.isEmpty {
+                toolsListView
+            }
+
+            // Error message if any
+            if case .error(let message) = connectionState {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.red)
+                    Text(message)
+                        .foregroundColor(.red)
+                }
+                .font(.caption)
+            }
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.primary.opacity(0.03))
+        )
+    }
+
+    @ViewBuilder
+    private var connectionStatusView: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(statusColor)
+                .frame(width: 8, height: 8)
+
+            if !isEnabled {
+                Text("Disabled")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            } else {
+                Text(connectionState.displayText)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private var statusColor: Color {
+        if !isEnabled {
+            return .gray
+        }
+        switch connectionState {
+        case .disconnected:
+            return .gray
+        case .connecting:
+            return .yellow
+        case .connected:
+            return .green
+        case .error:
+            return .red
+        }
+    }
+
+    @ViewBuilder
+    private var toolsListView: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(tools, id: \.id) { tool in
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "wrench")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .frame(width: 12)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(tool.originalName)
+                            .font(.caption)
+                            .fontWeight(.medium)
+
+                        if let description = tool.description {
+                            Text(description)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .lineLimit(2)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.leading, 24)
+        .padding(.vertical, 4)
     }
 }
 
@@ -345,6 +515,62 @@ final class ConnectorsTabViewModel: ObservableObject {
     private let configStorage = ConnectorConfigStorage.shared
     private let registry = ConnectorRegistry.shared
 
+    // MARK: - Shell Connector Properties
+
+    var isShellConnectorEnabled: Bool {
+        UserDefaults.standard.shellConnectorEnabled
+    }
+
+    var shellConnectionState: ConnectorState {
+        registry.connectionStates["shell"] ?? .disconnected
+    }
+
+    var shellTools: [ConnectorTool] {
+        registry.connector(id: "shell")?.tools ?? []
+    }
+
+    // MARK: - Shell Connector Actions
+
+    func toggleShellConnector() {
+        let newValue = !isShellConnectorEnabled
+        UserDefaults.standard.shellConnectorEnabled = newValue
+
+        Task {
+            if newValue {
+                // Enable and connect
+                try? await registry.connect(connectorID: "shell")
+            } else {
+                // Disable and disconnect
+                await registry.disconnect(connectorID: "shell")
+            }
+            objectWillChange.send()
+        }
+
+        statusMessage = "System Commands \(newValue ? "enabled" : "disabled")"
+        isError = false
+    }
+
+    func connectShellConnector() {
+        Task {
+            do {
+                try await registry.connect(connectorID: "shell")
+                objectWillChange.send()
+            } catch {
+                statusMessage = "Connection failed: \(error.localizedDescription)"
+                isError = true
+            }
+        }
+    }
+
+    func disconnectShellConnector() {
+        Task {
+            await registry.disconnect(connectorID: "shell")
+            objectWillChange.send()
+        }
+    }
+
+    // MARK: - Custom Server Methods
+
     func loadServers() {
         do {
             customServers = try configStorage.allCustomServers()
@@ -352,6 +578,7 @@ final class ConnectorsTabViewModel: ObservableObject {
             // Ensure registry has connectors for all servers
             Task {
                 await registry.loadCustomServers()
+                objectWillChange.send()
             }
         } catch {
             statusMessage = "Failed to load servers: \(error.localizedDescription)"

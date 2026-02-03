@@ -107,6 +107,13 @@ Context is captured via AX metadata (app name, window title) and selected text w
 - `ProcessTransport` handles stdio communication with child processes
 - Tool names are prefixed with connector name for disambiguation (e.g., `github_search_issues`)
 
+**Shell Connector**: Built-in connector for macOS shell command execution:
+- `ShellConnector` - Native connector (not MCP) for shell commands with human-in-loop approval
+- `ShellCommandClassifier` - Classifies commands by risk level (safe/read/write/destructive/privileged)
+- `ShellCommandExecutor` - Executes commands with optional `sandbox-exec` sandboxing
+- Dangerous commands (rm, mv, pipes, redirects) require individual approval and show red warning badges
+- "Allow Safe Commands" button batch-approves only safe commands, skipping dangerous ones
+
 ### AppKit + SwiftUI Hybrid
 
 - **NSApplication**: Menu bar app (LSUIElement = true, no dock icon)
@@ -174,6 +181,9 @@ Latest completed feature: `specs/011-tool-approval/` (Human-in-Loop Tool Approva
 - `Extremis/Core/Services/CommandManager.swift` - Command operations and filtering
 - `Extremis/Core/Services/CommandStorage.swift` - Command persistence (JSON file)
 - `Extremis/UI/Commands/CommandPaletteView.swift` - Command palette UI (triggered by `/`)
+- `Extremis/Connectors/Services/ShellConnector.swift` - Built-in shell command connector
+- `Extremis/Core/Models/ShellCommand.swift` - Shell command risk classification
+- `Extremis/Core/Services/ShellCommandExecutor.swift` - Safe shell execution with sandboxing
 
 ## Configuration & Storage
 
@@ -223,6 +233,7 @@ All tests are standalone Swift files in `Extremis/Tests/` organized by module:
 - `Tests/LLMProviders/` - Provider and prompt builder tests
 - `Tests/Utilities/` - Utility class tests
 - `Tests/Connectors/` - MCP connector and tool tests
+- `Tests/Tools/Shell/` - Shell command and approval security tests
 
 ### Adding New Tests
 
