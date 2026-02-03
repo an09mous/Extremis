@@ -26,8 +26,8 @@ struct ChatView: View {
         GeometryReader { geometry in
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(spacing: 16) {
-                        // Display all completed messages
+                    LazyVStack(spacing: 16) {
+                        // Display all completed messages (lazy loading for performance)
                         ForEach(Array(session.messages.enumerated()), id: \.element.id) { index, message in
                             ChatMessageView(
                                 message: message,
