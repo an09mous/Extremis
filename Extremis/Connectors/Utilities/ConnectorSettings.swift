@@ -41,6 +41,23 @@ extension UserDefaults {
         }
     }
 
+    // MARK: - Web Fetch Connector
+
+    /// Whether the Web Fetch connector is enabled
+    /// Defaults to true (no authentication required)
+    var webFetchConnectorEnabled: Bool {
+        get {
+            // Return true if key doesn't exist (enabled by default - no auth needed)
+            if object(forKey: "webFetchConnectorEnabled") == nil {
+                return true
+            }
+            return bool(forKey: "webFetchConnectorEnabled")
+        }
+        set {
+            set(newValue, forKey: "webFetchConnectorEnabled")
+        }
+    }
+
     // MARK: - Security Settings
 
     /// Whether sudo mode is enabled (bypasses all tool approval)

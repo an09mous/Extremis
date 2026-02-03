@@ -150,7 +150,7 @@ final class ConnectorRegistry: ObservableObject {
 
     // MARK: - Built-In Connectors
 
-    /// Register built-in connectors (Shell, GitHub, etc.)
+    /// Register built-in connectors (Shell, GitHub, WebFetch, etc.)
     private func registerBuiltInConnectors() {
         // Register ShellConnector if not already registered
         if connectors["shell"] == nil {
@@ -164,6 +164,13 @@ final class ConnectorRegistry: ObservableObject {
             let githubConnector = GitHubConnector()
             register(githubConnector)
             print("[ConnectorRegistry] Registered built-in GitHubConnector")
+        }
+
+        // Register WebFetchConnector if not already registered
+        if connectors["webfetch"] == nil {
+            let webFetchConnector = WebFetchConnector()
+            register(webFetchConnector)
+            print("[ConnectorRegistry] Registered built-in WebFetchConnector")
         }
     }
 
@@ -363,6 +370,26 @@ final class ConnectorRegistry: ObservableObject {
         if let githubConnector = connector as? GitHubConnector {
             Task {
                 for await newState in githubConnector.$state.values {
+                    await MainActor.run {
+                        let currentState = self.connectionStates[connector.id]
+
+                        // Don't overwrite .disconnected with .error from cancelled requests
+                        if case .disconnected = currentState,
+                           case .error = newState {
+                            return
+                        }
+
+                        self.connectionStates[connector.id] = newState
+                        self.refreshAvailableTools()
+                    }
+                }
+            }
+        }
+
+        // For WebFetchConnector, observe Published state
+        if let webFetchConnector = connector as? WebFetchConnector {
+            Task {
+                for await newState in webFetchConnector.$state.values {
                     await MainActor.run {
                         let currentState = self.connectionStates[connector.id]
 

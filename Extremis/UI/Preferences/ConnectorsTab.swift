@@ -87,6 +87,19 @@ struct ConnectorsTab: View {
                             onDisconnect: { viewModel.disconnectGitHubConnector() },
                             onConfigure: { showingGitHubAuth = true }
                         )
+
+                        // Web Fetch Connector
+                        BuiltInConnectorRow(
+                            name: "Web Fetch",
+                            description: "Fetch and process web content via remote MCP server",
+                            icon: "globe",
+                            isEnabled: viewModel.isWebFetchConnectorEnabled,
+                            connectionState: viewModel.webFetchConnectionState,
+                            tools: viewModel.webFetchTools,
+                            onToggleEnabled: { viewModel.toggleWebFetchConnector() },
+                            onConnect: { viewModel.connectWebFetchConnector() },
+                            onDisconnect: { viewModel.disconnectWebFetchConnector() }
+                        )
                     }
                     .padding(.vertical, 8)
 
@@ -809,6 +822,64 @@ final class ConnectorsTabViewModel: ObservableObject {
         } catch {
             statusMessage = "Failed to save token: \(error.localizedDescription)"
             isError = true
+        }
+    }
+
+    // MARK: - Web Fetch Connector Properties
+
+    var isWebFetchConnectorEnabled: Bool {
+        UserDefaults.standard.webFetchConnectorEnabled
+    }
+
+    var webFetchConnectionState: ConnectorState {
+        registry.connectionStates["webfetch"] ?? .disconnected
+    }
+
+    var webFetchTools: [ConnectorTool] {
+        registry.connector(id: "webfetch")?.tools ?? []
+    }
+
+    // MARK: - Web Fetch Connector Actions
+
+    func toggleWebFetchConnector() {
+        let newValue = !isWebFetchConnectorEnabled
+        UserDefaults.standard.webFetchConnectorEnabled = newValue
+
+        Task {
+            if newValue {
+                do {
+                    try await registry.connect(connectorID: "webfetch")
+                } catch {
+                    // Connection failed, but toggle state is saved
+                }
+            } else {
+                await registry.disconnect(connectorID: "webfetch")
+            }
+            objectWillChange.send()
+        }
+
+        if !newValue {
+            statusMessage = "Web Fetch disabled"
+            isError = false
+        }
+    }
+
+    func connectWebFetchConnector() {
+        Task {
+            do {
+                try await registry.connect(connectorID: "webfetch")
+                objectWillChange.send()
+            } catch {
+                statusMessage = "Connection failed: \(error.localizedDescription)"
+                isError = true
+            }
+        }
+    }
+
+    func disconnectWebFetchConnector() {
+        Task {
+            await registry.disconnect(connectorID: "webfetch")
+            objectWillChange.send()
         }
     }
 
