@@ -23,6 +23,12 @@ A context-aware AI assistant for macOS that lives in your menu bar. Press a glob
 
 <img width="604" height="478" alt="image" src="https://github.com/user-attachments/assets/9f13e9b6-c3b2-4f82-ae91-0c3903ec81d2" />
 
+**Quick Commands**
+- **Pinned Commands Bar** - One-click access to your most-used prompts (Proofread, Professionalize, Simplify, Explain Code)
+- **Command Palette** - Type `/` to search and execute any command
+- **Custom Commands** - Create your own reusable prompt templates in Preferences
+- **Context-Aware** - Commands automatically operate on selected text
+
 **Tool Execution (MCP)**
 - Connect external tools via Model Context Protocol
 - Multi-turn agentic loops - AI can chain multiple tool calls
@@ -53,24 +59,21 @@ A context-aware AI assistant for macOS that lives in your menu bar. Press a glob
 ```bash
 git clone https://github.com/an09mous/Extremis.git
 cd Extremis/Extremis
-swift build -c release
-cp -r .build/release/Extremis.app /Applications/
+./scripts/build.sh
+open build/Extremis.dmg
 ```
+
+Drag Extremis to Applications from the DMG.
 
 ### Download Pre-built
 
-Download the latest release from [GitHub Releases](https://github.com/an09mous/Extremis/releases):
-
-1. Download **Extremis.dmg** from the latest release
+1. Download **Extremis.dmg** from [GitHub Releases](https://github.com/an09mous/Extremis/releases)
 2. Open the DMG and drag Extremis to Applications
-3. Launch from Applications
-
-**macOS Gatekeeper Warning:** Since Extremis isn't notarized with Apple, you may see:
-- *"Extremis can't be opened"* → Right-click → Open → Click "Open" in the dialog
-- *"Extremis is damaged and can't be opened"* → Run this in Terminal:
-  ```bash
-  xattr -cr /Applications/Extremis.app
-  ```
+3. Run this command to bypass Gatekeeper (app isn't notarized):
+   ```bash
+   xattr -cr /Applications/Extremis.app
+   ```
+4. Launch Extremis from Applications
 
 ## Permissions
 
