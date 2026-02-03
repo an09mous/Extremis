@@ -182,27 +182,32 @@ run_test_suite "Tool Approval Manager Tests" \
     "$PROJECT_DIR/Tests/Core/ToolApprovalManagerTests.swift" \
     "Foundation"
 
-# 16. Model Capability Tests (ModelCapabilities struct, tool support detection)
+# 16. Sudo Mode Tests (sudo mode bypass for tool approval)
+run_test_suite "Sudo Mode Tests" \
+    "$PROJECT_DIR/Tests/Core/SudoModeTests.swift" \
+    "Foundation"
+
+# 18. Model Capability Tests (ModelCapabilities struct, tool support detection)
 run_test_suite "Model Capability Tests" \
     "$PROJECT_DIR/Tests/Core/ModelCapabilityTests.swift" \
     "Foundation"
 
-# 17. Command Tests (Command model, CommandConfigFile, storage operations)
+# 19. Command Tests (Command model, CommandConfigFile, storage operations)
 run_test_suite "Command Tests" \
     "$PROJECT_DIR/Tests/Commands/CommandTests.swift" \
     "Foundation"
 
-# 18. Command Storage Tests (Persistence CRUD operations)
+# 20. Command Storage Tests (Persistence CRUD operations)
 run_test_suite "Command Storage Tests" \
     "$PROJECT_DIR/Tests/Commands/CommandStorageTests.swift" \
     "Foundation"
 
-# 19. Shell Command Tests (Risk classification, validation, pattern matching)
+# 21. Shell Command Tests (Risk classification, validation, pattern matching)
 run_test_suite "Shell Command Tests" \
     "$PROJECT_DIR/Tests/Tools/Shell/ShellCommandTests.swift" \
     "Foundation"
 
-# 20. Shell Approval Security Tests (CRITICAL: Pattern matching security)
+# 22. Shell Approval Security Tests (CRITICAL: Pattern matching security)
 run_test_suite "Shell Approval Security Tests" \
     "$PROJECT_DIR/Tests/Tools/Shell/ShellApprovalSecurityTests.swift" \
     "Foundation"
