@@ -1675,8 +1675,10 @@ extension PromptWindowController: ToolApprovalUIDelegate {
                 toolName: viewModel.pendingApprovalRequests[index].toolName,
                 connectorId: viewModel.pendingApprovalRequests[index].connectorId,
                 argumentsSummary: viewModel.pendingApprovalRequests[index].argumentsSummary,
+                fullArguments: viewModel.pendingApprovalRequests[index].fullArguments,
                 state: state,
-                rememberForSession: viewModel.pendingApprovalRequests[index].rememberForSession
+                rememberForSession: viewModel.pendingApprovalRequests[index].rememberForSession,
+                requiresExplicitApproval: viewModel.pendingApprovalRequests[index].requiresExplicitApproval
             )
         }
     }
@@ -1779,15 +1781,45 @@ extension PromptWindowController: ToolApprovalUIDelegate {
 
         var decisions: [String: ApprovalDecision] = accumulatedDecisions
 
-        // Allow All is one-time only - no remember for individual tools
-        // But we set allowAllOnce=true to skip approval for entire generation
+        // Only approve SAFE commands - dangerous commands stay pending for individual approval
+        // Check the display model to determine if each request requires explicit approval
+        var approvedCount = 0
+        var skippedDangerousCount = 0
+
         for request in batch.requests where pendingRequestIds.contains(request.id) {
-            decisions[request.id] = ApprovalDecision(request: request, action: .approved)
-            print("📋 handleApproveAll: approved \(request.id)")
+            // Check if this request requires explicit approval (dangerous command)
+            let displayModel = viewModel.pendingApprovalRequests.first { $0.id == request.id }
+            let requiresExplicit = displayModel?.requiresExplicitApproval ?? false
+
+            if requiresExplicit {
+                // Skip dangerous commands - they need individual approval
+                print("📋 handleApproveAll: skipping dangerous command \(request.id)")
+                skippedDangerousCount += 1
+            } else {
+                // Approve safe commands
+                decisions[request.id] = ApprovalDecision(request: request, action: .approved)
+                print("📋 handleApproveAll: approved safe command \(request.id)")
+                approvedCount += 1
+
+                // Remove from pending (safe commands are resolved)
+                pendingRequestIds.remove(request.id)
+                viewModel.pendingApprovalRequests.removeAll { $0.id == request.id }
+            }
         }
 
-        print("📋 handleApproveAll: completing batch with \(decisions.count) decisions, allowAllOnce=true")
-        completeCurrentBatch(decisions: decisions, allowAllOnce: true)
+        print("📋 handleApproveAll: approved \(approvedCount) safe, skipped \(skippedDangerousCount) dangerous")
+
+        // If dangerous commands remain, don't complete the batch yet - wait for individual approval
+        if pendingRequestIds.isEmpty {
+            // All resolved (either all safe, or dangerous were approved individually before this)
+            print("📋 handleApproveAll: all requests resolved, completing batch")
+            completeCurrentBatch(decisions: decisions, allowAllOnce: true)
+        } else {
+            // Dangerous commands remain - update accumulated decisions but keep batch active
+            print("📋 handleApproveAll: \(pendingRequestIds.count) dangerous commands still pending")
+            accumulatedDecisions = decisions
+            // Batch stays active for individual approval of remaining dangerous commands
+        }
     }
 
     private func resolveRequest(requestId: String, decision: ApprovalDecision) {

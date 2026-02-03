@@ -21,8 +21,11 @@ struct ChatToolCall: Identifiable, Equatable {
     /// Human-readable connector name (for display)
     let connectorName: String
 
-    /// Human-readable description of arguments
+    /// Human-readable description of arguments (truncated for compact display)
     let argumentsSummary: String
+
+    /// Full arguments without truncation (for expanded view)
+    let fullArguments: String
 
     /// Current execution state
     var state: ToolCallState
@@ -129,6 +132,7 @@ struct ChatToolCall: Identifiable, Equatable {
         connectorID: String,
         connectorName: String,
         argumentsSummary: String,
+        fullArguments: String? = nil,
         state: ToolCallState = .pending,
         resultSummary: String? = nil,
         errorMessage: String? = nil,
@@ -139,6 +143,7 @@ struct ChatToolCall: Identifiable, Equatable {
         self.connectorID = connectorID
         self.connectorName = connectorName
         self.argumentsSummary = argumentsSummary
+        self.fullArguments = fullArguments ?? argumentsSummary
         self.state = state
         self.resultSummary = resultSummary
         self.errorMessage = errorMessage
@@ -150,24 +155,28 @@ struct ChatToolCall: Identifiable, Equatable {
     /// Create from an LLMToolCall
     static func from(_ llmCall: LLMToolCall, connectorID: String, connectorName: String) -> ChatToolCall {
         let summary = formatArgumentsSummary(llmCall.arguments)
+        let full = formatFullArguments(llmCall.arguments)
         return ChatToolCall(
             id: llmCall.id,
             toolName: llmCall.name,
             connectorID: connectorID,
             connectorName: connectorName,
-            argumentsSummary: summary
+            argumentsSummary: summary,
+            fullArguments: full
         )
     }
 
     /// Create from a ToolCall (already resolved)
     static func from(_ toolCall: ToolCall) -> ChatToolCall {
         let summary = formatArgumentsSummary(toolCall.argumentsAsAny)
+        let full = formatFullArguments(toolCall.argumentsAsAny)
         return ChatToolCall(
             id: toolCall.id,
             toolName: toolCall.toolName,
             connectorID: toolCall.connectorID,
             connectorName: toolCall.connectorName,
-            argumentsSummary: summary
+            argumentsSummary: summary,
+            fullArguments: full
         )
     }
 
@@ -214,7 +223,7 @@ struct ChatToolCall: Identifiable, Equatable {
 
     // MARK: - Private Helpers
 
-    /// Format arguments dictionary into human-readable summary
+    /// Format arguments dictionary into human-readable summary (truncated for compact display)
     private static func formatArgumentsSummary(_ args: [String: Any]) -> String {
         guard !args.isEmpty else { return "(no arguments)" }
 
@@ -227,6 +236,19 @@ struct ChatToolCall: Identifiable, Equatable {
 
         let joined = formatted.joined(separator: ", ")
         return joined.count > 100 ? String(joined.prefix(100)) + "..." : joined
+    }
+
+    /// Format arguments dictionary without truncation (for expanded view)
+    private static func formatFullArguments(_ args: [String: Any]) -> String {
+        guard !args.isEmpty else { return "(no arguments)" }
+
+        // Format as key=value pairs without truncation
+        let formatted = args.map { key, value in
+            let valueStr = String(describing: value)
+            return "\(key)=\(valueStr)"
+        }
+
+        return formatted.joined(separator: "\n")
     }
 }
 

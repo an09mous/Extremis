@@ -123,9 +123,10 @@ final class ToolApprovalManager {
         var pendingRequests: [ToolApprovalRequest] = []
 
         for toolCall in toolCalls {
-            // Check session memory first
-            if let memory = sessionMemory, memory.isApproved(toolName: toolCall.toolName) {
-                print("🔓 Tool '\(toolCall.toolName)' auto-approved from session memory")
+            // Check session memory - with special handling for shell commands
+            if let memory = sessionMemory, isToolApprovedInMemory(toolCall, memory: memory) {
+                let command = extractShellCommand(from: toolCall)
+                print("🔓 Tool '\(toolCall.toolName)'\(command.map { " (\($0))" } ?? "") auto-approved from session memory")
                 let decision = ApprovalDecision(
                     toolCall: toolCall,
                     action: .sessionApproved,
@@ -134,7 +135,8 @@ final class ToolApprovalManager {
                 sessionApprovedDecisions.append(decision)
             } else {
                 // Needs user approval
-                print("🔒 Tool '\(toolCall.toolName)' needs user approval")
+                let command = extractShellCommand(from: toolCall)
+                print("🔒 Tool '\(toolCall.toolName)'\(command.map { " (\($0))" } ?? "") needs user approval")
                 pendingRequests.append(ToolApprovalRequest(toolCall: toolCall))
             }
         }
@@ -159,8 +161,14 @@ final class ToolApprovalManager {
         // Update session memory for tools approved with "remember"
         if let memory = sessionMemory {
             for decision in userDecisions.values where decision.action == .approved && decision.rememberForSession {
-                memory.remember(toolName: decision.toolName)
-                print("📝 Remembered tool '\(decision.toolName)' for session (memory now has \(memory.count) tools)")
+                // Find the original tool call for this decision
+                if let originalRequest = pendingRequests.first(where: { $0.id == decision.requestId }) {
+                    rememberToolApproval(originalRequest.toolCall, memory: memory)
+                } else {
+                    // Fallback: remember by tool name only (non-shell tools)
+                    memory.remember(toolName: decision.toolName)
+                    print("📝 Remembered tool '\(decision.toolName)' for session (memory now has \(memory.count) tools)")
+                }
             }
         }
 
@@ -312,5 +320,60 @@ final class ToolApprovalManager {
         let previousCount = memory.count
         memory.clear()
         print("📋 Cleared session approval memory (had \(previousCount) entries)")
+    }
+
+    // MARK: - Shell Command Approval Helpers
+
+    /// Check if a tool call is approved in session memory
+    /// Special handling for shell commands that use pattern matching
+    private func isToolApprovedInMemory(_ toolCall: ToolCall, memory: SessionApprovalMemory) -> Bool {
+        // Check if this is a shell command
+        if isShellToolCall(toolCall), let command = extractShellCommand(from: toolCall) {
+            // For shell commands, check the command pattern, not just the tool name
+            return memory.isShellCommandApproved(command)
+        }
+
+        // For non-shell tools, check by tool name
+        return memory.isApproved(toolName: toolCall.toolName)
+    }
+
+    /// Remember a tool approval in session memory
+    /// Special handling for shell commands that use pattern matching
+    private func rememberToolApproval(_ toolCall: ToolCall, memory: SessionApprovalMemory) {
+        // Check if this is a shell command
+        if isShellToolCall(toolCall), let command = extractShellCommand(from: toolCall) {
+            // For shell commands, remember the command pattern
+            let pattern = ShellCommandClassifier.extractPattern(
+                from: command,
+                riskLevel: ShellCommandClassifier.classify(command)
+            )
+            memory.rememberShellPattern(pattern)
+            print("📝 Remembered shell pattern '\(pattern)' for session (memory now has \(memory.shellPatternCount) patterns)")
+        } else {
+            // For non-shell tools, remember by tool name
+            memory.remember(toolName: toolCall.toolName)
+            print("📝 Remembered tool '\(toolCall.toolName)' for session (memory now has \(memory.count) tools)")
+        }
+    }
+
+    /// Check if a tool call is a shell command
+    private func isShellToolCall(_ toolCall: ToolCall) -> Bool {
+        // Shell connector ID is "shell" and tool name contains "shell_execute" or original name is "execute"
+        return toolCall.connectorID == "shell" ||
+               toolCall.toolName.contains("shell_execute") ||
+               toolCall.originalToolName == "execute"
+    }
+
+    /// Extract the shell command string from a tool call's arguments
+    private func extractShellCommand(from toolCall: ToolCall) -> String? {
+        guard isShellToolCall(toolCall) else { return nil }
+
+        // The command is in the "command" argument
+        if let commandValue = toolCall.arguments["command"],
+           case .string(let command) = commandValue {
+            return command
+        }
+
+        return nil
     }
 }

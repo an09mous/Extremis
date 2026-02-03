@@ -11,8 +11,13 @@ struct ApprovalRequestDisplayModel: Identifiable {
     let toolName: String
     let connectorId: String
     let argumentsSummary: String
+    let fullArguments: String
     let state: ApprovalState
     var rememberForSession: Bool
+
+    /// Whether this request requires explicit approval every time
+    /// If true, "Remember for session" and "Allow All Once" should be hidden
+    let requiresExplicitApproval: Bool
 
     /// Icon name based on state
     var stateIcon: String {
@@ -54,14 +59,42 @@ struct ApprovalRequestDisplayModel: Identifiable {
 
     /// Create from a ToolApprovalRequest
     static func from(_ request: ToolApprovalRequest) -> ApprovalRequestDisplayModel {
-        ApprovalRequestDisplayModel(
+        // Determine if this request requires explicit approval every time
+        // (shell commands with operators or destructive commands)
+        let requiresExplicit = Self.checkRequiresExplicitApproval(toolCall: request.toolCall)
+
+        return ApprovalRequestDisplayModel(
             id: request.id,
             toolName: request.toolCall.toolName,
             connectorId: request.toolCall.connectorName,
             argumentsSummary: request.chatToolCall.argumentsSummary,
+            fullArguments: request.chatToolCall.fullArguments,
             state: request.state,
-            rememberForSession: request.rememberForSession
+            rememberForSession: request.rememberForSession,
+            requiresExplicitApproval: requiresExplicit
         )
+    }
+
+    /// Check if a tool call requires explicit approval every time
+    /// Returns true for shell commands with operators or destructive commands
+    private static func checkRequiresExplicitApproval(toolCall: ToolCall) -> Bool {
+        // Check if this is a shell command using the same logic as ToolApprovalManager
+        let isShellTool = toolCall.connectorID == "shell" ||
+                          toolCall.toolName.contains("shell_execute") ||
+                          toolCall.originalToolName == "execute"
+
+        guard isShellTool else {
+            return false
+        }
+
+        // Extract the command from arguments (using the proper JSONValue pattern)
+        guard let commandValue = toolCall.arguments["command"],
+              case .string(let command) = commandValue else {
+            return false
+        }
+
+        // Check if the command requires explicit approval
+        return ShellCommandClassifier.requiresExplicitApproval(command)
     }
 }
 
@@ -87,6 +120,16 @@ struct ToolApprovalView: View {
     /// Pending requests only
     private var pendingRequests: [ApprovalRequestDisplayModel] {
         requests.filter { $0.needsAction }
+    }
+
+    /// Count of dangerous commands requiring explicit approval
+    private var dangerousCommandCount: Int {
+        pendingRequests.filter { $0.requiresExplicitApproval }.count
+    }
+
+    /// Whether there are any safe commands that can be approved with "Allow All Once"
+    private var hasSafeCommandsToApprove: Bool {
+        pendingRequests.contains { !$0.requiresExplicitApproval }
     }
 
     var body: some View {
@@ -133,25 +176,49 @@ struct ToolApprovalView: View {
                 }
             }
 
-            // Action section
+            // Action section - "Allow All Once" only approves SAFE commands
+            // Dangerous commands must be approved individually
             if !pendingRequests.isEmpty {
                 HStack {
+                    // Warning about dangerous commands (if any)
+                    if dangerousCommandCount > 0 {
+                        HStack(spacing: 4) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                                .font(.system(size: 11))
+                            Text("\(dangerousCommandCount) require\(dangerousCommandCount == 1 ? "s" : "") individual review")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                        }
+                        .accessibilityLabel("\(dangerousCommandCount) command\(dangerousCommandCount == 1 ? "" : "s") require individual review")
+                    }
+
                     Spacer()
 
-                    // Allow All button (one-time approval, no remember)
-                    Button(action: {
-                        print("🔘 Allow All Once button clicked")
-                        onApproveAll()
-                    }) {
-                        Label("Allow All Once", systemImage: "checkmark.circle")
+                    // Allow All button - only shown if there are safe commands to approve
+                    // Only approves safe commands; dangerous ones remain pending
+                    if hasSafeCommandsToApprove {
+                        Button(action: {
+                            print("🔘 Allow All Once button clicked (will only approve safe commands)")
+                            onApproveAll()
+                        }) {
+                            Label(
+                                dangerousCommandCount > 0 ? "Allow Safe Commands" : "Allow All Once",
+                                systemImage: "checkmark.circle"
+                            )
                             .font(.system(size: 12, weight: .medium))
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.green)
+                        .keyboardShortcut(.return, modifiers: .option)
+                        .help(dangerousCommandCount > 0
+                            ? "Option+Return: Allow safe commands only. Dangerous commands need individual approval."
+                            : "Option+Return: Allow all tools for this request only")
+                        .accessibilityLabel(dangerousCommandCount > 0 ? "Allow safe commands" : ApprovalAccessibility.allowAll)
+                        .accessibilityHint(dangerousCommandCount > 0
+                            ? "Approves safe commands. Dangerous commands still need individual approval."
+                            : "Allows all pending tool requests for this request only")
                     }
-                    .buttonStyle(.bordered)
-                    .tint(.green)
-                    .keyboardShortcut(.return, modifiers: .option)
-                    .help("Option+Return: Allow all tools for this request only")
-                    .accessibilityLabel(ApprovalAccessibility.allowAll)
-                    .accessibilityHint("Press Option+Return to allow all pending tool requests for this request only")
                 }
                 .padding(.top, 4)
             }
@@ -180,6 +247,9 @@ struct ApprovalRequestRow: View {
     /// Local state for remember toggle
     @State private var rememberForSession: Bool = false
 
+    /// Whether the arguments are expanded to show full content
+    @State private var isExpanded: Bool = false
+
     /// Accessibility state description
     private var stateDescription: String {
         switch request.state {
@@ -199,9 +269,18 @@ struct ApprovalRequestRow: View {
             // Tool info
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
+                    // Warning badge for dangerous commands
+                    if request.requiresExplicitApproval {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.red)
+                            .font(.system(size: 10))
+                            .help("This command requires careful review")
+                            .accessibilityLabel("Warning: requires careful review")
+                    }
+
                     Text(request.toolName)
                         .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundColor(.primary)
+                        .foregroundColor(request.requiresExplicitApproval ? .red : .primary)
 
                     Text(request.connectorId)
                         .font(.system(size: 10))
@@ -214,12 +293,47 @@ struct ApprovalRequestRow: View {
                 }
 
                 if !request.argumentsSummary.isEmpty && request.argumentsSummary != "(no arguments)" {
-                    Text(request.argumentsSummary)
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .accessibilityLabel("with arguments: \(request.argumentsSummary)")
+                    // Expandable arguments section
+                    VStack(alignment: .leading, spacing: 4) {
+                        Button(action: { isExpanded.toggle() }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.secondary)
+
+                                if isExpanded {
+                                    Text("Hide details")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.secondary)
+                                } else {
+                                    Text(request.argumentsSummary)
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .help("Click to \(isExpanded ? "hide" : "show") full command")
+
+                        // Expanded view with full command
+                        if isExpanded {
+                            Text(request.fullArguments)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundColor(.primary)
+                                .textSelection(.enabled)
+                                .padding(8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color(NSColor.textBackgroundColor))
+                                .cornerRadius(4)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                                )
+                        }
+                    }
+                    .accessibilityLabel("with arguments: \(request.fullArguments)")
                 }
             }
 
@@ -228,17 +342,19 @@ struct ApprovalRequestRow: View {
             // Action buttons (for single request)
             if request.needsAction {
                 HStack(spacing: 6) {
-                    // Remember checkbox
-                    Toggle(isOn: $rememberForSession) {
-                        EmptyView()
-                    }
-                    .toggleStyle(.checkbox)
-                    .labelsHidden()
-                    .help("Remember this approval for the session")
+                    // Remember checkbox - hidden for commands requiring explicit approval
+                    if !request.requiresExplicitApproval {
+                        Toggle(isOn: $rememberForSession) {
+                            EmptyView()
+                        }
+                        .toggleStyle(.checkbox)
+                        .labelsHidden()
+                        .help("Remember this approval for the session")
 
-                    Text("Remember for session")
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
+                        Text("Remember for session")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
 
                     // Deny button
                     Button(action: { onDeny() }) {
@@ -277,11 +393,20 @@ struct ApprovalRequestRow: View {
             }
         }
         .padding(10)
-        .background(isFocused ? Color.orange.opacity(0.1) : Color(NSColor.controlBackgroundColor))
+        .background(
+            request.requiresExplicitApproval
+                ? Color.red.opacity(0.08)
+                : (isFocused ? Color.orange.opacity(0.1) : Color(NSColor.controlBackgroundColor))
+        )
         .cornerRadius(8)
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(isFocused ? Color.orange.opacity(0.5) : Color.clear, lineWidth: 1)
+                .stroke(
+                    request.requiresExplicitApproval
+                        ? Color.red.opacity(0.3)
+                        : (isFocused ? Color.orange.opacity(0.5) : Color.clear),
+                    lineWidth: 1
+                )
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel(ApprovalAccessibility.toolPending(request.toolName))
@@ -357,7 +482,7 @@ enum ApprovalAccessibility {
 struct ToolApprovalView_Previews: PreviewProvider {
     static var previews: some View {
         VStack(spacing: 20) {
-            // Full approval view
+            // Full approval view - safe commands (shows "Remember for session" and "Allow All Once")
             ToolApprovalView(
                 requests: [
                     ApprovalRequestDisplayModel(
@@ -365,16 +490,41 @@ struct ToolApprovalView_Previews: PreviewProvider {
                         toolName: "github_search_issues",
                         connectorId: "github-mcp",
                         argumentsSummary: "query=bug, repo=extremis",
+                        fullArguments: "query=bug\nrepo=extremis",
                         state: .pending,
-                        rememberForSession: false
+                        rememberForSession: false,
+                        requiresExplicitApproval: false
                     ),
                     ApprovalRequestDisplayModel(
                         id: "2",
                         toolName: "slack_send_message",
                         connectorId: "slack-mcp",
                         argumentsSummary: "channel=#general, text=Hello",
+                        fullArguments: "channel=#general\ntext=Hello world, this is a longer message to test the expanded view",
                         state: .pending,
-                        rememberForSession: false
+                        rememberForSession: false,
+                        requiresExplicitApproval: false
+                    )
+                ],
+                onApprove: { _, _ in },
+                onDeny: { _ in },
+                onApproveAll: { }
+            )
+
+            Divider()
+
+            // Dangerous command - hides "Remember for session" and "Allow All Once"
+            ToolApprovalView(
+                requests: [
+                    ApprovalRequestDisplayModel(
+                        id: "3",
+                        toolName: "shell_execute",
+                        connectorId: "shell",
+                        argumentsSummary: "command=rm -rf /tmp/test",
+                        fullArguments: "command=rm -rf /tmp/test",
+                        state: .pending,
+                        rememberForSession: false,
+                        requiresExplicitApproval: true
                     )
                 ],
                 onApprove: { _, _ in },

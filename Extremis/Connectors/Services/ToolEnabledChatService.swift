@@ -119,8 +119,22 @@ final class ToolEnabledChatService {
                 availableTools: availableTools
             )
 
+            // If LLM requested tools but none could be resolved (e.g., connector disabled),
+            // make another call WITHOUT tools to force a text response
             if toolCalls.isEmpty {
-                print("⚠️ LLM returned tool calls but none could be resolved")
+                print("⚠️ LLM requested \(generation.toolCalls.count) tool(s) but none are available - making fallback call without tools")
+
+                // Make a follow-up call without tools to get a text response
+                var fallbackMessages = messagesForProvider
+                let unavailableToolNames = generation.toolCalls.map { $0.name }.joined(separator: ", ")
+                fallbackMessages.append(ChatMessage.system(
+                    "The tools you tried to use (\(unavailableToolNames)) are not currently available. " +
+                    "Please respond to the user's request without using tools, or explain that you cannot " +
+                    "complete the request because the required tools are disabled."
+                ))
+
+                let fallbackResponse = try await provider.generateChat(messages: fallbackMessages)
+                finalContent += fallbackResponse.content
                 break
             }
 
@@ -326,7 +340,27 @@ final class ToolEnabledChatService {
                             availableTools: availableTools
                         )
 
+                        // If LLM requested tools but none could be resolved (e.g., connector disabled),
+                        // make another call WITHOUT tools to force a text response
                         if toolCalls.isEmpty {
+                            print("⚠️ LLM requested \(streamedToolCalls.count) tool(s) but none are available - making fallback call without tools")
+
+                            // Make a follow-up call without tools to get a text response
+                            // Include context about what happened
+                            var fallbackMessages = messagesForProvider
+                            let unavailableToolNames = streamedToolCalls.map { $0.name }.joined(separator: ", ")
+                            fallbackMessages.append(ChatMessage.system(
+                                "The tools you tried to use (\(unavailableToolNames)) are not currently available. " +
+                                "Please respond to the user's request without using tools, or explain that you cannot " +
+                                "complete the request because the required tools are disabled."
+                            ))
+
+                            // Stream the fallback response
+                            for try await chunk in provider.generateChatStream(messages: fallbackMessages) {
+                                if shouldStop() { break }
+                                continuation.yield(.contentChunk(chunk))
+                                finalTextContent += chunk
+                            }
                             break
                         }
 
@@ -346,15 +380,54 @@ final class ToolEnabledChatService {
                         let deniedToolCalls: [ToolCall]
 
                         if allowAllOnceActive {
-                            // "Allow All Once" was used in a previous round - auto-approve all tools
-                            print("🔓 Auto-approving \(toolCalls.count) tools (Allow All Once active)")
-                            approvedToolCalls = toolCalls
-                            deniedToolCalls = []
+                            // "Allow All Once" was used in a previous round
+                            // BUT: Shell commands requiring explicit approval still need user confirmation
+                            let (canAutoApprove, needsExplicitApproval) = self.partitionToolCallsByApprovalRequirement(toolCalls)
 
-                            // Update UI state to approved
-                            for toolCall in approvedToolCalls {
-                                continuation.yield(.toolCallUpdated(toolCall.id, .approved, nil, nil))
-                                onToolCallUpdated(toolCall.id, .approved, nil, nil)
+                            if needsExplicitApproval.isEmpty {
+                                // All tools can be auto-approved
+                                print("🔓 Auto-approving \(toolCalls.count) tools (Allow All Once active)")
+                                approvedToolCalls = toolCalls
+                                deniedToolCalls = []
+
+                                // Update UI state to approved
+                                for toolCall in approvedToolCalls {
+                                    continuation.yield(.toolCallUpdated(toolCall.id, .approved, nil, nil))
+                                    onToolCallUpdated(toolCall.id, .approved, nil, nil)
+                                }
+                            } else {
+                                // Some tools require explicit approval even with "Allow All Once"
+                                print("🔐 \(needsExplicitApproval.count) tool(s) require explicit approval despite Allow All Once")
+
+                                // Auto-approve safe tools
+                                for toolCall in canAutoApprove {
+                                    continuation.yield(.toolCallUpdated(toolCall.id, .approved, nil, nil))
+                                    onToolCallUpdated(toolCall.id, .approved, nil, nil)
+                                }
+
+                                // Request approval for dangerous tools
+                                let approvalResult = await self.approvalManager.requestApproval(
+                                    for: needsExplicitApproval,
+                                    sessionMemory: sessionApprovalMemory,
+                                    sessionId: sessionId
+                                )
+
+                                // Combine results
+                                let explicitlyApproved = needsExplicitApproval.filter { approvalResult.approvedIds.contains($0.id) }
+                                let explicitlyDenied = needsExplicitApproval.filter { !approvalResult.approvedIds.contains($0.id) }
+
+                                approvedToolCalls = canAutoApprove + explicitlyApproved
+                                deniedToolCalls = explicitlyDenied
+
+                                // Update UI state for explicitly handled tools
+                                for toolCall in explicitlyApproved {
+                                    continuation.yield(.toolCallUpdated(toolCall.id, .approved, nil, nil))
+                                    onToolCallUpdated(toolCall.id, .approved, nil, nil)
+                                }
+                                for toolCall in explicitlyDenied {
+                                    continuation.yield(.toolCallUpdated(toolCall.id, .denied, "Denied by user", nil))
+                                    onToolCallUpdated(toolCall.id, .denied, "Denied by user", nil)
+                                }
                             }
                         } else {
                             // Check for cancellation before approval request
@@ -721,6 +794,49 @@ final class ToolEnabledChatService {
         default:
             return false
         }
+    }
+
+    /// Partition tool calls into those that can be auto-approved and those requiring explicit approval
+    /// Shell commands with dangerous operators or destructive commands always require explicit approval
+    /// - Parameter toolCalls: The tool calls to partition
+    /// - Returns: Tuple of (canAutoApprove, needsExplicitApproval)
+    private func partitionToolCallsByApprovalRequirement(_ toolCalls: [ToolCall]) -> (canAutoApprove: [ToolCall], needsExplicitApproval: [ToolCall]) {
+        var canAutoApprove: [ToolCall] = []
+        var needsExplicitApproval: [ToolCall] = []
+
+        for toolCall in toolCalls {
+            // Check if this is a shell command
+            if isShellToolCall(toolCall), let command = extractShellCommand(from: toolCall) {
+                // Check if the command requires explicit approval
+                if ShellCommandClassifier.requiresExplicitApproval(command) {
+                    needsExplicitApproval.append(toolCall)
+                    continue
+                }
+            }
+            // Non-shell tools or safe shell commands can be auto-approved
+            canAutoApprove.append(toolCall)
+        }
+
+        return (canAutoApprove, needsExplicitApproval)
+    }
+
+    /// Check if a tool call is a shell command
+    private func isShellToolCall(_ toolCall: ToolCall) -> Bool {
+        return toolCall.connectorID == "shell" ||
+               toolCall.toolName.contains("shell_execute") ||
+               toolCall.originalToolName == "execute"
+    }
+
+    /// Extract the shell command string from a tool call's arguments
+    private func extractShellCommand(from toolCall: ToolCall) -> String? {
+        guard isShellToolCall(toolCall) else { return nil }
+
+        if let commandValue = toolCall.arguments["command"],
+           case .string(let command) = commandValue {
+            return command
+        }
+
+        return nil
     }
 
 }
