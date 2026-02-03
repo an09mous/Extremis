@@ -212,6 +212,11 @@ run_test_suite "Shell Approval Security Tests" \
     "$PROJECT_DIR/Tests/Tools/Shell/ShellApprovalSecurityTests.swift" \
     "Foundation"
 
+# 23. GitHub Connector Tests (Built-in GitHub connector)
+run_test_suite "GitHub Connector Tests" \
+    "$PROJECT_DIR/Tests/Connectors/GitHubConnectorTests.swift" \
+    "Foundation"
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------
