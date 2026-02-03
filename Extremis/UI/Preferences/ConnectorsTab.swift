@@ -9,6 +9,7 @@ struct ConnectorsTab: View {
     @State private var editingServer: CustomMCPServerConfig?
     @State private var showingDeleteConfirmation = false
     @State private var serverToDelete: CustomMCPServerConfig?
+    @State private var showingSudoModeConfirmation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -72,6 +73,73 @@ struct ConnectorsTab: View {
                         )
                     }
                     .padding(.vertical, 8)
+
+                    // Security Settings Section
+                    Divider()
+                        .padding(.vertical, 8)
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Security Settings")
+                            .font(.headline)
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Toggle("", isOn: Binding(
+                                    get: { viewModel.isSudoModeEnabled },
+                                    set: { newValue in
+                                        if newValue {
+                                            showingSudoModeConfirmation = true
+                                        } else {
+                                            viewModel.disableSudoMode()
+                                        }
+                                    }
+                                ))
+                                .toggleStyle(.switch)
+                                .labelsHidden()
+
+                                Image(systemName: "exclamationmark.shield.fill")
+                                    .foregroundColor(viewModel.isSudoModeEnabled ? .red : .secondary)
+
+                                Text("Sudo Mode")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+
+                                if viewModel.isSudoModeEnabled {
+                                    Text("ACTIVE")
+                                        .font(.caption2)
+                                        .fontWeight(.bold)
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.red)
+                                        .cornerRadius(4)
+                                }
+
+                                Spacer()
+                            }
+
+                            Text("When enabled, ALL tool calls execute immediately without approval.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            if viewModel.isSudoModeEnabled {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundColor(.orange)
+                                        .font(.caption)
+                                    Text("Security bypassed. Tools run without review.")
+                                        .font(.caption)
+                                        .foregroundColor(.orange)
+                                }
+                            }
+                        }
+                        .padding(8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(viewModel.isSudoModeEnabled ? Color.red.opacity(0.08) : Color.primary.opacity(0.03))
+                        )
+                    }
+                    .padding(.vertical, 8)
                 }
             }
 
@@ -123,6 +191,17 @@ struct ConnectorsTab: View {
             }
         } message: { server in
             Text("Are you sure you want to delete '\(server.name)'? This action cannot be undone.")
+        }
+        .confirmationDialog(
+            "Enable Sudo Mode?",
+            isPresented: $showingSudoModeConfirmation
+        ) {
+            Button("Enable Sudo Mode", role: .destructive) {
+                viewModel.enableSudoMode()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("All tools will execute without approval. This bypasses security checks.")
         }
     }
 
@@ -527,6 +606,26 @@ final class ConnectorsTabViewModel: ObservableObject {
 
     var shellTools: [ConnectorTool] {
         registry.connector(id: "shell")?.tools ?? []
+    }
+
+    // MARK: - Sudo Mode
+
+    var isSudoModeEnabled: Bool {
+        UserDefaults.standard.sudoModeEnabled
+    }
+
+    func enableSudoMode() {
+        UserDefaults.standard.sudoModeEnabled = true
+        statusMessage = "Sudo Mode enabled"
+        isError = false
+        objectWillChange.send()
+    }
+
+    func disableSudoMode() {
+        UserDefaults.standard.sudoModeEnabled = false
+        statusMessage = "Sudo Mode disabled"
+        isError = false
+        objectWillChange.send()
     }
 
     // MARK: - Shell Connector Actions

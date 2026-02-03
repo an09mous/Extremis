@@ -287,13 +287,19 @@ final class PromptWindowController: NSWindowController {
         print("📋 PromptWindow: Starting new session")
         viewModel.cancelGeneration()
 
-        // Save the current context before reset (reset clears it)
+        // Save the current context and selection state before reset (reset clears them)
         let preservedContext = viewModel.currentContext
+        let preservedHasSelection = viewModel.hasSelection
+        let preservedHasContext = viewModel.hasContext
+        let preservedSelectedText = viewModel.selectedText
 
         viewModel.reset()
 
-        // Restore the context - it should persist until next hotkey invocation
+        // Restore the context and selection state - they persist until next hotkey invocation
         viewModel.currentContext = preservedContext
+        viewModel.hasSelection = preservedHasSelection
+        viewModel.hasContext = preservedHasContext
+        viewModel.selectedText = preservedSelectedText
         // Keep controller's currentContext as is (don't set to nil)
 
         await SessionManager.shared.startNewSession()
@@ -1511,13 +1517,15 @@ struct PromptContainerView: View {
                 } else {
                     // Input view with pinned commands
                     VStack(spacing: 0) {
-                        // Pinned commands bar
-                        PinnedCommandsBar(
-                            manager: viewModel.commandManager,
-                            onExecute: { command in
-                                viewModel.executeCommand(command)
-                            }
-                        )
+                        // Pinned commands bar (only show when there's selected text)
+                        if viewModel.hasSelection {
+                            PinnedCommandsBar(
+                                manager: viewModel.commandManager,
+                                onExecute: { command in
+                                    viewModel.executeCommand(command)
+                                }
+                            )
+                        }
 
                         PromptInputView(
                             instructionText: $viewModel.instructionText,
