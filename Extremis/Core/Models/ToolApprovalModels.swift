@@ -151,6 +151,10 @@ final class SessionApprovalMemory {
     /// Tool names approved with "remember for session"
     private(set) var approvedToolNames: Set<String> = []
 
+    /// Shell command patterns approved with "remember for session"
+    /// Patterns like "df *", "ls *" that match command executables
+    private(set) var approvedShellPatterns: Set<String> = []
+
     /// Session identifier
     let sessionId: String
 
@@ -172,14 +176,97 @@ final class SessionApprovalMemory {
         approvedToolNames.contains(toolName)
     }
 
+    // MARK: - Shell Pattern Support
+
+    /// Record a shell command pattern as approved for this session
+    /// - Parameter pattern: A pattern like "df *" or "ls *"
+    func rememberShellPattern(_ pattern: String) {
+        approvedShellPatterns.insert(pattern)
+    }
+
+    /// Check if a shell command matches an approved pattern
+    /// - Parameter command: The full command string (e.g., "df -h")
+    /// - Returns: Whether the command matches an approved pattern
+    ///
+    /// SECURITY: This is a critical security function. Pattern matching rules:
+    /// 1. Commands requiring explicit approval (operators, destructive) are NEVER auto-approved
+    /// 2. Destructive commands (rm, mv, kill, etc.) require EXACT command match
+    /// 3. Safe/read commands can use wildcard patterns (executable matches executable)
+    /// 4. Pattern must have been explicitly approved for this session
+    /// 5. Never allow cross-executable matching (df approval cannot approve rm)
+    func isShellCommandApproved(_ command: String) -> Bool {
+        // Extract executable from command
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        // SECURITY: Commands with dangerous operators ALWAYS require explicit approval
+        // Never auto-approve via session memory or "Allow All Once"
+        if ShellCommandClassifier.requiresExplicitApproval(trimmed) {
+            print("🔐 Command requires explicit approval (has operators or is destructive) - not auto-approving")
+            return false
+        }
+
+        let executable = extractShellExecutable(from: trimmed)
+
+        // SECURITY: Destructive commands require EXACT match only
+        // Never allow wildcard patterns for dangerous operations
+        let destructiveExecutables: Set<String> = [
+            "rm", "rmdir", "mv", "kill", "killall", "pkill",
+            "sudo", "su", "dscl", "security"  // Also block privileged
+        ]
+
+        if destructiveExecutables.contains(executable) {
+            // ONLY exact command match for destructive commands
+            // Do NOT check wildcard patterns - this is critical for security
+            let isApproved = approvedShellPatterns.contains(trimmed)
+            if isApproved {
+                print("🔐 Destructive command '\(executable)' matched exact pattern")
+            }
+            return isApproved
+        }
+
+        // For non-destructive commands, check wildcard pattern first
+        let wildcardPattern = "\(executable) *"
+        if approvedShellPatterns.contains(wildcardPattern) {
+            print("🔓 Command '\(executable)' matched wildcard pattern '\(wildcardPattern)'")
+            return true
+        }
+
+        // Also check exact command match (handles edge cases and exact approvals)
+        if approvedShellPatterns.contains(trimmed) {
+            print("🔓 Command matched exact pattern")
+            return true
+        }
+
+        return false
+    }
+
+    /// Extract the executable name from a shell command
+    private func extractShellExecutable(from command: String) -> String {
+        let firstWord = command.split(separator: " ", maxSplits: 1).first.map(String.init) ?? command
+
+        // Handle path prefixes (e.g., /usr/bin/ls -> ls)
+        if firstWord.contains("/") {
+            return (firstWord as NSString).lastPathComponent
+        }
+
+        return firstWord
+    }
+
     /// Clear all session approvals
     func clear() {
         approvedToolNames.removeAll()
+        approvedShellPatterns.removeAll()
     }
 
     /// Number of remembered tools
     var count: Int {
         approvedToolNames.count
+    }
+
+    /// Number of remembered shell patterns
+    var shellPatternCount: Int {
+        approvedShellPatterns.count
     }
 }
 

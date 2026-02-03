@@ -113,6 +113,9 @@ final class ConnectorRegistry: ObservableObject {
 
     /// Connect to all enabled connectors
     func connectAllEnabled() async {
+        // Register built-in connectors first
+        registerBuiltInConnectors()
+
         // Load configs and create connectors
         await loadCustomServers()
 
@@ -142,6 +145,18 @@ final class ConnectorRegistry: ObservableObject {
         // (This is safe since we're already on MainActor)
         for id in connectors.keys {
             await disconnect(connectorID: id)
+        }
+    }
+
+    // MARK: - Built-In Connectors
+
+    /// Register built-in connectors (Shell, etc.)
+    private func registerBuiltInConnectors() {
+        // Register ShellConnector if not already registered
+        if connectors["shell"] == nil {
+            let shellConnector = ShellConnector()
+            register(shellConnector)
+            print("[ConnectorRegistry] Registered built-in ShellConnector")
         }
     }
 
@@ -305,6 +320,26 @@ final class ConnectorRegistry: ObservableObject {
 
                         // Don't overwrite .disconnected with .error from cancelled requests
                         // This happens when disconnect() cancels pending operations
+                        if case .disconnected = currentState,
+                           case .error = newState {
+                            return
+                        }
+
+                        self.connectionStates[connector.id] = newState
+                        self.refreshAvailableTools()
+                    }
+                }
+            }
+        }
+
+        // For ShellConnector, observe Published state
+        if let shellConnector = connector as? ShellConnector {
+            Task {
+                for await newState in shellConnector.$state.values {
+                    await MainActor.run {
+                        let currentState = self.connectionStates[connector.id]
+
+                        // Don't overwrite .disconnected with .error from cancelled requests
                         if case .disconnected = currentState,
                            case .error = newState {
                             return
