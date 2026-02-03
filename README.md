@@ -30,10 +30,11 @@ A context-aware AI assistant for macOS that lives in your menu bar. Press a glob
 - **Context-Aware** - Commands automatically operate on selected text
 
 **Tool Execution (MCP)**
+- Built-in connectors: System Commands, GitHub (Copilot MCP), Web Fetch
 - Connect external tools via Model Context Protocol
 - Multi-turn agentic loops - AI can chain multiple tool calls
 - Human-in-loop approval with session memory
-- Works with any MCP-compatible server (filesystem, GitHub, databases, etc.)
+- Works with any MCP-compatible server (filesystem, databases, etc.)
 
 <img width="495" height="459" alt="image" src="https://github.com/user-attachments/assets/2de96c4c-8a81-41d7-8b1a-c976feede92f" />
 
@@ -134,7 +135,12 @@ Instantly summarize selected text with one keystroke. Does nothing without a sel
 
 ### MCP Tools (Optional)
 
-Configure external tools in `~/Library/Application Support/Extremis/mcp-servers.json`:
+**Built-in Connectors** (Preferences → Connectors):
+- **System Commands** - Execute macOS shell commands (enabled by default)
+- **GitHub** - Access repos, issues, PRs via Copilot MCP (requires GitHub PAT)
+- **Web Fetch** - Fetch and process web content (enabled by default)
+
+**Custom MCP Servers** - Configure in `~/Library/Application Support/Extremis/mcp-servers.json`:
 
 ```json
 {
