@@ -26,8 +26,14 @@ struct ChatView: View {
         GeometryReader { geometry in
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 16) {
-                        // Display all completed messages (lazy loading for performance)
+                    // NOTE: Using VStack (not LazyVStack) intentionally.
+                    // LazyVStack is incompatible with bottom-aligned content because it only renders
+                    // content in the visible viewport. With `.frame(alignment: .bottom)`, content is
+                    // pushed to the bottom, but if scroll starts at top, LazyVStack won't render it
+                    // → blank screen. This is a known SwiftUI limitation for chat-style UIs.
+                    // See: https://developer.apple.com/forums/thread/741406
+                    VStack(spacing: 16) {
+                        // Display all completed messages
                         ForEach(Array(session.messages.enumerated()), id: \.element.id) { index, message in
                             ChatMessageView(
                                 message: message,
@@ -76,6 +82,10 @@ struct ChatView: View {
                     // Always scroll when new message is added
                     scrollToBottomAfterLayout(proxy: proxy)
                 }
+                .onChange(of: session.id) { _ in
+                    // Scroll to bottom when session changes
+                    scrollToBottomAfterLayout(proxy: proxy)
+                }
                 .onChange(of: isGenerating) { generating in
                     if generating {
                         // Reset tracking when generation starts
@@ -108,7 +118,7 @@ struct ChatView: View {
 
     /// Scroll to bottom after giving SwiftUI time to complete layout
     private func scrollToBottomAfterLayout(proxy: ScrollViewProxy, animated: Bool = true) {
-        // Delay scroll slightly to ensure layout is complete
+        // Small delay to ensure layout is complete
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             scrollToBottom(proxy: proxy, animated: animated)
         }
