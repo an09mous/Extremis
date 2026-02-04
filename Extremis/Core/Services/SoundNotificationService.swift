@@ -18,7 +18,7 @@ final class SoundNotificationService {
     // MARK: - Private Properties
 
     /// Sound used for all notification types
-    private let notificationSound = "Pop"
+    private let notificationSound = "Funk"
 
     private init() {}
 

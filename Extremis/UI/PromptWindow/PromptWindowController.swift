@@ -1429,7 +1429,9 @@ struct PromptContainerView: View {
 
                     Divider()
                 }
-                .transition(.move(edge: .leading).combined(with: .opacity))
+                // Use simple move transition without opacity for smoother performance
+                // Opacity animations on container views trigger expensive redraws
+                .transition(.move(edge: .leading))
             }
 
             // Main content
@@ -1437,7 +1439,9 @@ struct PromptContainerView: View {
                 // Header - ChatGPT style minimal icons
                 HStack(spacing: 12) {
                     // Sidebar toggle (ChatGPT style - two rectangles)
-                    Button(action: { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { showSidebar.toggle() } }) {
+                    // Use lightweight easeOut animation instead of spring for smoother sidebar toggle
+                    // Spring animations with dampingFraction cause multiple redraws during bounce
+                    Button(action: { withAnimation(.easeOut(duration: 0.2)) { showSidebar.toggle() } }) {
                         Image(systemName: "sidebar.left")
                             .font(.system(size: 16))
                             .foregroundColor(.secondary)

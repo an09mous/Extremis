@@ -49,36 +49,40 @@ struct SessionListView: View {
                 }
                 Spacer()
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 2) {
-                        // Draft session row (if exists)
-                        if sessionManager.hasDraftSession {
-                            DraftSessionRow(
-                                isActive: true,  // Draft is always the current session
-                                isDisabled: sessionManager.isAnySessionGenerating,
-                                onSelect: { /* Already active, no-op */ }
-                            )
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .top).combined(with: .opacity),
-                                removal: .opacity
-                            ))
-                        }
-
-                        // Persisted sessions
-                        ForEach(sessions) { entry in
-                            SessionRowView(
-                                entry: entry,
-                                // Not active if we have a draft (draft takes precedence)
-                                isActive: !sessionManager.hasDraftSession && entry.id == sessionManager.currentSessionId,
-                                isDisabled: sessionManager.isAnySessionGenerating && entry.id != sessionManager.generatingSessionId,
-                                onSelect: { onSelectSession(entry.id) },
-                                onDelete: { onDeleteSession(entry.id) }
-                            )
-                        }
+                // Use List for better view reuse and memory management
+                // List is built on UICollectionView (iOS 16+) which handles virtualization natively
+                List {
+                    // Draft session row (if exists)
+                    if sessionManager.hasDraftSession {
+                        DraftSessionRow(
+                            isActive: true,  // Draft is always the current session
+                            isDisabled: sessionManager.isAnySessionGenerating,
+                            onSelect: { /* Already active, no-op */ }
+                        )
+                        .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .transition(.opacity)
                     }
-                    .padding(.vertical, 4)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.8), value: sessionManager.hasDraftSession)
+
+                    // Persisted sessions
+                    ForEach(sessions) { entry in
+                        SessionRowView(
+                            entry: entry,
+                            // Not active if we have a draft (draft takes precedence)
+                            isActive: !sessionManager.hasDraftSession && entry.id == sessionManager.currentSessionId,
+                            isDisabled: sessionManager.isAnySessionGenerating && entry.id != sessionManager.generatingSessionId,
+                            onSelect: { onSelectSession(entry.id) },
+                            onDelete: { onDeleteSession(entry.id) }
+                        )
+                        .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                    }
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .animation(.easeInOut(duration: 0.2), value: sessionManager.hasDraftSession)
             }
 
             if let error = errorMessage {

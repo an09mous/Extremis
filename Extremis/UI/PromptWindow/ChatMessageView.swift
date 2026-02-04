@@ -151,9 +151,9 @@ struct ChatMessageView: View {
             if !isUser { Spacer(minLength: 40) }
         }
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
-                isHovering = hovering
-            }
+            // Remove animation wrapper to reduce re-renders during hover
+            // The opacity transition on buttons provides sufficient visual feedback
+            isHovering = hovering
         }
         .sheet(isPresented: $showContextSheet) {
             if let ctx = context {
@@ -381,9 +381,9 @@ struct StreamingMessageView: View {
             Spacer(minLength: 40)
         }
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
-                isHovering = hovering
-            }
+            // Remove animation wrapper to reduce re-renders during hover
+            // The opacity transition on buttons provides sufficient visual feedback
+            isHovering = hovering
         }
     }
 
