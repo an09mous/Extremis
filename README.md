@@ -93,6 +93,14 @@ To use a remote Ollama server, update the base URL in Preferences.
 
 Instantly summarize selected text with one keystroke. Does nothing without a selection.
 
+### Commands
+
+- **Pinned Commands Bar** — One-click access to frequently used prompts (Proofread, Professionalize, Simplify, Explain Code) shown above the input field
+- **Command Palette** — Type `/` in the input field to search and execute any command with keyboard navigation
+- **Custom Commands** — Create your own reusable prompt templates in **Preferences → Commands**
+
+Commands automatically operate on selected text when available.
+
 ### MCP Tools
 
 **Built-in connectors** (Preferences → Connectors):
