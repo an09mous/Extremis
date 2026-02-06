@@ -155,6 +155,24 @@ public actor ProcessTransport: Transport {
             environment[key] = value
         }
 
+        // Ensure common tool paths are in PATH so spawned processes can find
+        // dependencies (e.g., npx needs to find node). GUI apps on macOS have
+        // a minimal PATH that often lacks Homebrew, nvm, volta, etc.
+        let commonPaths = [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            NSHomeDirectory() + "/.nvm/current/bin",
+            NSHomeDirectory() + "/.volta/bin",
+            NSHomeDirectory() + "/.local/bin",
+            "/opt/local/bin",
+        ]
+        let currentPath = environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        let currentPathDirs = Set(currentPath.split(separator: ":").map(String.init))
+        let missingPaths = commonPaths.filter { !currentPathDirs.contains($0) && FileManager.default.fileExists(atPath: $0) }
+        if !missingPaths.isEmpty {
+            environment["PATH"] = (missingPaths + [currentPath]).joined(separator: ":")
+        }
+
         // Force unbuffered stdout for Node.js processes
         // Without this, Node.js buffers output when stdout is not a TTY
         environment["NODE_OPTIONS"] = (environment["NODE_OPTIONS"] ?? "") + " --no-warnings"

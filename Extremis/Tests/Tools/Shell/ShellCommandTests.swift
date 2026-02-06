@@ -115,7 +115,10 @@ enum ShellCommandClassifier {
 
     static let writeCommands: Set<String> = [
         "mkdir", "touch", "cp", "chmod", "chown", "chgrp", "ln",
-        "tar", "zip", "unzip", "gzip", "gunzip", "bzip2", "xz"
+        "tar", "zip", "unzip", "gzip", "gunzip", "bzip2", "xz",
+        "curl", "wget", "tee", "dd", "install", "rsync", "ditto",
+        "pbpaste", "npm", "yarn", "pip", "pip3", "brew", "git",
+        "python", "python3", "ruby", "node", "perl"
     ]
 
     static let destructiveCommands: Set<String> = [
@@ -137,6 +140,12 @@ enum ShellCommandClassifier {
         "\0"
     ]
 
+    private static let writeIndicators: [String] = [
+        ">",
+        ">>",
+        "| tee",
+    ]
+
     static func classify(_ command: String) -> CommandRiskLevel {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .read }
@@ -153,6 +162,12 @@ enum ShellCommandClassifier {
 
         if writeCommands.contains(executable) {
             return .write
+        }
+
+        for indicator in writeIndicators {
+            if trimmed.contains(indicator) {
+                return .write
+            }
         }
 
         if readCommands.contains(executable) {
@@ -331,6 +346,29 @@ func testClassify_PrivilegedCommands() {
     TestRunner.assertEqual(ShellCommandClassifier.classify("sudo ls"), .privileged, "sudo is privileged")
     TestRunner.assertEqual(ShellCommandClassifier.classify("su -"), .privileged, "su is privileged")
     TestRunner.assertEqual(ShellCommandClassifier.classify("dscl . -list /Users"), .privileged, "dscl is privileged")
+}
+
+func testClassify_WriteCommandsExpanded() {
+    TestRunner.setGroup("Risk Classification - Expanded Write Commands")
+
+    TestRunner.assertEqual(ShellCommandClassifier.classify("curl -o file.txt https://example.com"), .write, "curl is write")
+    TestRunner.assertEqual(ShellCommandClassifier.classify("wget https://example.com"), .write, "wget is write")
+    TestRunner.assertEqual(ShellCommandClassifier.classify("python3 script.py"), .write, "python3 is write")
+    TestRunner.assertEqual(ShellCommandClassifier.classify("node script.js"), .write, "node is write")
+    TestRunner.assertEqual(ShellCommandClassifier.classify("git clone https://repo.git"), .write, "git is write")
+    TestRunner.assertEqual(ShellCommandClassifier.classify("npm install package"), .write, "npm is write")
+    TestRunner.assertEqual(ShellCommandClassifier.classify("brew install tool"), .write, "brew is write")
+    TestRunner.assertEqual(ShellCommandClassifier.classify("pip3 install package"), .write, "pip3 is write")
+}
+
+func testClassify_WriteIndicators() {
+    TestRunner.setGroup("Risk Classification - Write Indicators")
+
+    TestRunner.assertEqual(ShellCommandClassifier.classify("echo hello > ~/Downloads/file.txt"), .write, "Output redirect is write")
+    TestRunner.assertEqual(ShellCommandClassifier.classify("echo hello >> ~/Downloads/file.txt"), .write, "Append redirect is write")
+    TestRunner.assertEqual(ShellCommandClassifier.classify("ls -la | tee output.txt"), .write, "Pipe to tee is write")
+    TestRunner.assertEqual(ShellCommandClassifier.classify("cat file > /tmp/output"), .write, "cat with redirect is write (not read)")
+    TestRunner.assertEqual(ShellCommandClassifier.classify("date > ~/Downloads/timestamp.txt"), .write, "safe command with redirect is write")
 }
 
 func testClassify_UnknownDefaultsToRead() {
@@ -604,6 +642,8 @@ struct ShellCommandTestRunner {
         testClassify_WriteCommands()
         testClassify_DestructiveCommands()
         testClassify_PrivilegedCommands()
+        testClassify_WriteCommandsExpanded()
+        testClassify_WriteIndicators()
         testClassify_UnknownDefaultsToRead()
         testClassify_PathPrefixes()
         testClassify_EmptyCommand()

@@ -1336,6 +1336,12 @@ final class PromptViewModel: ObservableObject {
                     let totalCalls = completedToolRounds.reduce(0) { $0 + $1.toolCalls.count }
                     print("🔧 Persisted \(completedToolRounds.count) tool rounds (\(totalCalls) calls), finalContent: '\(contentToSave.prefix(50))...'")
                 }
+            } else {
+                // LLM returned empty text with no tool calls - show a fallback message
+                let emptyMessage = "[No response generated. Try rephrasing your request.]"
+                sess.addAssistantMessage(emptyMessage)
+                self.response = emptyMessage
+                print("⚠️ Generation completed with empty response - showing fallback message")
             }
             sess.clearStreamingContent()
 
