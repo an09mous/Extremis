@@ -115,7 +115,10 @@ enum ShellCommandClassifier {
     /// Commands that modify filesystem
     static let writeCommands: Set<String> = [
         "mkdir", "touch", "cp", "chmod", "chown", "chgrp", "ln",
-        "tar", "zip", "unzip", "gzip", "gunzip", "bzip2", "xz"
+        "tar", "zip", "unzip", "gzip", "gunzip", "bzip2", "xz",
+        "curl", "wget", "tee", "dd", "install", "rsync", "ditto",
+        "pbpaste", "npm", "yarn", "pip", "pip3", "brew", "git",
+        "python", "python3", "ruby", "node", "perl"
     ]
 
     /// Commands that are destructive
@@ -157,6 +160,14 @@ enum ShellCommandClassifier {
 
     // MARK: - Classification
 
+    /// Shell patterns that indicate the command intends to write to the filesystem
+    /// When present, the command should bypass the read-only sandbox
+    private static let writeIndicators: [String] = [
+        ">",     // Output redirection (overwrite)
+        ">>",    // Output redirection (append)
+        "| tee", // Pipe to tee (writes to file)
+    ]
+
     /// Classify a command by its risk level
     /// - Parameter command: The full command string
     /// - Returns: The risk level of the command
@@ -178,6 +189,15 @@ enum ShellCommandClassifier {
 
         if writeCommands.contains(executable) {
             return .write
+        }
+
+        // Check for write indicators (output redirection, tee, etc.)
+        // These mean the command intends to write to the filesystem
+        // regardless of the executable being a "read" or "safe" command
+        for indicator in writeIndicators {
+            if trimmed.contains(indicator) {
+                return .write
+            }
         }
 
         if readCommands.contains(executable) {
