@@ -207,26 +207,31 @@ final class ToolEnabledChatService {
         onToolCallsStarted: @escaping ([ChatToolCall]) -> Void,
         onToolCallUpdated: @escaping (String, ToolCallState, String?, TimeInterval?) -> Void
     ) -> AsyncThrowingStream<ToolEnabledGenerationEvent, Error> {
-        // Use a class to share cancellation state between the stream and its internal Task
-        // This is needed because Task {} doesn't inherit cancellation from the stream consumer
-        final class CancellationState: @unchecked Sendable {
+        // Use a class to share state between the stream and its internal Task
+        // This is needed because Task {} doesn't inherit cancellation from the stream consumer.
+        // Also stores the producer Task reference so we can cancel it when the stream terminates.
+        // Cancelling the producer Task is critical: without it, withTaskCancellationHandler.onCancel
+        // in waitForUserDecisions never fires, leaving currentApprovalBatch stale.
+        final class StreamState: @unchecked Sendable {
             var isCancelled = false
+            var producerTask: Task<Void, Never>?
         }
-        let cancellationState = CancellationState()
+        let streamState = StreamState()
 
         return AsyncThrowingStream { continuation in
             // Set up termination handler to detect when stream consumer cancels
             continuation.onTermination = { termination in
                 if case .cancelled = termination {
-                    cancellationState.isCancelled = true
-                    print("🛑 Stream terminated (cancelled) - marking internal state")
+                    streamState.isCancelled = true
+                    streamState.producerTask?.cancel()
+                    print("🛑 Stream terminated (cancelled) - marking internal state and cancelling producer")
                 }
             }
 
-            Task {
+            streamState.producerTask = Task {
                 // Helper to check if we should stop (either Task cancelled OR stream cancelled)
                 func shouldStop() -> Bool {
-                    Task.isCancelled || cancellationState.isCancelled
+                    Task.isCancelled || streamState.isCancelled
                 }
 
                 // Track resolved tool calls for persistence - declared outside do block for catch access
