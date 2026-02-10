@@ -189,43 +189,44 @@ struct MockMessage {
 // MARK: - Mock Generation State Tracker
 
 /// Simplified version of SessionManager's generation state tracking for testing
+/// Updated for multi-session concurrent generation support
 class GenerationStateTracker {
-    private(set) var isAnySessionGenerating: Bool = false
-    private(set) var generatingSessionId: UUID? = nil
+    private(set) var generatingSessionIds: Set<UUID> = []
+    let maxConcurrentGenerations: Int = 3
 
-    /// Register that a session is actively generating (blocks session switching)
-    func registerActiveGeneration(sessionId: UUID) {
-        isAnySessionGenerating = true
-        generatingSessionId = sessionId
+    var isAnySessionGenerating: Bool { !generatingSessionIds.isEmpty }
+    var canStartGeneration: Bool { generatingSessionIds.count < maxConcurrentGenerations }
+
+    /// Register that a session is actively generating
+    @discardableResult
+    func registerActiveGeneration(sessionId: UUID) -> Bool {
+        guard generatingSessionIds.count < maxConcurrentGenerations else { return false }
+        generatingSessionIds.insert(sessionId)
+        return true
     }
 
-    /// Unregister when generation completes (re-enables session switching)
+    /// Unregister when generation completes
     func unregisterActiveGeneration(sessionId: UUID) {
-        // Only clear if this is the session that was generating
-        if generatingSessionId == sessionId {
-            isAnySessionGenerating = false
-            generatingSessionId = nil
-        }
+        generatingSessionIds.remove(sessionId)
     }
 
-    /// Check if session switching should be blocked
+    /// Session switching is always allowed with concurrent sessions
     func canSwitchSession() -> Bool {
-        !isAnySessionGenerating
+        true
     }
 
-    /// Check if starting a new session is allowed
+    /// New session creation is always allowed with concurrent sessions
     func canStartNewSession() -> Bool {
-        !isAnySessionGenerating
+        true
     }
 
-    /// Check if a specific session row should be disabled
-    func isSessionRowDisabled(sessionId: UUID) -> Bool {
-        isAnySessionGenerating && sessionId != generatingSessionId
+    /// Check if a specific session is generating
+    func isSessionGenerating(_ sessionId: UUID) -> Bool {
+        generatingSessionIds.contains(sessionId)
     }
 
     func reset() {
-        isAnySessionGenerating = false
-        generatingSessionId = nil
+        generatingSessionIds.removeAll()
     }
 }
 
@@ -248,7 +249,7 @@ func testGenerationState_InitialState() {
     setupTracker()
 
     TestRunner.assertFalse(tracker.isAnySessionGenerating, "Initially no session generating")
-    TestRunner.assertNil(tracker.generatingSessionId, "Initially no generating session ID")
+    TestRunner.assertEqual(tracker.generatingSessionIds.count, 0, "Initially no generating session IDs")
     TestRunner.assertTrue(tracker.canSwitchSession(), "Can switch session initially")
     TestRunner.assertTrue(tracker.canStartNewSession(), "Can start new session initially")
 
@@ -263,9 +264,9 @@ func testGenerationState_RegisterGeneration() {
     tracker.registerActiveGeneration(sessionId: sessionId)
 
     TestRunner.assertTrue(tracker.isAnySessionGenerating, "Generation flag set")
-    TestRunner.assertEqual(tracker.generatingSessionId, sessionId, "Generating session ID set")
-    TestRunner.assertFalse(tracker.canSwitchSession(), "Cannot switch during generation")
-    TestRunner.assertFalse(tracker.canStartNewSession(), "Cannot start new during generation")
+    TestRunner.assertTrue(tracker.isSessionGenerating(sessionId), "Session is generating")
+    TestRunner.assertTrue(tracker.canSwitchSession(), "Can always switch with concurrent sessions")
+    TestRunner.assertTrue(tracker.canStartNewSession(), "Can always start new with concurrent sessions")
 
     teardownTracker()
 }
@@ -279,7 +280,7 @@ func testGenerationState_UnregisterGeneration() {
     tracker.unregisterActiveGeneration(sessionId: sessionId)
 
     TestRunner.assertFalse(tracker.isAnySessionGenerating, "Generation flag cleared")
-    TestRunner.assertNil(tracker.generatingSessionId, "Generating session ID cleared")
+    TestRunner.assertFalse(tracker.isSessionGenerating(sessionId), "Session no longer generating")
     TestRunner.assertTrue(tracker.canSwitchSession(), "Can switch after generation")
     TestRunner.assertTrue(tracker.canStartNewSession(), "Can start new after generation")
 
@@ -298,8 +299,9 @@ func testGenerationState_UnregisterWrongSession() {
 
     // State should remain unchanged because the wrong session tried to unregister
     TestRunner.assertTrue(tracker.isAnySessionGenerating, "Generation flag still set")
-    TestRunner.assertEqual(tracker.generatingSessionId, sessionId1, "Original session ID preserved")
-    TestRunner.assertFalse(tracker.canSwitchSession(), "Still cannot switch")
+    TestRunner.assertTrue(tracker.isSessionGenerating(sessionId1), "Original session still generating")
+    TestRunner.assertFalse(tracker.isSessionGenerating(sessionId2), "Wrong session not generating")
+    TestRunner.assertTrue(tracker.canSwitchSession(), "Can always switch with concurrent sessions")
 
     teardownTracker()
 }
@@ -310,40 +312,41 @@ func testGenerationState_MultipleRegistersSameSession() {
 
     let sessionId = UUID()
 
-    // Register multiple times (shouldn't break anything)
+    // Register multiple times (idempotent - Set ignores duplicates)
     tracker.registerActiveGeneration(sessionId: sessionId)
     tracker.registerActiveGeneration(sessionId: sessionId)
     tracker.registerActiveGeneration(sessionId: sessionId)
 
     TestRunner.assertTrue(tracker.isAnySessionGenerating, "Still generating")
-    TestRunner.assertEqual(tracker.generatingSessionId, sessionId, "Session ID correct")
+    TestRunner.assertTrue(tracker.isSessionGenerating(sessionId), "Session is generating")
+    TestRunner.assertEqual(tracker.generatingSessionIds.count, 1, "Only one entry in set (idempotent)")
 
     // Single unregister should clear
     tracker.unregisterActiveGeneration(sessionId: sessionId)
 
     TestRunner.assertFalse(tracker.isAnySessionGenerating, "Generation cleared")
-    TestRunner.assertNil(tracker.generatingSessionId, "Session ID cleared")
+    TestRunner.assertEqual(tracker.generatingSessionIds.count, 0, "No generating sessions")
 
     teardownTracker()
 }
 
-// MARK: - Session Row Disabled State Tests
+// MARK: - Session Generating State Tests
 
-func testSessionRowDisabled_NoGeneration() {
-    TestRunner.setGroup("Session Row Disabled - No Generation")
+func testSessionGenerating_NoGeneration() {
+    TestRunner.setGroup("Session Generating - No Generation")
     setupTracker()
 
     let session1 = UUID()
     let session2 = UUID()
 
-    TestRunner.assertFalse(tracker.isSessionRowDisabled(sessionId: session1), "Session 1 not disabled")
-    TestRunner.assertFalse(tracker.isSessionRowDisabled(sessionId: session2), "Session 2 not disabled")
+    TestRunner.assertFalse(tracker.isSessionGenerating(session1), "Session 1 not generating")
+    TestRunner.assertFalse(tracker.isSessionGenerating(session2), "Session 2 not generating")
 
     teardownTracker()
 }
 
-func testSessionRowDisabled_DuringGeneration() {
-    TestRunner.setGroup("Session Row Disabled - During Generation")
+func testSessionGenerating_DuringGeneration() {
+    TestRunner.setGroup("Session Generating - During Generation")
     setupTracker()
 
     let generatingSession = UUID()
@@ -352,27 +355,28 @@ func testSessionRowDisabled_DuringGeneration() {
 
     tracker.registerActiveGeneration(sessionId: generatingSession)
 
-    // Generating session should NOT be disabled (it's the active one)
+    // Only the generating session should report generating
+    TestRunner.assertTrue(
+        tracker.isSessionGenerating(generatingSession),
+        "Generating session reports generating"
+    )
     TestRunner.assertFalse(
-        tracker.isSessionRowDisabled(sessionId: generatingSession),
-        "Generating session not disabled"
+        tracker.isSessionGenerating(otherSession1),
+        "Other session 1 not generating"
+    )
+    TestRunner.assertFalse(
+        tracker.isSessionGenerating(otherSession2),
+        "Other session 2 not generating"
     )
 
-    // Other sessions SHOULD be disabled
-    TestRunner.assertTrue(
-        tracker.isSessionRowDisabled(sessionId: otherSession1),
-        "Other session 1 is disabled"
-    )
-    TestRunner.assertTrue(
-        tracker.isSessionRowDisabled(sessionId: otherSession2),
-        "Other session 2 is disabled"
-    )
+    // All sessions are always clickable (no disabled state)
+    TestRunner.assertTrue(tracker.canSwitchSession(), "Can always switch sessions")
 
     teardownTracker()
 }
 
-func testSessionRowDisabled_AfterGenerationComplete() {
-    TestRunner.setGroup("Session Row Disabled - After Generation Complete")
+func testSessionGenerating_AfterGenerationComplete() {
+    TestRunner.setGroup("Session Generating - After Generation Complete")
     setupTracker()
 
     let generatingSession = UUID()
@@ -381,14 +385,14 @@ func testSessionRowDisabled_AfterGenerationComplete() {
     tracker.registerActiveGeneration(sessionId: generatingSession)
     tracker.unregisterActiveGeneration(sessionId: generatingSession)
 
-    // All sessions should be enabled again
+    // No sessions should be generating
     TestRunner.assertFalse(
-        tracker.isSessionRowDisabled(sessionId: generatingSession),
-        "Previous generating session not disabled"
+        tracker.isSessionGenerating(generatingSession),
+        "Previous generating session no longer generating"
     )
     TestRunner.assertFalse(
-        tracker.isSessionRowDisabled(sessionId: otherSession),
-        "Other session not disabled"
+        tracker.isSessionGenerating(otherSession),
+        "Other session not generating"
     )
 
     teardownTracker()
@@ -396,20 +400,19 @@ func testSessionRowDisabled_AfterGenerationComplete() {
 
 // MARK: - Session Switching Block Tests
 
-func testSessionSwitching_BlockedDuringGeneration() {
-    TestRunner.setGroup("Session Switching - Blocked During Generation")
+func testSessionSwitching_AllowedDuringGeneration() {
+    TestRunner.setGroup("Session Switching - Allowed During Generation")
     setupTracker()
 
     let currentSession = UUID()
-    _ = UUID()  // Target session we'd try to switch to
 
     // Start generation on current session
     tracker.registerActiveGeneration(sessionId: currentSession)
 
-    // Simulate trying to switch to another session
+    // With concurrent sessions, switching is always allowed
     let canSwitch = tracker.canSwitchSession()
 
-    TestRunner.assertFalse(canSwitch, "Switching blocked during generation")
+    TestRunner.assertTrue(canSwitch, "Switching allowed during generation (concurrent sessions)")
 
     teardownTracker()
 }
@@ -446,14 +449,15 @@ func testSessionSwitching_AllowedAfterCompletion() {
 
 // MARK: - New Session Block Tests
 
-func testNewSession_BlockedDuringGeneration() {
-    TestRunner.setGroup("New Session - Blocked During Generation")
+func testNewSession_AllowedDuringGeneration() {
+    TestRunner.setGroup("New Session - Allowed During Generation")
     setupTracker()
 
     let currentSession = UUID()
     tracker.registerActiveGeneration(sessionId: currentSession)
 
-    TestRunner.assertFalse(tracker.canStartNewSession(), "New session blocked during generation")
+    // With concurrent sessions, new session creation is always allowed
+    TestRunner.assertTrue(tracker.canStartNewSession(), "New session allowed during generation (concurrent sessions)")
 
     teardownTracker()
 }
@@ -487,7 +491,7 @@ func testEdgeCase_RapidRegisterUnregister() {
     tracker.unregisterActiveGeneration(sessionId: session2)
 
     TestRunner.assertFalse(tracker.isAnySessionGenerating, "No generation after rapid sequence")
-    TestRunner.assertNil(tracker.generatingSessionId, "No session ID after rapid sequence")
+    TestRunner.assertEqual(tracker.generatingSessionIds.count, 0, "No generating sessions after rapid sequence")
     TestRunner.assertTrue(tracker.canSwitchSession(), "Can switch after rapid sequence")
 
     teardownTracker()
@@ -504,7 +508,7 @@ func testEdgeCase_UnregisterWithoutRegister() {
 
     // Should remain in initial state
     TestRunner.assertFalse(tracker.isAnySessionGenerating, "Still not generating")
-    TestRunner.assertNil(tracker.generatingSessionId, "Still no session ID")
+    TestRunner.assertEqual(tracker.generatingSessionIds.count, 0, "No generating sessions")
     TestRunner.assertTrue(tracker.canSwitchSession(), "Still can switch")
 
     teardownTracker()
@@ -522,34 +526,43 @@ func testEdgeCase_DoubleUnregister() {
 
     // Should remain in cleared state
     TestRunner.assertFalse(tracker.isAnySessionGenerating, "Not generating after double unregister")
-    TestRunner.assertNil(tracker.generatingSessionId, "No session ID after double unregister")
+    TestRunner.assertEqual(tracker.generatingSessionIds.count, 0, "No generating sessions after double unregister")
 
     teardownTracker()
 }
 
-func testEdgeCase_RegisterDifferentSessionWhileGenerating() {
-    TestRunner.setGroup("Edge Case - Register Different Session While Generating")
+func testEdgeCase_RegisterMultipleSessionsConcurrently() {
+    TestRunner.setGroup("Edge Case - Register Multiple Sessions Concurrently")
     setupTracker()
 
     let session1 = UUID()
     let session2 = UUID()
+    let session3 = UUID()
 
-    // This edge case tests what happens if (incorrectly) another session tries to register
-    // In practice, this shouldn't happen due to UI blocking, but test the behavior
+    // With concurrent sessions, multiple sessions can generate simultaneously
     tracker.registerActiveGeneration(sessionId: session1)
-    tracker.registerActiveGeneration(sessionId: session2)  // Overwrites session1
+    tracker.registerActiveGeneration(sessionId: session2)
 
-    // The second registration overwrites (this is the current implementation)
     TestRunner.assertTrue(tracker.isAnySessionGenerating, "Still generating")
-    TestRunner.assertEqual(tracker.generatingSessionId, session2, "Session 2 is now the generating one")
+    TestRunner.assertTrue(tracker.isSessionGenerating(session1), "Session 1 is generating")
+    TestRunner.assertTrue(tracker.isSessionGenerating(session2), "Session 2 is generating")
+    TestRunner.assertEqual(tracker.generatingSessionIds.count, 2, "Two sessions generating")
 
-    // Unregister session2 should clear
+    // Add a third
+    tracker.registerActiveGeneration(sessionId: session3)
+    TestRunner.assertEqual(tracker.generatingSessionIds.count, 3, "Three sessions generating")
+
+    // Unregister session2 — session1 and session3 remain
     tracker.unregisterActiveGeneration(sessionId: session2)
-    TestRunner.assertFalse(tracker.isAnySessionGenerating, "Generation cleared")
+    TestRunner.assertTrue(tracker.isSessionGenerating(session1), "Session 1 still generating")
+    TestRunner.assertFalse(tracker.isSessionGenerating(session2), "Session 2 no longer generating")
+    TestRunner.assertTrue(tracker.isSessionGenerating(session3), "Session 3 still generating")
+    TestRunner.assertEqual(tracker.generatingSessionIds.count, 2, "Two sessions still generating")
 
-    // But session1's unregister won't do anything now
+    // Unregister remaining
     tracker.unregisterActiveGeneration(sessionId: session1)
-    TestRunner.assertFalse(tracker.isAnySessionGenerating, "Still not generating")
+    tracker.unregisterActiveGeneration(sessionId: session3)
+    TestRunner.assertFalse(tracker.isAnySessionGenerating, "No sessions generating")
 
     teardownTracker()
 }
@@ -568,14 +581,14 @@ func testWorkflow_QuickModeGeneration() {
 
     // 2. Generation starts (register)
     tracker.registerActiveGeneration(sessionId: sessionId)
-    TestRunner.assertFalse(tracker.canSwitchSession(), "Cannot switch during generation")
-    TestRunner.assertTrue(tracker.isSessionRowDisabled(sessionId: otherSession), "Other session disabled")
-    TestRunner.assertFalse(tracker.isSessionRowDisabled(sessionId: sessionId), "Current session not disabled")
+    TestRunner.assertTrue(tracker.canSwitchSession(), "Can still switch during generation (concurrent)")
+    TestRunner.assertTrue(tracker.isSessionGenerating(sessionId), "Current session is generating")
+    TestRunner.assertFalse(tracker.isSessionGenerating(otherSession), "Other session not generating")
 
     // 3. Generation completes (unregister)
     tracker.unregisterActiveGeneration(sessionId: sessionId)
     TestRunner.assertTrue(tracker.canSwitchSession(), "Can switch after generation")
-    TestRunner.assertFalse(tracker.isSessionRowDisabled(sessionId: otherSession), "Other session re-enabled")
+    TestRunner.assertFalse(tracker.isSessionGenerating(sessionId), "Session no longer generating")
 
     teardownTracker()
 }
@@ -588,8 +601,8 @@ func testWorkflow_ChatModeGenerationWithCancel() {
 
     // 1. User sends message, generation starts
     tracker.registerActiveGeneration(sessionId: sessionId)
-    TestRunner.assertFalse(tracker.canSwitchSession(), "Cannot switch during chat generation")
-    TestRunner.assertFalse(tracker.canStartNewSession(), "Cannot start new during chat generation")
+    TestRunner.assertTrue(tracker.canSwitchSession(), "Can switch during chat generation (concurrent)")
+    TestRunner.assertTrue(tracker.canStartNewSession(), "Can start new during chat generation (concurrent)")
 
     // 2. User cancels generation
     tracker.unregisterActiveGeneration(sessionId: sessionId)
@@ -599,8 +612,8 @@ func testWorkflow_ChatModeGenerationWithCancel() {
     teardownTracker()
 }
 
-func testWorkflow_MultipleSessionsOneGenerating() {
-    TestRunner.setGroup("Workflow - Multiple Sessions One Generating")
+func testWorkflow_MultipleSessionsGenerating() {
+    TestRunner.setGroup("Workflow - Multiple Sessions Generating Concurrently")
     setupTracker()
 
     let session1 = UUID()
@@ -610,21 +623,29 @@ func testWorkflow_MultipleSessionsOneGenerating() {
     // Session 2 starts generating
     tracker.registerActiveGeneration(sessionId: session2)
 
-    // Check disabled states
-    TestRunner.assertTrue(tracker.isSessionRowDisabled(sessionId: session1), "Session 1 disabled")
-    TestRunner.assertFalse(tracker.isSessionRowDisabled(sessionId: session2), "Session 2 (generating) not disabled")
-    TestRunner.assertTrue(tracker.isSessionRowDisabled(sessionId: session3), "Session 3 disabled")
+    // Check generating states — only session2 is generating
+    TestRunner.assertFalse(tracker.isSessionGenerating(session1), "Session 1 not generating")
+    TestRunner.assertTrue(tracker.isSessionGenerating(session2), "Session 2 is generating")
+    TestRunner.assertFalse(tracker.isSessionGenerating(session3), "Session 3 not generating")
 
-    // Cannot create new session
-    TestRunner.assertFalse(tracker.canStartNewSession(), "Cannot start new")
+    // Can still create new session and switch
+    TestRunner.assertTrue(tracker.canStartNewSession(), "Can start new (concurrent)")
+    TestRunner.assertTrue(tracker.canSwitchSession(), "Can switch (concurrent)")
 
-    // Generation completes
+    // Session 1 also starts generating
+    tracker.registerActiveGeneration(sessionId: session1)
+    TestRunner.assertTrue(tracker.isSessionGenerating(session1), "Session 1 now generating")
+    TestRunner.assertTrue(tracker.isSessionGenerating(session2), "Session 2 still generating")
+    TestRunner.assertEqual(tracker.generatingSessionIds.count, 2, "Two sessions generating")
+
+    // Session 2 completes
     tracker.unregisterActiveGeneration(sessionId: session2)
+    TestRunner.assertTrue(tracker.isSessionGenerating(session1), "Session 1 still generating")
+    TestRunner.assertFalse(tracker.isSessionGenerating(session2), "Session 2 done")
 
-    // All sessions should be enabled
-    TestRunner.assertFalse(tracker.isSessionRowDisabled(sessionId: session1), "Session 1 enabled")
-    TestRunner.assertFalse(tracker.isSessionRowDisabled(sessionId: session2), "Session 2 enabled")
-    TestRunner.assertFalse(tracker.isSessionRowDisabled(sessionId: session3), "Session 3 enabled")
+    // Session 1 completes
+    tracker.unregisterActiveGeneration(sessionId: session1)
+    TestRunner.assertFalse(tracker.isAnySessionGenerating, "All done")
 
     teardownTracker()
 }
@@ -1007,8 +1028,8 @@ func testDraftSession_ResetToInitialState() {
 
 // MARK: - Combined Draft + Generation State Tests
 
-func testCombined_DraftSessionWithGenerationBlocking() {
-    TestRunner.setGroup("Combined - Draft Session With Generation Blocking")
+func testCombined_DraftSessionWithConcurrentGeneration() {
+    TestRunner.setGroup("Combined - Draft Session With Concurrent Generation")
     setupDraftTracker()
     setupTracker()
 
@@ -1019,15 +1040,16 @@ func testCombined_DraftSessionWithGenerationBlocking() {
 
     // Start generation on the draft
     tracker.registerActiveGeneration(sessionId: draftId)
-    TestRunner.assertFalse(tracker.canStartNewSession(), "Cannot start new during generation")
-    TestRunner.assertFalse(tracker.canSwitchSession(), "Cannot switch during generation")
+    // With concurrent sessions, switching and new sessions are always allowed
+    TestRunner.assertTrue(tracker.canStartNewSession(), "Can start new during generation (concurrent)")
+    TestRunner.assertTrue(tracker.canSwitchSession(), "Can switch during generation (concurrent)")
 
     // Add message during generation - draft becomes real session
     draftTracker.addMessage()
     TestRunner.assertFalse(draftTracker.hasDraftSession, "No longer draft after message")
 
-    // Generation still blocks switching
-    TestRunner.assertFalse(tracker.canSwitchSession(), "Still cannot switch during generation")
+    // Can still switch and create new sessions
+    TestRunner.assertTrue(tracker.canSwitchSession(), "Can switch during generation (concurrent)")
 
     // End generation
     tracker.unregisterActiveGeneration(sessionId: draftId)
@@ -1060,8 +1082,8 @@ func testCombined_SwitchFromDraftToSavedSession() {
     teardownTracker()
 }
 
-func testCombined_CannotSwitchFromDraftDuringGeneration() {
-    TestRunner.setGroup("Combined - Cannot Switch From Draft During Generation")
+func testCombined_SwitchFromDraftDuringGeneration() {
+    TestRunner.setGroup("Combined - Can Switch From Draft During Generation")
     setupDraftTracker()
     setupTracker()
 
@@ -1069,22 +1091,20 @@ func testCombined_CannotSwitchFromDraftDuringGeneration() {
     let draftId = draftTracker.startNewSession()
     tracker.registerActiveGeneration(sessionId: draftId)
 
-    // Try to switch to another session
-    TestRunner.assertFalse(tracker.canSwitchSession(), "Cannot switch during generation")
+    // With concurrent sessions, switching is always allowed
+    TestRunner.assertTrue(tracker.canSwitchSession(), "Can switch during generation (concurrent)")
 
-    // Other sessions should be disabled
+    // Only the generating session shows as generating
     let otherSession = UUID()
-    TestRunner.assertTrue(tracker.isSessionRowDisabled(sessionId: otherSession), "Other session disabled")
-
-    // Current (draft) session should not be disabled
-    TestRunner.assertFalse(tracker.isSessionRowDisabled(sessionId: draftId), "Draft session not disabled")
+    TestRunner.assertFalse(tracker.isSessionGenerating(otherSession), "Other session not generating")
+    TestRunner.assertTrue(tracker.isSessionGenerating(draftId), "Draft session is generating")
 
     teardownDraftTracker()
     teardownTracker()
 }
 
-func testCombined_NewSessionBlockedDuringGeneration() {
-    TestRunner.setGroup("Combined - New Session Blocked During Generation")
+func testCombined_NewSessionAllowedDuringGeneration() {
+    TestRunner.setGroup("Combined - New Session Allowed During Generation")
     setupDraftTracker()
     setupTracker()
 
@@ -1095,17 +1115,20 @@ func testCombined_NewSessionBlockedDuringGeneration() {
     // Start generation
     tracker.registerActiveGeneration(sessionId: existingId)
 
-    // Cannot create new session during generation
-    TestRunner.assertFalse(tracker.canStartNewSession(), "Cannot start new during generation")
+    // With concurrent sessions, new session creation is always allowed
+    TestRunner.assertTrue(tracker.canStartNewSession(), "Can start new during generation (concurrent)")
 
-    // End generation
-    tracker.unregisterActiveGeneration(sessionId: existingId)
-    TestRunner.assertTrue(tracker.canStartNewSession(), "Can start new after generation")
-
-    // Now create new session
+    // Create new session while existing one generates
     let newId = draftTracker.startNewSession()
     TestRunner.assertTrue(draftTracker.hasDraftSession, "Have new draft")
     TestRunner.assertEqual(draftTracker.currentSessionId, newId, "New session is current")
+
+    // Existing session still generating in background
+    TestRunner.assertTrue(tracker.isSessionGenerating(existingId), "Existing session still generating")
+
+    // End generation
+    tracker.unregisterActiveGeneration(sessionId: existingId)
+    TestRunner.assertFalse(tracker.isSessionGenerating(existingId), "Generation complete")
 
     teardownDraftTracker()
     teardownTracker()
@@ -1287,30 +1310,30 @@ struct SessionManagerTestRunner {
         testGenerationState_UnregisterWrongSession()
         testGenerationState_MultipleRegistersSameSession()
 
-        // Session Row Disabled Tests
-        testSessionRowDisabled_NoGeneration()
-        testSessionRowDisabled_DuringGeneration()
-        testSessionRowDisabled_AfterGenerationComplete()
+        // Session Generating State Tests
+        testSessionGenerating_NoGeneration()
+        testSessionGenerating_DuringGeneration()
+        testSessionGenerating_AfterGenerationComplete()
 
-        // Session Switching Block Tests
-        testSessionSwitching_BlockedDuringGeneration()
+        // Session Switching Tests
+        testSessionSwitching_AllowedDuringGeneration()
         testSessionSwitching_AllowedAfterCancellation()
         testSessionSwitching_AllowedAfterCompletion()
 
-        // New Session Block Tests
-        testNewSession_BlockedDuringGeneration()
+        // New Session Tests
+        testNewSession_AllowedDuringGeneration()
         testNewSession_AllowedAfterGeneration()
 
         // Edge Case Tests
         testEdgeCase_RapidRegisterUnregister()
         testEdgeCase_UnregisterWithoutRegister()
         testEdgeCase_DoubleUnregister()
-        testEdgeCase_RegisterDifferentSessionWhileGenerating()
+        testEdgeCase_RegisterMultipleSessionsConcurrently()
 
         // Workflow Tests
         testWorkflow_QuickModeGeneration()
         testWorkflow_ChatModeGenerationWithCancel()
-        testWorkflow_MultipleSessionsOneGenerating()
+        testWorkflow_MultipleSessionsGenerating()
 
         // Draft Session Tests (Basic)
         testDraftSession_InitialState()
@@ -1335,10 +1358,10 @@ struct SessionManagerTestRunner {
         testDraftSession_ResetToInitialState()
 
         // Combined Draft + Generation State Tests
-        testCombined_DraftSessionWithGenerationBlocking()
+        testCombined_DraftSessionWithConcurrentGeneration()
         testCombined_SwitchFromDraftToSavedSession()
-        testCombined_CannotSwitchFromDraftDuringGeneration()
-        testCombined_NewSessionBlockedDuringGeneration()
+        testCombined_SwitchFromDraftDuringGeneration()
+        testCombined_NewSessionAllowedDuringGeneration()
 
         // Workflow Tests for Draft Session
         testWorkflow_QuickModeCreatesAndFinalizesSession()

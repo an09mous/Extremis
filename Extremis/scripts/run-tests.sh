@@ -227,6 +227,11 @@ run_test_suite "Sound Notification Tests" \
     "$PROJECT_DIR/Tests/Core/SoundNotificationTests.swift" \
     "Foundation"
 
+# 26. Concurrent Session Manager Tests (Multi-session generation, notifications, dirty tracking)
+run_test_suite "Concurrent Session Manager Tests" \
+    "$PROJECT_DIR/Tests/Core/ConcurrentSessionManagerTests.swift" \
+    "Foundation"
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------

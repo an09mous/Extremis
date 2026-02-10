@@ -7,14 +7,13 @@ import SwiftUI
 /// Visually distinct from saved sessions with italic title and "New" badge
 struct DraftSessionRow: View {
     let isActive: Bool
-    let isDisabled: Bool
     let onSelect: () -> Void
 
     @State private var isHovering = false
 
     var body: some View {
         Button(action: {
-            if !isDisabled { onSelect() }
+            onSelect()
         }) {
             HStack(spacing: 0) {
                 // Active indicator bar
@@ -29,7 +28,7 @@ struct DraftSessionRow: View {
                             Text("New Session")
                                 .font(.system(size: 12, weight: isActive ? .semibold : .regular))
                                 .italic()
-                                .foregroundColor(isDisabled ? .secondary.opacity(0.5) : (isActive ? .primary : .secondary))
+                                .foregroundColor(isActive ? .primary : .secondary)
 
                             // "New" badge - matches header badge style
                             Text("New")
@@ -44,17 +43,10 @@ struct DraftSessionRow: View {
 
                         Text("Just now")
                             .font(.system(size: 10))
-                            .foregroundColor(isDisabled ? .secondary.opacity(0.5) : .secondary)
+                            .foregroundColor(.secondary)
                     }
 
                     Spacer()
-
-                    // Show lock icon when disabled (generation in progress)
-                    if isDisabled {
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: 9))
-                            .foregroundColor(.secondary.opacity(0.5))
-                    }
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
@@ -62,7 +54,7 @@ struct DraftSessionRow: View {
             .background(
                 RoundedRectangle(cornerRadius: 6)
                     .fill(isActive ? Color.accentColor.opacity(0.12) :
-                          (isHovering && !isDisabled ? Color.secondary.opacity(0.08) : Color.clear))
+                          (isHovering ? Color.secondary.opacity(0.08) : Color.clear))
             )
         }
         .buttonStyle(.plain)
@@ -70,7 +62,6 @@ struct DraftSessionRow: View {
         .onHover { hovering in
             isHovering = hovering
         }
-        .help(isDisabled ? "Generation in progress - wait or cancel to switch" : "")
     }
 }
 
@@ -82,21 +73,12 @@ struct DraftSessionRow_Previews: PreviewProvider {
             // Active state
             DraftSessionRow(
                 isActive: true,
-                isDisabled: false,
                 onSelect: {}
             )
 
             // Inactive state
             DraftSessionRow(
                 isActive: false,
-                isDisabled: false,
-                onSelect: {}
-            )
-
-            // Disabled state
-            DraftSessionRow(
-                isActive: false,
-                isDisabled: true,
                 onSelect: {}
             )
         }

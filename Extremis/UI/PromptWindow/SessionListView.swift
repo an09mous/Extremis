@@ -56,7 +56,6 @@ struct SessionListView: View {
                     if sessionManager.hasDraftSession {
                         DraftSessionRow(
                             isActive: true,  // Draft is always the current session
-                            isDisabled: sessionManager.isAnySessionGenerating,
                             onSelect: { /* Already active, no-op */ }
                         )
                         .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
@@ -71,7 +70,8 @@ struct SessionListView: View {
                             entry: entry,
                             // Not active if we have a draft (draft takes precedence)
                             isActive: !sessionManager.hasDraftSession && entry.id == sessionManager.currentSessionId,
-                            isDisabled: sessionManager.isAnySessionGenerating && entry.id != sessionManager.generatingSessionId,
+                            isGenerating: sessionManager.generatingSessionIds.contains(entry.id),
+                            notification: sessionManager.sessionNotifications[entry.id],
                             onSelect: { onSelectSession(entry.id) },
                             onDelete: { onDeleteSession(entry.id) }
                         )
@@ -145,7 +145,8 @@ struct SessionListView: View {
 struct SessionRowView: View {
     let entry: SessionIndexEntry
     let isActive: Bool
-    let isDisabled: Bool
+    let isGenerating: Bool
+    let notification: SessionNotification?
     let onSelect: () -> Void
     let onDelete: () -> Void
 
@@ -172,10 +173,7 @@ struct SessionRowView: View {
 
     var body: some View {
         Button(action: {
-            // Only allow selection if not disabled
-            if !isDisabled {
-                onSelect()
-            }
+            onSelect()
         }) {
             HStack(spacing: 0) {
                 // Active indicator bar
@@ -188,31 +186,33 @@ struct SessionRowView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(entry.title)
                             .font(.system(size: 12, weight: isActive ? .semibold : .regular))
-                            .foregroundColor(isDisabled ? .secondary.opacity(0.5) : (isActive ? .primary : .secondary))
+                            .foregroundColor(isActive ? .primary : .secondary)
                             .lineLimit(1)
 
                         HStack(spacing: 4) {
                             Text(formatDate(entry.updatedAt))
                                 .font(.system(size: 10))
-                                .foregroundColor(isDisabled ? .secondary.opacity(0.5) : .secondary)
+                                .foregroundColor(.secondary)
 
-                            Text("•")
+                            Text("\u{2022}")
                                 .font(.system(size: 8))
-                                .foregroundColor(isDisabled ? .secondary.opacity(0.5) : .secondary)
+                                .foregroundColor(.secondary)
 
                             Text("\(entry.messageCount) msgs")
                                 .font(.system(size: 10))
-                                .foregroundColor(isDisabled ? .secondary.opacity(0.5) : .secondary)
+                                .foregroundColor(.secondary)
                         }
                     }
 
                     Spacer()
 
-                    // Show lock icon when disabled, delete button on hover otherwise
-                    if isDisabled {
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: 9))
-                            .foregroundColor(.secondary.opacity(0.5))
+                    // Status indicator: generating spinner, notification badge, or delete button on hover
+                    if isGenerating {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .help("Generating...")
+                    } else if let notification = notification {
+                        notificationBadge(for: notification)
                     } else if isHovering && !isActive {
                         Button(action: onDelete) {
                             Image(systemName: "trash")
@@ -228,7 +228,7 @@ struct SessionRowView: View {
             }
             .background(
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(isActive ? Color.accentColor.opacity(0.12) : (isHovering && !isDisabled ? Color.secondary.opacity(0.08) : Color.clear))
+                    .fill(isActive ? Color.accentColor.opacity(0.12) : (isHovering ? Color.secondary.opacity(0.08) : Color.clear))
             )
         }
         .buttonStyle(.plain)
@@ -236,7 +236,27 @@ struct SessionRowView: View {
         .onHover { hovering in
             isHovering = hovering
         }
-        .help(isDisabled ? "Generation in progress - wait or cancel to switch" : "")
+    }
+
+    @ViewBuilder
+    private func notificationBadge(for notification: SessionNotification) -> some View {
+        switch notification {
+        case .completed:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 10))
+                .foregroundColor(.green)
+                .help("Generation complete")
+        case .error:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10))
+                .foregroundColor(.orange)
+                .help("Generation failed")
+        case .needsApproval:
+            Image(systemName: "hand.raised.fill")
+                .font(.system(size: 10))
+                .foregroundColor(.yellow)
+                .help("Tool approval needed")
+        }
     }
 
     private func formatDate(_ date: Date) -> String {

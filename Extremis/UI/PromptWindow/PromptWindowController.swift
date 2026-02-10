@@ -276,24 +276,19 @@ final class PromptWindowController: NSWindowController {
 
     /// Start a new session (clear current and create fresh)
     /// Note: Does NOT clear currentContext - context persists until new hotkey invocation
-    /// Blocked if generation is in progress
+    /// Current session's generation continues in background if in progress
     func startNewSession() async {
-        // Block if generation is in progress
-        if SessionManager.shared.isAnySessionGenerating {
-            print("📋 PromptWindow: Cannot start new session - generation in progress")
-            return
-        }
-
         print("📋 PromptWindow: Starting new session")
-        viewModel.cancelGeneration()
 
-        // Save the current context and selection state before reset (reset clears them)
+        // Save the current context and selection state before disconnect (disconnect clears them)
         let preservedContext = viewModel.currentContext
         let preservedHasSelection = viewModel.hasSelection
         let preservedHasContext = viewModel.hasContext
         let preservedSelectedText = viewModel.selectedText
 
-        viewModel.reset()
+        // Disconnect from current session without cancelling generation
+        // The session's Task continues running in background
+        viewModel.disconnectFromSession()
 
         // Restore the context and selection state - they persist until next hotkey invocation
         viewModel.currentContext = preservedContext
@@ -308,15 +303,15 @@ final class PromptWindowController: NSWindowController {
     }
 
     /// Select and load a specific session
-    /// Blocked if generation is in progress
+    /// Current session's generation continues in background if in progress
     func selectSession(id: UUID) async {
-        // Block switching if generation is in progress
-        if SessionManager.shared.isAnySessionGenerating {
-            print("📋 PromptWindow: Cannot switch session - generation in progress")
-            return
-        }
-
         print("📋 PromptWindow: Selecting session \(id)")
+
+        // Disconnect from current session without cancelling generation
+        viewModel.disconnectFromSession()
+
+        // Clear notification badge when user navigates to this session
+        SessionManager.shared.clearNotification(for: id)
         viewModel.cancelGeneration()
 
         do {
@@ -326,6 +321,9 @@ final class PromptWindowController: NSWindowController {
             if let session = SessionManager.shared.currentSession {
                 viewModel.setRestoredSession(session, id: id)
             }
+
+            // Process any queued approval batches for this session
+            processQueuedApprovals(for: id)
         } catch {
             print("📋 PromptWindow: Failed to load session: \(error)")
         }
@@ -513,6 +511,38 @@ final class PromptViewModel: ObservableObject {
         isChatMode = false
         isFirstMessageSinceSpawn = true
         sessionCancellables.removeAll()
+    }
+
+    /// Disconnect UI from current session without cancelling generation
+    /// The session's generation Task continues running in the background
+    /// because SessionManager.sessionCache holds a strong reference to the ChatSession
+    /// and the Task closure captures the session strongly.
+    func disconnectFromSession() {
+        // Remove Combine subscriptions (stop forwarding session state to UI)
+        sessionCancellables.removeAll()
+
+        // Clear UI state but do NOT cancel generation
+        instructionText = ""
+        response = ""
+        error = nil
+        showResponse = false
+        currentContext = nil
+        hasContext = false
+        hasSelection = false
+        selectedText = nil
+        isSummarizing = false
+        // Clear tool state
+        activeToolCalls = []
+        isExecutingTools = false
+        // Clear approval state
+        pendingApprovalRequests = []
+        showApprovalView = false
+        // Clear chat state
+        session = nil
+        sessionId = nil
+        chatInputText = ""
+        isChatMode = false
+        isFirstMessageSinceSpawn = true
     }
 
     /// Prepare for new input without losing session state
@@ -713,9 +743,13 @@ final class PromptViewModel: ObservableObject {
 
         // Create and start the generation task via session
         let task = Task {
-            // Register active generation to block session switching
+            // Register active generation (enforces concurrency limit)
             if let sid = capturedSessionId {
-                SessionManager.shared.registerActiveGeneration(sessionId: sid)
+                let allowed = SessionManager.shared.registerActiveGeneration(sessionId: sid)
+                guard allowed else {
+                    sess.completeGeneration(error: "Maximum concurrent generations reached (\(SessionManager.shared.maxConcurrentGenerations)). Please wait for a session to finish.")
+                    return
+                }
             }
 
             guard let provider = LLMProviderRegistry.shared.activeProvider else {
@@ -794,9 +828,13 @@ final class PromptViewModel: ObservableObject {
 
         // Create and start the generation task via session
         let task = Task {
-            // Register active generation to block session switching
+            // Register active generation (enforces concurrency limit)
             if let sid = capturedSessionId {
-                SessionManager.shared.registerActiveGeneration(sessionId: sid)
+                let allowed = SessionManager.shared.registerActiveGeneration(sessionId: sid)
+                guard allowed else {
+                    sess.completeGeneration(error: "Maximum concurrent generations reached (\(SessionManager.shared.maxConcurrentGenerations)). Please wait for a session to finish.")
+                    return
+                }
             }
 
             guard let provider = LLMProviderRegistry.shared.activeProvider else {
@@ -923,9 +961,13 @@ final class PromptViewModel: ObservableObject {
 
         // Create and start the generation task via session
         let task = Task {
-            // Register active generation to block session switching
+            // Register active generation (enforces concurrency limit)
             if let sid = capturedSessionId {
-                SessionManager.shared.registerActiveGeneration(sessionId: sid)
+                let allowed = SessionManager.shared.registerActiveGeneration(sessionId: sid)
+                guard allowed else {
+                    sess.completeGeneration(error: "Maximum concurrent generations reached (\(SessionManager.shared.maxConcurrentGenerations)). Please wait for a session to finish.")
+                    return
+                }
             }
 
             guard let provider = LLMProviderRegistry.shared.activeProvider else {
@@ -1003,9 +1045,13 @@ final class PromptViewModel: ObservableObject {
 
         // Create and start the generation task via session
         let task = Task {
-            // Register active generation to block session switching
+            // Register active generation (enforces concurrency limit)
             if let sid = capturedSessionId {
-                SessionManager.shared.registerActiveGeneration(sessionId: sid)
+                let allowed = SessionManager.shared.registerActiveGeneration(sessionId: sid)
+                guard allowed else {
+                    sess.completeGeneration(error: "Maximum concurrent generations reached (\(SessionManager.shared.maxConcurrentGenerations)). Please wait for a session to finish.")
+                    return
+                }
             }
 
             guard let provider = LLMProviderRegistry.shared.activeProvider else {
@@ -1057,9 +1103,13 @@ final class PromptViewModel: ObservableObject {
         let capturedSessionId = sessionId
 
         let task = Task {
-            // Register active generation to block session switching
+            // Register active generation (enforces concurrency limit)
             if let sid = capturedSessionId {
-                SessionManager.shared.registerActiveGeneration(sessionId: sid)
+                let allowed = SessionManager.shared.registerActiveGeneration(sessionId: sid)
+                guard allowed else {
+                    sess.completeGeneration(error: "Maximum concurrent generations reached (\(SessionManager.shared.maxConcurrentGenerations)). Please wait for a session to finish.")
+                    return
+                }
             }
 
             guard let provider = LLMProviderRegistry.shared.activeProvider else {
@@ -1109,9 +1159,13 @@ final class PromptViewModel: ObservableObject {
         let capturedSessionId = sessionId
 
         let task = Task {
-            // Register active generation to block session switching
+            // Register active generation (enforces concurrency limit)
             if let sid = capturedSessionId {
-                SessionManager.shared.registerActiveGeneration(sessionId: sid)
+                let allowed = SessionManager.shared.registerActiveGeneration(sessionId: sid)
+                guard allowed else {
+                    sess.completeGeneration(error: "Maximum concurrent generations reached (\(SessionManager.shared.maxConcurrentGenerations)). Please wait for a session to finish.")
+                    return
+                }
             }
 
             guard let provider = LLMProviderRegistry.shared.activeProvider else {
@@ -1151,6 +1205,18 @@ final class PromptViewModel: ObservableObject {
             // Always unregister when generation ends (success, error, or cancellation)
             if let sid = capturedSessionId {
                 SessionManager.shared.unregisterActiveGeneration(sessionId: sid)
+
+                // If this session is in the background, set a notification badge
+                if SessionManager.shared.currentSessionId != sid {
+                    if let err = generationError {
+                        SessionManager.shared.setNotification(.error(err), for: sid)
+                    } else {
+                        SessionManager.shared.setNotification(.completed, for: sid)
+                    }
+                }
+
+                // Ensure background session is saved
+                SessionManager.shared.markDirty(sessionId: sid)
             }
             sess.completeGeneration(error: generationError)
             completionHandler?()
@@ -1457,16 +1523,14 @@ struct PromptContainerView: View {
 
                     // New chat button (pencil/compose icon)
                     Button(action: {
-                        if !sessionManager.isAnySessionGenerating {
-                            onNewSession()
-                        }
+                        onNewSession()
                     }) {
-                        Image(systemName: sessionManager.isAnySessionGenerating ? "square.and.pencil.circle" : "square.and.pencil")
+                        Image(systemName: "square.and.pencil")
                             .font(.system(size: 16))
-                            .foregroundColor(sessionManager.isAnySessionGenerating ? .secondary.opacity(0.4) : .secondary)
+                            .foregroundColor(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .help(sessionManager.isAnySessionGenerating ? "Generation in progress - wait or cancel to start new session" : "New session")
+                    .help("New session")
 
                     // New session indicator badge - tied to draft session state
                     // Shows when session exists but has no messages yet
@@ -1602,17 +1666,51 @@ extension PromptWindowController: ToolApprovalUIDelegate {
     ) {
         let batch = PendingApprovalBatch(requests: requests, sessionId: sessionId, completion: completion)
 
-        // If there's an active batch, queue this one for later
-        // Note: In the future with concurrent sessions, we might want to allow multiple active batches
-        // if they belong to different sessions. For now, we queue all overlapping requests.
-        if currentApprovalBatch != nil {
-            print("🔄 Queuing approval batch (\(requests.count) tools, session: \(sessionId?.uuidString.prefix(8) ?? "none")) - another batch is active")
-            approvalQueue.append(batch)
-            return
-        }
+        // Check if this batch belongs to the currently displayed session
+        let isCurrentSession = sessionId == SessionManager.shared.currentSessionId
 
-        // Start processing this batch
-        startApprovalBatch(batch)
+        if isCurrentSession {
+            // Current session — show immediately or queue if another batch is active
+            if currentApprovalBatch != nil {
+                print("🔄 Queuing approval batch (\(requests.count) tools, session: \(sessionId?.uuidString.prefix(8) ?? "none")) - another batch is active")
+                approvalQueue.append(batch)
+                return
+            }
+            // Start processing this batch
+            startApprovalBatch(batch)
+        } else {
+            // Background session — queue and set notification badge
+            // The generation Task blocks at waitForUserDecisions() until user switches to this session
+            approvalQueue.append(batch)
+            if let sid = sessionId {
+                SessionManager.shared.setNotification(.needsApproval, for: sid)
+                print("🔄 Queued approval batch for background session \(sid.uuidString.prefix(8)) - badge set")
+            }
+        }
+    }
+
+    /// Process queued approval batches for a specific session
+    /// Called when user switches to a session that may have pending approvals
+    private func processQueuedApprovals(for sessionId: UUID) {
+        // Find and remove queued batches for this session
+        let matchingBatches = approvalQueue.filter { $0.sessionId == sessionId }
+        approvalQueue.removeAll { $0.sessionId == sessionId }
+
+        guard !matchingBatches.isEmpty else { return }
+
+        // If no active batch, process the first matching one
+        if currentApprovalBatch == nil, let first = matchingBatches.first {
+            startApprovalBatch(first)
+            // Queue the rest (they'll be processed sequentially via completeCurrentBatch)
+            for batch in matchingBatches.dropFirst() {
+                approvalQueue.insert(batch, at: 0)
+            }
+        } else {
+            // Active batch exists for another session — re-queue at front
+            for batch in matchingBatches.reversed() {
+                approvalQueue.insert(batch, at: 0)
+            }
+        }
     }
 
     func dismissApprovalUI(for sessionId: UUID?) {
