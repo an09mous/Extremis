@@ -37,8 +37,8 @@ struct DraftSessionRow: View {
                                 .foregroundColor(.accentColor)
                                 .padding(.horizontal, 4)
                                 .padding(.vertical, 1)
-                                .background(Color.accentColor.opacity(0.15))
-                                .cornerRadius(3)
+                                .background(DS.Colors.accentLight)
+                                .continuousCornerRadius(DS.Radii.small)
                         }
                         .lineLimit(1)
 
@@ -60,9 +60,10 @@ struct DraftSessionRow: View {
                 .padding(.vertical, 6)
             }
             .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(isActive ? Color.accentColor.opacity(0.12) :
-                          (isHovering && !isDisabled ? Color.secondary.opacity(0.08) : Color.clear))
+                RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous)
+                    .fill(isActive ? DS.Colors.accentSubtle :
+                          (isHovering && !isDisabled ? DS.Colors.hoverSubtle : Color.clear))
+                    .animation(DS.Animation.hoverTransition, value: isHovering)
             )
         }
         .buttonStyle(.plain)

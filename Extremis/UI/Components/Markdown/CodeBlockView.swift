@@ -27,11 +27,12 @@ struct CodeBlockView: View {
             codeContent
         }
         .background(codeBlockBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .clipShape(RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous)
                 .stroke(borderColor, lineWidth: 1)
         )
+        .dsShadow(DS.Shadows.subtle)
         .task(id: highlightKey) {
             await performHighlighting()
         }
@@ -87,18 +88,18 @@ struct CodeBlockView: View {
 
     private var codeBlockBackground: Color {
         colorScheme == .dark
-            ? Color(NSColor.controlBackgroundColor)
-            : Color(NSColor.controlBackgroundColor).opacity(0.7)
+            ? DS.Colors.surfacePrimary
+            : DS.Colors.surfacePrimary.opacity(0.7)
     }
 
     private var headerBackground: Color {
         colorScheme == .dark
-            ? Color(NSColor.controlBackgroundColor).opacity(0.8)
-            : Color(NSColor.controlBackgroundColor).opacity(0.5)
+            ? DS.Colors.surfacePrimary.opacity(0.8)
+            : DS.Colors.surfacePrimary.opacity(0.5)
     }
 
     private var borderColor: Color {
-        Color.secondary.opacity(0.15)
+        DS.Colors.borderSubtle
     }
 
     // MARK: - Highlighting

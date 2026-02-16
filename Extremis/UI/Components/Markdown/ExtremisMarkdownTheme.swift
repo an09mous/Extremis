@@ -94,7 +94,7 @@ extension Theme {
         }
         .blockquote { configuration in
             HStack(spacing: 0) {
-                RoundedRectangle(cornerRadius: 3)
+                RoundedRectangle(cornerRadius: DS.Radii.small, style: .continuous)
                     .fill(Color.accentColor.opacity(0.4))
                     .relativeFrame(width: .em(0.2))
                 configuration.label
@@ -149,20 +149,14 @@ extension Theme {
 // MARK: - Theme Colors
 
 extension Color {
-    fileprivate static let extremisInlineCodeBackground = Color(
-        light: Color(nsColor: NSColor.controlBackgroundColor).opacity(0.6),
-        dark: Color(nsColor: NSColor.controlBackgroundColor).opacity(0.6)
-    )
+    fileprivate static let extremisInlineCodeBackground = DS.Colors.surfacePrimary.opacity(0.6)
     fileprivate static let extremisSecondaryBackground = Color(
-        light: Color(nsColor: NSColor.controlBackgroundColor).opacity(0.5),
-        dark: Color(nsColor: NSColor.controlBackgroundColor).opacity(0.3)
+        light: DS.Colors.surfacePrimary.opacity(0.5),
+        dark: DS.Colors.surfacePrimary.opacity(0.3)
     )
-    fileprivate static let extremisBorder = Color(
-        light: Color.secondary.opacity(0.2),
-        dark: Color.secondary.opacity(0.2)
-    )
+    fileprivate static let extremisBorder = DS.Colors.borderMedium
     fileprivate static let extremisDivider = Color(
         light: Color.secondary.opacity(0.3),
-        dark: Color.secondary.opacity(0.2)
+        dark: DS.Colors.borderMedium
     )
 }

@@ -152,8 +152,8 @@ struct ToolApprovalView: View {
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Color.orange.opacity(0.15))
-                    .cornerRadius(4)
+                    .background(DS.Colors.warningSubtle)
+                    .continuousCornerRadius(DS.Radii.small)
                     .accessibilityLabel("\(pendingRequests.count) tools pending approval")
             }
             .accessibilityElement(children: .combine)
@@ -224,11 +224,11 @@ struct ToolApprovalView: View {
             }
         }
         .padding(16)
-        .background(Color.orange.opacity(0.05))
-        .cornerRadius(12)
+        .background(DS.Colors.warningSubtle)
+        .continuousCornerRadius(DS.Radii.large)
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+            RoundedRectangle(cornerRadius: DS.Radii.large, style: .continuous)
+                .stroke(DS.Colors.warningBorder, lineWidth: 1)
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Tool approval dialog with \(pendingRequests.count) pending requests")
@@ -287,8 +287,8 @@ struct ApprovalRequestRow: View {
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
-                        .background(Color.secondary.opacity(0.1))
-                        .cornerRadius(3)
+                        .background(DS.Colors.hoverSubtle)
+                        .continuousCornerRadius(DS.Radii.small)
                         .accessibilityLabel("from \(request.connectorId)")
                 }
 
@@ -325,11 +325,11 @@ struct ApprovalRequestRow: View {
                                 .textSelection(.enabled)
                                 .padding(8)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color(NSColor.textBackgroundColor))
-                                .cornerRadius(4)
+                                .background(DS.Colors.surfaceElevated)
+                                .continuousCornerRadius(DS.Radii.small)
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 4)
-                                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                                    RoundedRectangle(cornerRadius: DS.Radii.small, style: .continuous)
+                                        .stroke(DS.Colors.borderMedium, lineWidth: 1)
                                 )
                         }
                     }
@@ -364,8 +364,8 @@ struct ApprovalRequestRow: View {
                     }
                     .buttonStyle(.plain)
                     .frame(width: 24, height: 24)
-                    .background(Color.red.opacity(0.1))
-                    .cornerRadius(4)
+                    .background(DS.Colors.errorSubtle)
+                    .continuousCornerRadius(DS.Radii.small)
                     .help("Deny")
                     .accessibilityLabel(ApprovalAccessibility.denyTool(request.toolName))
                     .accessibilityHint("Denies this tool from executing")
@@ -378,8 +378,8 @@ struct ApprovalRequestRow: View {
                     }
                     .buttonStyle(.plain)
                     .frame(width: 24, height: 24)
-                    .background(Color.green.opacity(0.1))
-                    .cornerRadius(4)
+                    .background(DS.Colors.successSubtle)
+                    .continuousCornerRadius(DS.Radii.small)
                     .help(rememberForSession ? "Allow (will remember for session)" : "Allow once")
                     .accessibilityLabel(ApprovalAccessibility.allowTool(request.toolName))
                     .accessibilityHint(rememberForSession ? "Allows this tool and remembers for the session" : "Allows this tool once")
@@ -395,16 +395,16 @@ struct ApprovalRequestRow: View {
         .padding(10)
         .background(
             request.requiresExplicitApproval
-                ? Color.red.opacity(0.08)
-                : (isFocused ? Color.orange.opacity(0.1) : Color(NSColor.controlBackgroundColor))
+                ? DS.Colors.errorSubtle
+                : (isFocused ? Color.orange.opacity(0.1) : DS.Colors.surfacePrimary)
         )
-        .cornerRadius(8)
+        .continuousCornerRadius(DS.Radii.medium)
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous)
                 .stroke(
                     request.requiresExplicitApproval
-                        ? Color.red.opacity(0.3)
-                        : (isFocused ? Color.orange.opacity(0.5) : Color.clear),
+                        ? DS.Colors.errorBorder
+                        : (isFocused ? DS.Colors.warningBorder : DS.Colors.borderSubtle),
                     lineWidth: 1
                 )
         )
@@ -446,11 +446,11 @@ struct InlineApprovalBanner: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .background(Color.orange.opacity(0.08))
-            .cornerRadius(8)
+            .background(DS.Colors.warningSubtle)
+            .continuousCornerRadius(DS.Radii.medium)
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+                RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous)
+                    .stroke(DS.Colors.warningBorder, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)

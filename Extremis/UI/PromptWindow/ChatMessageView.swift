@@ -42,7 +42,7 @@ struct ChatMessageView: View {
     }
 
     private var bubbleColor: Color {
-        isUser ? Color.accentColor.opacity(0.15) : Color(NSColor.controlBackgroundColor)
+        isUser ? DS.Colors.userBubble : DS.Colors.assistantBubble
     }
 
     private var alignment: HorizontalAlignment {
@@ -119,7 +119,11 @@ struct ChatMessageView: View {
                     }
                 }
                 .background(bubbleColor)
-                .cornerRadius(12)
+                .continuousCornerRadius(DS.Radii.large)
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.Radii.large, style: .continuous)
+                        .stroke(isUser ? DS.Colors.userBubbleBorder : DS.Colors.assistantBubbleBorder, lineWidth: 1)
+                )
 
                 // Action buttons at bottom (always in layout, visibility controlled by opacity)
                 HStack(spacing: 8) {
@@ -159,9 +163,9 @@ struct ChatMessageView: View {
             if !isUser { Spacer(minLength: 40) }
         }
         .onHover { hovering in
-            // Remove animation wrapper to reduce re-renders during hover
-            // The opacity transition on buttons provides sufficient visual feedback
-            isHovering = hovering
+            withAnimation(DS.Animation.hoverTransition) {
+                isHovering = hovering
+            }
         }
         .sheet(isPresented: $showContextSheet) {
             if let ctx = context {
@@ -215,8 +219,8 @@ struct PersistedToolHistoryView: View {
             }
         }
         .padding(8)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-        .cornerRadius(8)
+        .background(DS.Colors.surfaceSecondary)
+        .continuousCornerRadius(DS.Radii.medium)
     }
 }
 
@@ -253,8 +257,8 @@ struct PersistedToolCallRow: View {
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 3)
                     .padding(.vertical, 1)
-                    .background(Color.secondary.opacity(0.1))
-                    .cornerRadius(3)
+                    .background(DS.Colors.hoverSubtle)
+                    .continuousCornerRadius(DS.Radii.small)
 
                 Spacer()
 
@@ -356,16 +360,24 @@ struct StreamingMessageView: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 12)
-                    .background(Color(NSColor.controlBackgroundColor))
-                    .cornerRadius(12)
+                    .background(DS.Colors.assistantBubble)
+                    .continuousCornerRadius(DS.Radii.large)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DS.Radii.large, style: .continuous)
+                            .stroke(DS.Colors.assistantBubbleBorder, lineWidth: 1)
+                    )
                 } else {
                     Text(content)
                         .font(.body)
                         .textSelection(.enabled)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
-                        .background(Color(NSColor.controlBackgroundColor))
-                        .cornerRadius(12)
+                        .background(DS.Colors.assistantBubble)
+                        .continuousCornerRadius(DS.Radii.large)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: DS.Radii.large, style: .continuous)
+                                .stroke(DS.Colors.assistantBubbleBorder, lineWidth: 1)
+                        )
                 }
 
                 // Copy button at bottom (always in layout, visibility controlled by opacity)
@@ -389,9 +401,9 @@ struct StreamingMessageView: View {
             Spacer(minLength: 40)
         }
         .onHover { hovering in
-            // Remove animation wrapper to reduce re-renders during hover
-            // The opacity transition on buttons provides sufficient visual feedback
-            isHovering = hovering
+            withAnimation(DS.Animation.hoverTransition) {
+                isHovering = hovering
+            }
         }
     }
 

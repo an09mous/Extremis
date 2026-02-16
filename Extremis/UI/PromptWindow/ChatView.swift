@@ -181,14 +181,14 @@ struct ChatErrorView: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .background(Color.accentColor)
-                    .cornerRadius(6)
+                    .continuousCornerRadius(DS.Radii.medium)
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding()
-        .background(Color.red.opacity(0.1))
-        .cornerRadius(12)
+        .background(DS.Colors.errorSubtle)
+        .continuousCornerRadius(DS.Radii.large)
     }
 }
 
@@ -224,8 +224,8 @@ struct CompactChatHistoryView: View {
             }
         }
         .padding(8)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-        .cornerRadius(8)
+        .background(DS.Colors.surfaceSecondary)
+        .continuousCornerRadius(DS.Radii.medium)
     }
 }
 

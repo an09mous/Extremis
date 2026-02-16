@@ -241,6 +241,11 @@ run_test_suite "Markdown Rendering Tests" \
     "$PROJECT_DIR/Tests/UI/MarkdownRenderingTests.swift" \
     "Foundation"
 
+# 28. Design System Tests (token ordering and value invariants)
+run_test_suite "Design System Tests" \
+    "$PROJECT_DIR/Tests/UI/DesignSystemTests.swift" \
+    "Foundation"
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------
