@@ -69,7 +69,7 @@ struct ContextViewerSheet: View {
             footer
         }
         .frame(minWidth: 500, idealWidth: 600, minHeight: 400, idealHeight: 500, maxHeight: 700)
-        .background(Color(NSColor.windowBackgroundColor))
+        .background(DS.Colors.windowBackground)
         .onAppear {
             // Install local event monitor to intercept Escape key before it reaches parent window
             escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
@@ -136,8 +136,8 @@ struct ContextViewerSheet: View {
                 // }
             }
             .padding(12)
-            .background(Color(NSColor.controlBackgroundColor))
-            .cornerRadius(8)
+            .background(DS.Colors.surfaceSecondary)
+            .continuousCornerRadius(DS.Radii.medium)
         }
     }
     
@@ -170,11 +170,11 @@ struct ContextViewerSheet: View {
             }
             .frame(maxHeight: isExpanded ? 300 : 150)
             .padding(12)
-            .background(Color(NSColor.textBackgroundColor))
-            .cornerRadius(8)
+            .background(DS.Colors.surfaceElevated)
+            .continuousCornerRadius(DS.Radii.medium)
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color(NSColor.separatorColor), lineWidth: 1)
+                RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous)
+                    .stroke(DS.Colors.borderMedium, lineWidth: 1)
             )
 
             // Show expand/collapse button for truncated content
@@ -245,8 +245,8 @@ struct ContextViewerSheet: View {
                 }
             }
             .padding(12)
-            .background(Color(NSColor.controlBackgroundColor))
-            .cornerRadius(8)
+            .background(DS.Colors.surfaceSecondary)
+            .continuousCornerRadius(DS.Radii.medium)
         }
     }
 
@@ -271,8 +271,8 @@ struct ContextViewerSheet: View {
                 }
             }
             .padding(12)
-            .background(Color(NSColor.controlBackgroundColor))
-            .cornerRadius(8)
+            .background(DS.Colors.surfaceSecondary)
+            .continuousCornerRadius(DS.Radii.medium)
         }
     }
 
@@ -295,8 +295,8 @@ struct ContextViewerSheet: View {
                 }
             }
             .padding(12)
-            .background(Color(NSColor.controlBackgroundColor))
-            .cornerRadius(8)
+            .background(DS.Colors.surfaceSecondary)
+            .continuousCornerRadius(DS.Radii.medium)
         }
     }
 
@@ -313,8 +313,8 @@ struct ContextViewerSheet: View {
                 }
             }
             .padding(12)
-            .background(Color(NSColor.controlBackgroundColor))
-            .cornerRadius(8)
+            .background(DS.Colors.surfaceSecondary)
+            .continuousCornerRadius(DS.Radii.medium)
         }
     }
 

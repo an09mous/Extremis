@@ -254,7 +254,7 @@ struct AddEditMCPServerSheet: View {
                     .font(.system(.body, design: .monospaced))
                     .frame(height: 60)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 4)
+                        RoundedRectangle(cornerRadius: DS.Radii.small, style: .continuous)
                             .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
                     )
                 Text("KEY=value format, one per line. For API keys, use the Secrets section below.")
@@ -298,7 +298,7 @@ struct AddEditMCPServerSheet: View {
                     .font(.system(.body, design: .monospaced))
                     .frame(height: 60)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 4)
+                        RoundedRectangle(cornerRadius: DS.Radii.small, style: .continuous)
                             .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
                     )
                 Text("Header: value format, one per line. For auth tokens, use Secrets section.")
@@ -458,7 +458,7 @@ struct SecureTextEditor: View {
                 TextEditor(text: $text)
                     .font(.system(.body, design: .monospaced))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 4)
+                        RoundedRectangle(cornerRadius: DS.Radii.small, style: .continuous)
                             .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
                     )
             } else {
@@ -469,7 +469,7 @@ struct SecureTextEditor: View {
                 .font(.system(.body, design: .monospaced))
                 .foregroundColor(.secondary)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 4)
+                    RoundedRectangle(cornerRadius: DS.Radii.small, style: .continuous)
                         .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
                 )
                 .overlay(

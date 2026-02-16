@@ -104,11 +104,11 @@ struct LoadingOverlayView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous)
                 .fill(Color.black.opacity(0.75))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous)
                 .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
         )
     }

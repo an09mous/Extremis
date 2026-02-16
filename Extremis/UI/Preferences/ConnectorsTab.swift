@@ -141,7 +141,7 @@ struct ConnectorsTab: View {
                                         .padding(.horizontal, 6)
                                         .padding(.vertical, 2)
                                         .background(Color.red)
-                                        .cornerRadius(4)
+                                        .continuousCornerRadius(DS.Radii.small)
                                 }
 
                                 Spacer()
@@ -164,8 +164,8 @@ struct ConnectorsTab: View {
                         }
                         .padding(8)
                         .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(viewModel.isSudoModeEnabled ? Color.red.opacity(0.08) : Color.primary.opacity(0.03))
+                            RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous)
+                                .fill(viewModel.isSudoModeEnabled ? DS.Colors.errorSubtle : Color.primary.opacity(0.03))
                         )
                     }
                     .padding(.vertical, 8)
@@ -371,7 +371,7 @@ struct BuiltInConnectorRow: View {
         .padding(.vertical, 8)
         .padding(.horizontal, 4)
         .background(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous)
                 .fill(Color.primary.opacity(0.03))
         )
     }
@@ -549,7 +549,7 @@ struct CustomServerRow: View {
         .padding(.vertical, 8)
         .padding(.horizontal, 4)
         .background(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous)
                 .fill(Color.primary.opacity(0.03))
         )
     }
