@@ -1602,13 +1602,54 @@ extension PromptWindowController: ToolApprovalUIDelegate {
     ) {
         let batch = PendingApprovalBatch(requests: requests, sessionId: sessionId, completion: completion)
 
-        // If there's an active batch, queue this one for later
-        // Note: In the future with concurrent sessions, we might want to allow multiple active batches
-        // if they belong to different sessions. For now, we queue all overlapping requests.
-        if currentApprovalBatch != nil {
-            print("🔄 Queuing approval batch (\(requests.count) tools, session: \(sessionId?.uuidString.prefix(8) ?? "none")) - another batch is active")
-            approvalQueue.append(batch)
-            return
+        // If there's an active batch, check if it's stale before queuing.
+        // A batch is stale if it belongs to the same session but from a previous generation
+        // (the producer Task was cancelled but onCancel hasn't cleaned up yet).
+        if let existingBatch = currentApprovalBatch {
+            if existingBatch.sessionId == sessionId {
+                // Same session — the old batch must be stale (a new approval round can't
+                // arrive while the previous one is pending within the same generation).
+                // Dismiss it so we can show the new batch immediately.
+                print("⚠️ Clearing stale approval batch for session \(sessionId?.uuidString.prefix(8) ?? "none") before starting new one")
+
+                // 1. Dismiss the active stale batch (manually, not via completeCurrentBatch,
+                //    to avoid its queue processing pulling in a different-session batch)
+                var decisions: [String: ApprovalDecision] = accumulatedDecisions
+                for request in existingBatch.requests where decisions[request.id] == nil {
+                    decisions[request.id] = ApprovalDecision(
+                        request: request,
+                        action: .dismissed,
+                        reason: "Superseded by new approval batch"
+                    )
+                }
+                currentApprovalBatch = nil
+                accumulatedDecisions = [:]
+                pendingRequestIds = []
+                viewModel.showApprovalView = false
+                viewModel.pendingApprovalRequests = []
+                existingBatch.completion(ApprovalUIResult(decisions: decisions, allowAllOnce: false))
+
+                // 2. Dismiss any queued batches for this session (call their completions
+                //    to resume the continuations in waitForUserDecisions)
+                let sameSessionQueued = approvalQueue.filter { $0.sessionId == sessionId }
+                approvalQueue.removeAll { $0.sessionId == sessionId }
+                for queuedBatch in sameSessionQueued {
+                    var queuedDecisions: [String: ApprovalDecision] = [:]
+                    for request in queuedBatch.requests {
+                        queuedDecisions[request.id] = ApprovalDecision(
+                            request: request,
+                            action: .dismissed,
+                            reason: "Superseded by new approval batch"
+                        )
+                    }
+                    queuedBatch.completion(ApprovalUIResult(decisions: queuedDecisions, allowAllOnce: false))
+                }
+            } else {
+                // Different session — legitimately queue for later
+                print("🔄 Queuing approval batch (\(requests.count) tools, session: \(sessionId?.uuidString.prefix(8) ?? "none")) - another session's batch is active")
+                approvalQueue.append(batch)
+                return
+            }
         }
 
         // Start processing this batch

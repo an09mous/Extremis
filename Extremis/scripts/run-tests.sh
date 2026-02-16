@@ -227,6 +227,10 @@ run_test_suite "Sound Notification Tests" \
     "$PROJECT_DIR/Tests/Core/SoundNotificationTests.swift" \
     "Foundation"
 
+run_test_suite "Stale Batch Cleanup Tests" \
+    "$PROJECT_DIR/Tests/Core/StaleBatchCleanupTests.swift" \
+    "Foundation"
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------

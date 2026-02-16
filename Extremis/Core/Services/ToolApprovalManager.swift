@@ -270,6 +270,9 @@ final class ToolApprovalManager {
                                 reason: "Approval timed out"
                             )
                         }
+                        // Dismiss UI to clear currentApprovalBatch on the controller
+                        // Without this, the stale batch blocks future approval UIs
+                        self.uiDelegate?.dismissApprovalUI(for: sessionId)
                         continuation.resume(returning: (decisions: decisions, allowAllOnce: false))
                         print("⏱️ Tool approval timed out after \(Self.approvalTimeoutSeconds) seconds")
                     }
