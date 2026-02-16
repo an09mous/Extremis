@@ -76,6 +76,7 @@ Context is captured via AX metadata (app name, window title) and selected text w
 - `UI/PromptWindow/` - Main floating panel UI
 - `UI/Preferences/` - Settings UI
 - `UI/Commands/` - Command palette and pinned commands bar
+- `UI/Components/Markdown/` - Markdown rendering and syntax highlighting
 - `Utilities/` - Helpers (KeychainHelper, ClipboardManager, AccessibilityHelpers)
 - `Resources/` - Prompt templates, models.json, assets
 
