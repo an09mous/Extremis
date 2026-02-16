@@ -14,6 +14,7 @@ A context-aware AI assistant for macOS that lives in your menu bar. Press a glob
 - **Quick Commands** — Pinned commands bar, command palette (`/`), and custom prompt templates
 - **Tool Execution (MCP)** — Built-in shell, GitHub, and web fetch connectors plus any MCP-compatible server
 - **Human-in-Loop Approval** — Review and approve tool calls with session memory
+- **Markdown Rendering** — Rich markdown responses with syntax-highlighted code blocks
 - **Multi-Provider** — OpenAI, Anthropic, Google Gemini, and Ollama (local models)
 - **Smart Text Insertion** — Results insert directly at your cursor with `Cmd+Enter`
 

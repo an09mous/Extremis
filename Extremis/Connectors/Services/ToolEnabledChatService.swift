@@ -125,13 +125,15 @@ final class ToolEnabledChatService {
                 print("⚠️ LLM requested \(generation.toolCalls.count) tool(s) but none are available - making fallback call without tools")
 
                 // Make a follow-up call without tools to get a text response
-                var fallbackMessages = messagesForProvider
-                let unavailableToolNames = generation.toolCalls.map { $0.name }.joined(separator: ", ")
-                fallbackMessages.append(ChatMessage.system(
-                    "The tools you tried to use (\(unavailableToolNames)) are not currently available. " +
-                    "Please respond to the user's request without using tools, or explain that you cannot " +
-                    "complete the request because the required tools are disabled."
-                ))
+                // Filter out empty assistant messages that confuse some models (e.g., DeepSeek)
+                var fallbackMessages = messagesForProvider.filter { msg in
+                    !(msg.role == .assistant && msg.content.isEmpty)
+                }
+                let fallbackSystemMsg = buildToolFallbackMessage(
+                    requestedNames: generation.toolCalls.map { $0.name },
+                    availableTools: availableTools
+                )
+                fallbackMessages.append(ChatMessage.system(fallbackSystemMsg))
 
                 let fallbackResponse = try await provider.generateChat(messages: fallbackMessages)
                 finalContent += fallbackResponse.content
@@ -164,7 +166,10 @@ final class ToolEnabledChatService {
             print("⚠️ Reached maximum tool rounds (\(maxToolRounds)) - making final summarization call")
 
             // Build final messages with all tool rounds
-            var finalMessages = messages
+            // Filter out empty assistant messages that confuse some models (e.g., DeepSeek)
+            var finalMessages = messages.filter { msg in
+                !(msg.role == .assistant && msg.content.isEmpty)
+            }
             let roundRecords = toolRounds.map { round in
                 ToolExecutionRoundRecord(
                     toolCalls: round.toolCalls.map { ToolCallRecord.from($0, connectorID: "") },
@@ -351,14 +356,15 @@ final class ToolEnabledChatService {
                             print("⚠️ LLM requested \(streamedToolCalls.count) tool(s) but none are available - making fallback call without tools")
 
                             // Make a follow-up call without tools to get a text response
-                            // Include context about what happened
-                            var fallbackMessages = messagesForProvider
-                            let unavailableToolNames = streamedToolCalls.map { $0.name }.joined(separator: ", ")
-                            fallbackMessages.append(ChatMessage.system(
-                                "The tools you tried to use (\(unavailableToolNames)) are not currently available. " +
-                                "Please respond to the user's request without using tools, or explain that you cannot " +
-                                "complete the request because the required tools are disabled."
-                            ))
+                            // Filter out empty assistant messages that confuse some models (e.g., DeepSeek)
+                            var fallbackMessages = messagesForProvider.filter { msg in
+                                !(msg.role == .assistant && msg.content.isEmpty)
+                            }
+                            let fallbackSystemMsg = self.buildToolFallbackMessage(
+                                requestedNames: streamedToolCalls.map { $0.name },
+                                availableTools: availableTools
+                            )
+                            fallbackMessages.append(ChatMessage.system(fallbackSystemMsg))
 
                             // Stream the fallback response
                             for try await chunk in provider.generateChatStream(messages: fallbackMessages) {
@@ -583,7 +589,10 @@ final class ToolEnabledChatService {
                         print("⚠️ Reached maximum tool rounds (\(self.maxToolRounds)) - making final summarization call")
 
                         // Build final messages with all tool rounds
-                        var finalMessages = messages
+                        // Filter out empty assistant messages that confuse some models (e.g., DeepSeek)
+                        var finalMessages = messages.filter { msg in
+                            !(msg.role == .assistant && msg.content.isEmpty)
+                        }
                         let finalRoundRecords = toolRounds.map { round in
                             ToolExecutionRoundRecord(
                                 toolCalls: round.toolCalls.map { ToolCallRecord.from($0, connectorID: "") },
@@ -668,6 +677,20 @@ final class ToolEnabledChatService {
     ) async throws -> String {
         let generation = try await provider.generateChat(messages: messages)
         return generation.content
+    }
+
+    /// Build a descriptive system message for the tool fallback path.
+    /// When resolveToolCalls returns empty, all requested names were unrecognized
+    /// (if a name matched, ToolCall.from() would succeed via compactMap).
+    /// This tells the model it hallucinated the names so it responds with text instead.
+    private func buildToolFallbackMessage(
+        requestedNames: [String],
+        availableTools: [ConnectorTool]
+    ) -> String {
+        return "You attempted to call tools that do not exist: \(requestedNames.joined(separator: ", ")). " +
+            "These names do not match any available tool. " +
+            "Do NOT attempt to call tools again. " +
+            "Respond to the user's request directly using your own knowledge."
     }
 
     /// Resolve LLM tool calls to internal ToolCall format

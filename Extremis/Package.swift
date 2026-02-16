@@ -16,13 +16,15 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.10.0")
+        .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.10.0"),
+        .package(url: "https://github.com/gonzalezreal/swift-markdown-ui.git", from: "2.4.0"),
     ],
     targets: [
         .executableTarget(
             name: "Extremis",
             dependencies: [
-                .product(name: "MCP", package: "swift-sdk")
+                .product(name: "MCP", package: "swift-sdk"),
+                .product(name: "MarkdownUI", package: "swift-markdown-ui"),
             ],
             path: ".",
             exclude: [

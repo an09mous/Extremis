@@ -231,6 +231,16 @@ run_test_suite "Stale Batch Cleanup Tests" \
     "$PROJECT_DIR/Tests/Core/StaleBatchCleanupTests.swift" \
     "Foundation"
 
+# 28. Tool Fallback Tests (empty message filter, fallback message construction)
+run_test_suite "Tool Fallback Tests" \
+    "$PROJECT_DIR/Tests/Connectors/ToolFallbackTests.swift" \
+    "Foundation"
+
+# 27. Markdown Rendering Tests (language name mapping, helpers)
+run_test_suite "Markdown Rendering Tests" \
+    "$PROJECT_DIR/Tests/UI/MarkdownRenderingTests.swift" \
+    "Foundation"
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------

@@ -105,13 +105,21 @@ struct ChatMessageView: View {
                 }
 
                 // Message content
-                Text(message.content)
-                    .font(.body)
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(bubbleColor)
-                    .cornerRadius(12)
+                Group {
+                    if isAssistant {
+                        MarkdownContentRenderer().render(content: message.content)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                    } else {
+                        Text(message.content)
+                            .font(.body)
+                            .textSelection(.enabled)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                    }
+                }
+                .background(bubbleColor)
+                .cornerRadius(12)
 
                 // Action buttons at bottom (always in layout, visibility controlled by opacity)
                 HStack(spacing: 8) {

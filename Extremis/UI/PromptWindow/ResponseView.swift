@@ -170,10 +170,17 @@ struct ResponseView: View {
 
                                 // Display response text if available
                                 if !response.isEmpty {
-                                    Text(response)
-                                        .font(.body)
-                                        .textSelection(.enabled)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    if isGenerating {
+                                        // Plain text during streaming for performance
+                                        Text(response)
+                                            .font(.body)
+                                            .textSelection(.enabled)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    } else {
+                                        // Rich markdown once generation completes
+                                        MarkdownContentRenderer().render(content: response)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
                                 } else if isGenerating && !activeToolCalls.isEmpty {
                                     // Tools are running but no response yet
                                     HStack(spacing: 8) {
