@@ -60,12 +60,13 @@ struct PromptInputView: View {
                         onEscape: showCommandPalette ? { showCommandPalette = false } : nil
                     )
                     .padding(12)
-                    .background(DS.Colors.surfaceElevated)
-                    .continuousCornerRadius(DS.Radii.medium)
+                    .background(.thinMaterial)
+                    .continuousCornerRadius(DS.Radii.large)
                     .overlay(
-                        RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous)
+                        RoundedRectangle(cornerRadius: DS.Radii.large, style: .continuous)
                             .stroke(DS.Colors.borderMedium, lineWidth: 1)
                     )
+                    .dsShadow(DS.Shadows.subtle)
 
                     // Command palette overlay
                     if showCommandPalette {

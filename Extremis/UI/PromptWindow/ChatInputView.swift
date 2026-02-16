@@ -80,14 +80,14 @@ struct ChatInputView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(DS.Colors.surfacePrimary)
+        .background(.thinMaterial)
         .continuousCornerRadius(DS.Radii.pill)
         .overlay(
             RoundedRectangle(cornerRadius: DS.Radii.pill, style: .continuous)
-                .stroke(isFocused ? DS.Colors.borderFocused : DS.Colors.borderSubtle, lineWidth: 1)
+                .stroke(isFocused ? DS.Colors.borderFocused : DS.Colors.borderMedium, lineWidth: 1)
                 .animation(DS.Animation.hoverTransition, value: isFocused)
         )
-        .dsShadow(DS.Shadows.subtle)
+        .dsShadow(DS.Shadows.medium)
     }
 
     private func sendIfNotEmpty() {

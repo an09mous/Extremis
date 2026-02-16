@@ -1487,6 +1487,12 @@ struct PromptContainerView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(.ultraThinMaterial)
+                .overlay(alignment: .bottom) {
+                    // Subtle shadow line under header for depth separation
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.06))
+                        .frame(height: 1)
+                }
 
                 if viewModel.showResponse {
                     // Response view with chat support

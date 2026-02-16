@@ -43,11 +43,11 @@ enum DS {
         // Hover
         static let hoverSubtle = Color.primary.opacity(0.06)
 
-        // Chat bubbles — user bubbles are noticeably tinted, assistant is elevated
-        static let userBubble = Color.accentColor.opacity(0.14)
-        static let userBubbleBorder = Color.accentColor.opacity(0.2)
-        static let assistantBubble = Color(NSColor.textBackgroundColor)
-        static let assistantBubbleBorder = Color.primary.opacity(0.06)
+        // Chat bubbles — user gets prominent accent tint, assistant has no bubble
+        static let userBubble = Color.accentColor.opacity(0.15)
+        static let userBubbleBorder = Color.accentColor.opacity(0.3)
+        static let assistantBubble = Color.clear
+        static let assistantBubbleBorder = Color.clear
     }
 
     // MARK: - Corner Radii (all use .continuous style)

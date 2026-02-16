@@ -41,10 +41,6 @@ struct ChatMessageView: View {
         message.hasToolExecutions
     }
 
-    private var bubbleColor: Color {
-        isUser ? DS.Colors.userBubble : DS.Colors.assistantBubble
-    }
-
     private var alignment: HorizontalAlignment {
         isUser ? .trailing : .leading
     }
@@ -105,25 +101,25 @@ struct ChatMessageView: View {
                 }
 
                 // Message content
-                Group {
-                    if isAssistant {
-                        MarkdownContentRenderer().render(content: message.content)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                    } else {
-                        Text(message.content)
-                            .font(.body)
-                            .textSelection(.enabled)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                    }
+                if isAssistant {
+                    // Assistant: clean text, no bubble — like ChatGPT/Claude.ai
+                    MarkdownContentRenderer().render(content: message.content)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 4)
+                } else {
+                    // User: prominent colored bubble
+                    Text(message.content)
+                        .font(.body)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(DS.Colors.userBubble)
+                        .continuousCornerRadius(DS.Radii.large)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: DS.Radii.large, style: .continuous)
+                                .stroke(DS.Colors.userBubbleBorder, lineWidth: 1)
+                        )
                 }
-                .background(bubbleColor)
-                .continuousCornerRadius(DS.Radii.large)
-                .overlay(
-                    RoundedRectangle(cornerRadius: DS.Radii.large, style: .continuous)
-                        .stroke(isUser ? DS.Colors.userBubbleBorder : DS.Colors.assistantBubbleBorder, lineWidth: 1)
-                )
 
                 // Action buttons at bottom (always in layout, visibility controlled by opacity)
                 HStack(spacing: 8) {
@@ -349,35 +345,23 @@ struct StreamingMessageView: View {
                     }
                 }
 
-                // Message content
+                // Message content — no bubble for assistant (clean text)
                 if content.isEmpty && isGenerating {
                     HStack(spacing: 4) {
                         ForEach(0..<3, id: \.self) { index in
                             Circle()
-                                .fill(Color.secondary.opacity(0.5))
+                                .fill(Color.secondary.opacity(0.4))
                                 .frame(width: 6, height: 6)
                         }
                     }
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, 4)
                     .padding(.vertical, 12)
-                    .background(DS.Colors.assistantBubble)
-                    .continuousCornerRadius(DS.Radii.large)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: DS.Radii.large, style: .continuous)
-                            .stroke(DS.Colors.assistantBubbleBorder, lineWidth: 1)
-                    )
                 } else {
                     Text(content)
                         .font(.body)
                         .textSelection(.enabled)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(DS.Colors.assistantBubble)
-                        .continuousCornerRadius(DS.Radii.large)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: DS.Radii.large, style: .continuous)
-                                .stroke(DS.Colors.assistantBubbleBorder, lineWidth: 1)
-                        )
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 4)
                 }
 
                 // Copy button at bottom (always in layout, visibility controlled by opacity)

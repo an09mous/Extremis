@@ -94,7 +94,7 @@ struct SessionListView: View {
             }
         }
         .frame(width: 180)
-        .background(DS.Colors.windowBackground)
+        .background(.thinMaterial)
         .onAppear {
             loadSessions(showLoading: sessions.isEmpty)
         }
