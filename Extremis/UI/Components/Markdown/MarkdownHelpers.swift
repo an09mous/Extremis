@@ -8,10 +8,7 @@ import Foundation
 ///
 /// - Parameter identifier: The language identifier from a markdown code fence (e.g., "js", "py", "swift")
 /// - Returns: A human-readable name, or nil if the identifier is nil or empty
-func languageDisplayName(for identifier: String?) -> String? {
-    guard let id = identifier, !id.isEmpty else { return nil }
-
-    let nameMap: [String: String] = [
+private let languageNameMap: [String: String] = [
         // JavaScript / TypeScript
         "js": "JavaScript",
         "javascript": "JavaScript",
@@ -142,7 +139,9 @@ func languageDisplayName(for identifier: String?) -> String? {
         "lisp": "Lisp",
         "scheme": "Scheme",
         "racket": "Racket",
-    ]
+]
 
-    return nameMap[id.lowercased()] ?? id.capitalized
+func languageDisplayName(for identifier: String?) -> String? {
+    guard let id = identifier, !id.isEmpty else { return nil }
+    return languageNameMap[id.lowercased()] ?? id.capitalized
 }
