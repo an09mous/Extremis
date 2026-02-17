@@ -1,4 +1,4 @@
-# Extremis
+# Extremis [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/an09mous/Extremis)
 
 A context-aware AI assistant for macOS that lives in your menu bar. Press a global hotkey anywhere to chat, transform text, execute tools, and get things done — all with full awareness of your current app, window, and selection.
 
