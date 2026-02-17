@@ -1490,7 +1490,7 @@ struct PromptContainerView: View {
                 .overlay(alignment: .bottom) {
                     // Subtle shadow line under header for depth separation
                     Rectangle()
-                        .fill(Color.primary.opacity(0.06))
+                        .fill(DS.Colors.borderSubtle)
                         .frame(height: 1)
                 }
 

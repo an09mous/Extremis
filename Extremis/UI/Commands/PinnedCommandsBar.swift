@@ -55,7 +55,7 @@ struct PinnedCommandButton: View {
             .padding(.vertical, 4)
             .background(
                 RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous)
-                    .fill(isHovering ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.05))
+                    .fill(isHovering ? Color.accentColor.opacity(0.15) : DS.Colors.hoverSubtle)
                     .animation(DS.Animation.hoverTransition, value: isHovering)
             )
             .overlay(

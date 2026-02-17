@@ -13,7 +13,11 @@ enum DS {
         // Surfaces — layered hierarchy for visual depth
         static let windowBackground = Color(NSColor.windowBackgroundColor)
         static let surfacePrimary = Color(NSColor.controlBackgroundColor)
-        static let surfaceSecondary = Color(NSColor.unemphasizedSelectedContentBackgroundColor).opacity(0.5)
+        static let surfaceSecondary = Color(nsColor: .init(name: nil, dynamicProvider: { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor.white.withAlphaComponent(0.05)
+                : NSColor.black.withAlphaComponent(0.04)
+        }))
         static let surfaceElevated = Color(NSColor.textBackgroundColor)
 
         // Text
@@ -21,27 +25,55 @@ enum DS {
         static let textSecondary = Color.secondary
         static let textTertiary = Color.secondary.opacity(0.6)
 
-        // Borders
-        static let borderSubtle = Color.primary.opacity(0.08)
-        static let borderMedium = Color.primary.opacity(0.12)
+        // Borders — stronger in light mode for clear separation
+        static let borderSubtle = Color(nsColor: .init(name: nil, dynamicProvider: { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor.white.withAlphaComponent(0.08)
+                : NSColor.black.withAlphaComponent(0.12)
+        }))
+        static let borderMedium = Color(nsColor: .init(name: nil, dynamicProvider: { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor.white.withAlphaComponent(0.12)
+                : NSColor.black.withAlphaComponent(0.18)
+        }))
         static let borderFocused = Color.accentColor.opacity(0.6)
 
         // Accents
         static let accentSubtle = Color.accentColor.opacity(0.12)
         static let accentLight = Color.accentColor.opacity(0.18)
 
-        // Status
-        static let successSubtle = Color.green.opacity(0.08)
+        // Status — stronger tints in light mode
+        static let successSubtle = Color(nsColor: .init(name: nil, dynamicProvider: { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor.systemGreen.withAlphaComponent(0.08)
+                : NSColor.systemGreen.withAlphaComponent(0.12)
+        }))
         static let successBorder = Color.green.opacity(0.3)
-        static let errorSubtle = Color.red.opacity(0.1)
+        static let errorSubtle = Color(nsColor: .init(name: nil, dynamicProvider: { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor.systemRed.withAlphaComponent(0.1)
+                : NSColor.systemRed.withAlphaComponent(0.14)
+        }))
         static let errorBorder = Color.red.opacity(0.3)
-        static let warningSubtle = Color.orange.opacity(0.08)
+        static let warningSubtle = Color(nsColor: .init(name: nil, dynamicProvider: { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor.systemOrange.withAlphaComponent(0.08)
+                : NSColor.systemOrange.withAlphaComponent(0.12)
+        }))
         static let warningBorder = Color.orange.opacity(0.3)
-        static let infoSubtle = Color.blue.opacity(0.08)
+        static let infoSubtle = Color(nsColor: .init(name: nil, dynamicProvider: { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor.systemBlue.withAlphaComponent(0.08)
+                : NSColor.systemBlue.withAlphaComponent(0.12)
+        }))
         static let infoBorder = Color.blue.opacity(0.3)
 
-        // Hover
-        static let hoverSubtle = Color.primary.opacity(0.06)
+        // Hover — visible in both modes
+        static let hoverSubtle = Color(nsColor: .init(name: nil, dynamicProvider: { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor.white.withAlphaComponent(0.06)
+                : NSColor.black.withAlphaComponent(0.06)
+        }))
 
         // Chat bubbles — user gets prominent accent tint, assistant has no bubble
         static let userBubble = Color.accentColor.opacity(0.15)
