@@ -79,13 +79,15 @@ struct ChatInputView: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color(NSColor.controlBackgroundColor))
-        .cornerRadius(20)
+        .padding(.vertical, 4)
+        .background(.thinMaterial)
+        .continuousCornerRadius(DS.Radii.pill)
         .overlay(
-            RoundedRectangle(cornerRadius: 20)
-                .stroke(isFocused ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1)
+            RoundedRectangle(cornerRadius: DS.Radii.pill, style: .continuous)
+                .stroke(isFocused ? DS.Colors.borderFocused : DS.Colors.borderMedium, lineWidth: 1)
+                .animation(DS.Animation.hoverTransition, value: isFocused)
         )
+        .dsShadow(DS.Shadows.medium)
     }
 
     private func sendIfNotEmpty() {
@@ -309,12 +311,12 @@ struct InlineChatInputView: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(Color(NSColor.textBackgroundColor))
-        .cornerRadius(16)
+        .padding(.vertical, 3)
+        .background(DS.Colors.surfaceElevated)
+        .continuousCornerRadius(DS.Radii.xLarge)
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+            RoundedRectangle(cornerRadius: DS.Radii.xLarge, style: .continuous)
+                .stroke(DS.Colors.borderMedium, lineWidth: 1)
         )
     }
 

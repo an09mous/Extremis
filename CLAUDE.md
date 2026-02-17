@@ -76,6 +76,7 @@ Context is captured via AX metadata (app name, window title) and selected text w
 - `UI/PromptWindow/` - Main floating panel UI
 - `UI/Preferences/` - Settings UI
 - `UI/Commands/` - Command palette and pinned commands bar
+- `UI/Components/` - Shared components (DesignSystem, LoadingOverlay)
 - `UI/Components/Markdown/` - Markdown rendering and syntax highlighting
 - `Utilities/` - Helpers (KeychainHelper, ClipboardManager, AccessibilityHelpers)
 - `Resources/` - Prompt templates, models.json, assets
@@ -163,6 +164,17 @@ Human-in-loop tool approval with session memory (see `specs/011-tool-approval/`)
 
 Approval flow: Tool calls → Session memory check → User prompt → Execute/reject
 
+### Design System
+
+All visual tokens are centralized in `Extremis/UI/Components/DesignSystem.swift` via the `DS` enum:
+- **`DS.Colors`** — Semantic, appearance-adaptive colors (surfaces, borders, status, hover, chat bubbles). Uses `NSColor(name:dynamicProvider:)` to resolve differently in light vs dark mode.
+- **`DS.Radii`** — Corner radii (`small`=4, `medium`=8, `large`=12, `xLarge`=16, `pill`=20). Always use with `.continuous` style for squircle shape.
+- **`DS.Spacing`** — 4pt grid (`xxs`=2 through `xl`=24)
+- **`DS.Shadows`** — Subtle/medium/elevated shadow styles
+- **`DS.Animation`** — Standard hover and expand/collapse transitions
+
+**Convention**: Use `DS` tokens instead of hardcoded colors/radii. Use `.continuousCornerRadius()` View extension for clipping.
+
 ## Feature Specifications
 
 Feature specs are in `specs/` directory, each containing:
@@ -197,6 +209,7 @@ Latest completed feature: `specs/011-tool-approval/` (Human-in-Loop Tool Approva
 - `Extremis/Connectors/Utilities/ConnectorSettings.swift` - UserDefaults for connector settings
 - `Extremis/Core/Models/ShellCommand.swift` - Shell command risk classification
 - `Extremis/Core/Services/ShellCommandExecutor.swift` - Safe shell execution with sandboxing
+- `Extremis/UI/Components/DesignSystem.swift` - Centralized design tokens (colors, radii, spacing, shadows)
 
 ## Configuration & Storage
 

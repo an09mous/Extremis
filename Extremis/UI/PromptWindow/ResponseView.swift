@@ -249,7 +249,7 @@ struct ResponseView: View {
             if showApprovalView && !pendingApprovalRequests.isEmpty {
                 ZStack {
                     // Semi-transparent background covering just this view
-                    Color(NSColor.windowBackgroundColor).opacity(0.9)
+                    DS.Colors.windowBackground.opacity(0.9)
                         .ignoresSafeArea()
 
                     // Approval view at bottom
@@ -379,7 +379,7 @@ struct ResponseView: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 6)
     }
 }
 
@@ -410,14 +410,14 @@ struct ErrorBanner: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .background(Color.accentColor)
-                    .cornerRadius(6)
+                    .continuousCornerRadius(DS.Radii.medium)
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding()
-        .background(Color.red.opacity(0.1))
-        .cornerRadius(8)
+        .background(DS.Colors.errorSubtle)
+        .continuousCornerRadius(DS.Radii.medium)
     }
 }
 

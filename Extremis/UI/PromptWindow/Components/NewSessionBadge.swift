@@ -21,8 +21,8 @@ struct NewSessionBadge: View {
                 .foregroundColor(.accentColor)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(Color.accentColor.opacity(0.15))
-                .cornerRadius(6)
+                .background(DS.Colors.accentLight)
+                .continuousCornerRadius(DS.Radii.medium)
                 .fixedSize()
                 .transition(reduceMotion
                     ? .opacity

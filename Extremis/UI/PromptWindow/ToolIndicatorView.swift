@@ -27,8 +27,8 @@ struct ToolIndicatorView: View {
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 4)
                     .padding(.vertical, 2)
-                    .background(Color.secondary.opacity(0.1))
-                    .cornerRadius(4)
+                    .background(DS.Colors.hoverSubtle)
+                    .continuousCornerRadius(DS.Radii.small)
 
                 Spacer()
 
@@ -100,9 +100,9 @@ struct ToolIndicatorView: View {
         }
         .padding(8)
         .background(backgroundColor)
-        .cornerRadius(8)
+        .continuousCornerRadius(DS.Radii.medium)
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous)
                 .stroke(borderColor, lineWidth: 1)
         )
     }
@@ -144,42 +144,42 @@ struct ToolIndicatorView: View {
     private var backgroundColor: Color {
         switch toolCall.state {
         case .pending:
-            return Color(NSColor.controlBackgroundColor)
+            return DS.Colors.surfacePrimary
         case .pendingApproval:
-            return Color.orange.opacity(0.05)
+            return DS.Colors.warningSubtle
         case .approved:
-            return Color.green.opacity(0.03)
+            return DS.Colors.successSubtle.opacity(0.6)
         case .denied:
-            return Color.red.opacity(0.05)
+            return DS.Colors.errorSubtle
         case .executing:
-            return Color.blue.opacity(0.05)
+            return DS.Colors.infoSubtle
         case .completed:
-            return Color.green.opacity(0.05)
+            return DS.Colors.successSubtle
         case .failed:
-            return Color.red.opacity(0.05)
+            return DS.Colors.errorSubtle
         case .cancelled:
-            return Color(NSColor.controlBackgroundColor)
+            return DS.Colors.surfacePrimary
         }
     }
 
     private var borderColor: Color {
         switch toolCall.state {
         case .pending:
-            return Color.secondary.opacity(0.2)
+            return DS.Colors.borderMedium
         case .pendingApproval:
-            return Color.orange.opacity(0.3)
+            return DS.Colors.warningBorder
         case .approved:
-            return Color.green.opacity(0.2)
+            return DS.Colors.successBorder
         case .denied:
-            return Color.red.opacity(0.3)
+            return DS.Colors.errorBorder
         case .executing:
-            return Color.blue.opacity(0.3)
+            return DS.Colors.infoBorder
         case .completed:
-            return Color.green.opacity(0.3)
+            return DS.Colors.successBorder
         case .failed:
-            return Color.red.opacity(0.3)
+            return DS.Colors.errorBorder
         case .cancelled:
-            return Color.secondary.opacity(0.2)
+            return DS.Colors.borderMedium
         }
     }
 }
@@ -228,8 +228,8 @@ struct ToolCallsGroupView: View {
             }
         }
         .padding(12)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-        .cornerRadius(12)
+        .background(DS.Colors.surfaceSecondary)
+        .continuousCornerRadius(DS.Radii.large)
     }
 
     @ViewBuilder

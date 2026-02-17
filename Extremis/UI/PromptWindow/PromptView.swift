@@ -60,12 +60,13 @@ struct PromptInputView: View {
                         onEscape: showCommandPalette ? { showCommandPalette = false } : nil
                     )
                     .padding(12)
-                    .background(Color(NSColor.textBackgroundColor))
-                    .cornerRadius(8)
+                    .background(.thinMaterial)
+                    .continuousCornerRadius(DS.Radii.large)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.accentColor.opacity(0.3), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: DS.Radii.large, style: .continuous)
+                            .stroke(DS.Colors.borderMedium, lineWidth: 1)
                     )
+                    .dsShadow(DS.Shadows.subtle)
 
                     // Command palette overlay
                     if showCommandPalette {
@@ -313,7 +314,7 @@ struct ContextBanner: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(DS.Colors.surfaceSecondary)
     }
 }
 

@@ -26,7 +26,7 @@ struct SessionListView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .background(Color(NSColor.controlBackgroundColor))
+            .background(.ultraThinMaterial)
 
             Divider()
 
@@ -94,7 +94,7 @@ struct SessionListView: View {
             }
         }
         .frame(width: 180)
-        .background(Color(NSColor.windowBackgroundColor))
+        .background(.thinMaterial)
         .onAppear {
             loadSessions(showLoading: sessions.isEmpty)
         }
@@ -227,8 +227,9 @@ struct SessionRowView: View {
                 .padding(.vertical, 6)
             }
             .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(isActive ? Color.accentColor.opacity(0.12) : (isHovering && !isDisabled ? Color.secondary.opacity(0.08) : Color.clear))
+                RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous)
+                    .fill(isActive ? DS.Colors.accentSubtle : (isHovering && !isDisabled ? DS.Colors.hoverSubtle : Color.clear))
+                    .animation(DS.Animation.hoverTransition, value: isHovering)
             )
         }
         .buttonStyle(.plain)

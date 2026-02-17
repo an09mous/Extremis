@@ -156,7 +156,7 @@ struct AddEditCommandSheet: View {
                                 .font(.system(.body, design: .monospaced))
                                 .frame(minHeight: 120)
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 4)
+                                    RoundedRectangle(cornerRadius: DS.Radii.small, style: .continuous)
                                         .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
                                 )
 
@@ -242,11 +242,11 @@ struct AddEditCommandSheet: View {
                         .font(.title3)
                         .frame(width: 32, height: 32)
                         .background(
-                            RoundedRectangle(cornerRadius: 6)
+                            RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous)
                                 .fill(icon == iconName ? Color.accentColor.opacity(0.2) : Color.clear)
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 6)
+                            RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous)
                                 .stroke(icon == iconName ? Color.accentColor : Color.clear, lineWidth: 1)
                         )
                 }

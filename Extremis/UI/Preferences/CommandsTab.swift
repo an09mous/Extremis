@@ -222,8 +222,8 @@ struct CommandRow: View {
         .padding(.vertical, 8)
         .padding(.horizontal, 8)
         .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.primary.opacity(0.03))
+            RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous)
+                .fill(DS.Colors.surfaceSecondary)
         )
     }
 }

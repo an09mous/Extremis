@@ -1485,8 +1485,14 @@ struct PromptContainerView: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color(NSColor.windowBackgroundColor))
+                .padding(.vertical, 4)
+                .background(.ultraThinMaterial)
+                .overlay(alignment: .bottom) {
+                    // Subtle shadow line under header for depth separation
+                    Rectangle()
+                        .fill(DS.Colors.borderSubtle)
+                        .frame(height: 1)
+                }
 
                 if viewModel.showResponse {
                     // Response view with chat support
@@ -1579,9 +1585,9 @@ struct PromptContainerView: View {
                             contextForViewer = nil
                         }
                     )
-                    .background(Color(NSColor.windowBackgroundColor))
-                    .cornerRadius(12)
-                    .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
+                    .background(DS.Colors.windowBackground)
+                    .continuousCornerRadius(DS.Radii.large)
+                    .dsShadow(DS.Shadows.elevated)
                     .padding(20)
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))

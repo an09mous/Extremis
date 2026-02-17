@@ -86,7 +86,7 @@ struct CommandPaletteView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(Color(NSColor.controlBackgroundColor))
+            .background(DS.Colors.surfaceSecondary)
 
             Divider()
 
@@ -130,12 +130,12 @@ struct CommandPaletteView: View {
                     Spacer()
                 }
                 .padding(.vertical, 4)
-                .background(Color(NSColor.controlBackgroundColor))
+                .background(DS.Colors.surfaceSecondary)
             }
         }
-        .background(Color(NSColor.windowBackgroundColor))
-        .cornerRadius(8)
-        .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
+        .background(.thinMaterial)
+        .continuousCornerRadius(DS.Radii.medium)
+        .dsShadow(DS.Shadows.elevated)
         .frame(width: 320)
     }
 

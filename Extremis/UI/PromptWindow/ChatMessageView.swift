@@ -41,10 +41,6 @@ struct ChatMessageView: View {
         message.hasToolExecutions
     }
 
-    private var bubbleColor: Color {
-        isUser ? Color.accentColor.opacity(0.15) : Color(NSColor.controlBackgroundColor)
-    }
-
     private var alignment: HorizontalAlignment {
         isUser ? .trailing : .leading
     }
@@ -105,21 +101,25 @@ struct ChatMessageView: View {
                 }
 
                 // Message content
-                Group {
-                    if isAssistant {
-                        MarkdownContentRenderer().render(content: message.content)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                    } else {
-                        Text(message.content)
-                            .font(.body)
-                            .textSelection(.enabled)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                    }
+                if isAssistant {
+                    // Assistant: clean text, no bubble — like ChatGPT/Claude.ai
+                    MarkdownContentRenderer().render(content: message.content)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 4)
+                } else {
+                    // User: prominent colored bubble
+                    Text(message.content)
+                        .font(.body)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(DS.Colors.userBubble)
+                        .continuousCornerRadius(DS.Radii.large)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: DS.Radii.large, style: .continuous)
+                                .stroke(DS.Colors.userBubbleBorder, lineWidth: 1)
+                        )
                 }
-                .background(bubbleColor)
-                .cornerRadius(12)
 
                 // Action buttons at bottom (always in layout, visibility controlled by opacity)
                 HStack(spacing: 8) {
@@ -159,9 +159,9 @@ struct ChatMessageView: View {
             if !isUser { Spacer(minLength: 40) }
         }
         .onHover { hovering in
-            // Remove animation wrapper to reduce re-renders during hover
-            // The opacity transition on buttons provides sufficient visual feedback
-            isHovering = hovering
+            withAnimation(DS.Animation.hoverTransition) {
+                isHovering = hovering
+            }
         }
         .sheet(isPresented: $showContextSheet) {
             if let ctx = context {
@@ -215,8 +215,8 @@ struct PersistedToolHistoryView: View {
             }
         }
         .padding(8)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-        .cornerRadius(8)
+        .background(DS.Colors.surfaceSecondary)
+        .continuousCornerRadius(DS.Radii.medium)
     }
 }
 
@@ -253,8 +253,8 @@ struct PersistedToolCallRow: View {
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 3)
                     .padding(.vertical, 1)
-                    .background(Color.secondary.opacity(0.1))
-                    .cornerRadius(3)
+                    .background(DS.Colors.hoverSubtle)
+                    .continuousCornerRadius(DS.Radii.small)
 
                 Spacer()
 
@@ -345,27 +345,23 @@ struct StreamingMessageView: View {
                     }
                 }
 
-                // Message content
+                // Message content — no bubble for assistant (clean text)
                 if content.isEmpty && isGenerating {
                     HStack(spacing: 4) {
                         ForEach(0..<3, id: \.self) { index in
                             Circle()
-                                .fill(Color.secondary.opacity(0.5))
+                                .fill(Color.secondary.opacity(0.4))
                                 .frame(width: 6, height: 6)
                         }
                     }
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, 4)
                     .padding(.vertical, 12)
-                    .background(Color(NSColor.controlBackgroundColor))
-                    .cornerRadius(12)
                 } else {
                     Text(content)
                         .font(.body)
                         .textSelection(.enabled)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color(NSColor.controlBackgroundColor))
-                        .cornerRadius(12)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 4)
                 }
 
                 // Copy button at bottom (always in layout, visibility controlled by opacity)
@@ -389,9 +385,9 @@ struct StreamingMessageView: View {
             Spacer(minLength: 40)
         }
         .onHover { hovering in
-            // Remove animation wrapper to reduce re-renders during hover
-            // The opacity transition on buttons provides sufficient visual feedback
-            isHovering = hovering
+            withAnimation(DS.Animation.hoverTransition) {
+                isHovering = hovering
+            }
         }
     }
 

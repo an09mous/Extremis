@@ -29,8 +29,8 @@ struct PinnedCommandsBar: View {
                     .foregroundColor(.secondary.opacity(0.6))
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+            .padding(.vertical, 3)
+            .background(DS.Colors.surfaceSecondary)
         }
     }
 }
@@ -54,12 +54,14 @@ struct PinnedCommandButton: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(isHovering ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.05))
+                RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous)
+                    .fill(isHovering ? Color.accentColor.opacity(0.15) : DS.Colors.hoverSubtle)
+                    .animation(DS.Animation.hoverTransition, value: isHovering)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous)
                     .stroke(isHovering ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
+                    .animation(DS.Animation.hoverTransition, value: isHovering)
             )
         }
         .buttonStyle(.plain)
@@ -102,8 +104,9 @@ struct CompactPinnedCommandButton: View {
                 .font(.caption)
                 .frame(width: 24, height: 24)
                 .background(
-                    RoundedRectangle(cornerRadius: 4)
+                    RoundedRectangle(cornerRadius: DS.Radii.small, style: .continuous)
                         .fill(isHovering ? Color.accentColor.opacity(0.15) : Color.clear)
+                        .animation(DS.Animation.hoverTransition, value: isHovering)
                 )
         }
         .buttonStyle(.plain)
