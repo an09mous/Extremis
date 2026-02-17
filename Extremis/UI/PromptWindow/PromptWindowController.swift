@@ -1485,7 +1485,7 @@ struct PromptContainerView: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.vertical, 4)
                 .background(.ultraThinMaterial)
                 .overlay(alignment: .bottom) {
                     // Subtle shadow line under header for depth separation

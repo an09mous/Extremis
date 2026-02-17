@@ -79,7 +79,7 @@ struct ChatInputView: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.vertical, 4)
         .background(.thinMaterial)
         .continuousCornerRadius(DS.Radii.pill)
         .overlay(
@@ -311,7 +311,7 @@ struct InlineChatInputView: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.vertical, 3)
         .background(DS.Colors.surfaceElevated)
         .continuousCornerRadius(DS.Radii.xLarge)
         .overlay(

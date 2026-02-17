@@ -29,7 +29,7 @@ struct PinnedCommandsBar: View {
                     .foregroundColor(.secondary.opacity(0.6))
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.vertical, 3)
             .background(DS.Colors.surfaceSecondary)
         }
     }
