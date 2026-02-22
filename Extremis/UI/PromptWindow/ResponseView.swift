@@ -171,6 +171,19 @@ struct ResponseView: View {
                                 // Display response text if available
                                 if !response.isEmpty {
                                     if isGenerating {
+                                        // Role label with spinner (consistent with Chat Mode's StreamingMessageView)
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "sparkles")
+                                                .font(.caption2)
+                                                .foregroundColor(.accentColor)
+                                            Text("Extremis")
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                            ProgressView()
+                                                .scaleEffect(0.5)
+                                                .frame(width: 12, height: 12)
+                                        }
+
                                         // Plain text during streaming for performance
                                         Text(response)
                                             .font(.body)
