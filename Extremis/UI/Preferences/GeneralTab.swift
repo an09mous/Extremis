@@ -69,7 +69,7 @@ struct GeneralTab: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Extremis")
                             .font(.headline)
-                        Text("Version 1.0.0")
+                        Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0")")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }

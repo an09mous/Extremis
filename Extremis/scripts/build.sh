@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build script for Extremis
-# Creates .app bundle and a styled DMG for distribution
+# Creates .app bundle and ZIP for distribution
 
 set -e
 
@@ -42,8 +42,14 @@ else
     echo "   The app may crash on startup without resources."
 fi
 
-# Copy Info.plist
+# Copy Info.plist and stamp version from latest git tag
 cp "Info.plist" "$APP_BUNDLE/Contents/"
+GIT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
+if [ -n "$GIT_TAG" ]; then
+    BUILD_VERSION="${GIT_TAG#v}"
+    echo "📌 Stamping version $BUILD_VERSION (from tag $GIT_TAG)"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $BUILD_VERSION" "$APP_BUNDLE/Contents/Info.plist"
+fi
 
 # Copy entitlements (for reference, not embedded in unsigned app)
 cp "Extremis.entitlements" "$BUILD_DIR/"

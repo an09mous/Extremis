@@ -17,10 +17,7 @@ jobs:
         with:
           xcode-version: latest-stable
 
-      - name: Install create-dmg
-        run: brew install create-dmg
-
-      - name: Build App and DMG
+      - name: Build App
         run: |
           cd Extremis
           chmod +x scripts/build.sh
@@ -37,13 +34,6 @@ jobs:
         with:
           name: Extremis.app
           path: Extremis/build/Extremis.app
-          retention-days: 30
-
-      - name: Upload DMG
-        uses: actions/upload-artifact@v4
-        with:
-          name: Extremis.dmg
-          path: Extremis/build/Extremis.dmg
           retention-days: 30
 
       - name: Upload ZIP
