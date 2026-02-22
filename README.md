@@ -29,26 +29,33 @@ https://github.com/user-attachments/assets/71bd737a-529a-4c46-9366-9853b3f3c7fe
 
 ## Installation
 
+### Quick Install (Recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/an09mous/Extremis/main/Extremis/scripts/install.sh | bash
+```
+
+Downloads the latest release and installs to `/Applications`. No Gatekeeper prompts.
+
+### Download Pre-built
+
+1. Download **Extremis.zip** from [GitHub Releases](https://github.com/an09mous/Extremis/releases)
+2. Unzip and move Extremis.app to Applications
+3. Strip quarantine (browser downloads trigger Gatekeeper):
+   ```bash
+   xattr -cr /Applications/Extremis.app
+   ```
+4. Launch Extremis from Applications
+
 ### Build from Source
 
 ```bash
 git clone https://github.com/an09mous/Extremis.git
 cd Extremis/Extremis
 ./scripts/build.sh
-open build/Extremis.dmg
 ```
 
-Drag Extremis to Applications from the DMG.
-
-### Download Pre-built
-
-1. Download **Extremis.dmg** from [GitHub Releases](https://github.com/an09mous/Extremis/releases)
-2. Open the DMG and drag Extremis to Applications
-3. Bypass Gatekeeper (app isn't notarized):
-   ```bash
-   xattr -cr /Applications/Extremis.app
-   ```
-4. Launch Extremis from Applications
+Move `build/Extremis.app` to Applications.
 
 ## Setup
 
