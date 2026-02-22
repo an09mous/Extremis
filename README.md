@@ -2,9 +2,13 @@
 
 A context-aware AI assistant for macOS that lives in your menu bar. Press a global hotkey anywhere to chat, transform text, execute tools, and get things done — all with full awareness of your current app, window, and selection.
 
-[![Demo](https://img.youtube.com/vi/mCSchPCEza4/maxresdefault.jpg)](https://youtu.be/mCSchPCEza4)
 
-> **[Watch the demo →](https://youtu.be/mCSchPCEza4)** | **[All demos →](https://www.youtube.com/watch?v=zUP5TH_F-dM&list=PLltnaMY5emM9y1-78i_tKbv-Lvu0fLbUf)**
+
+https://github.com/user-attachments/assets/71bd737a-529a-4c46-9366-9853b3f3c7fe
+
+
+
+> **[All demos →](https://www.youtube.com/watch?v=zUP5TH_F-dM&list=PLltnaMY5emM9y1-78i_tKbv-Lvu0fLbUf)**
 
 ## Features
 
