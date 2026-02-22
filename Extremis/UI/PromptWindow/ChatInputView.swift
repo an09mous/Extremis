@@ -14,7 +14,15 @@ struct ChatInputView: View {
     let onSend: () -> Void
     var onStopGeneration: (() -> Void)?
 
+    // Image attachment support
+    var supportsImages: Bool = false
+    @Binding var stagedAttachments: [MessageAttachment]
+    var onPasteImage: (() -> Void)?
+    var onPickImages: (([URL]) -> Void)?
+    var onRemoveAttachment: ((UUID) -> Void)?
+
     @State private var isFocused: Bool = false
+    @State private var isDragTargeted: Bool = false
 
     init(
         text: Binding<String>,
@@ -23,7 +31,12 @@ struct ChatInputView: View {
         placeholder: String = "Type a follow-up message...",
         autoFocus: Bool = false,
         onSend: @escaping () -> Void,
-        onStopGeneration: (() -> Void)? = nil
+        onStopGeneration: (() -> Void)? = nil,
+        supportsImages: Bool = false,
+        stagedAttachments: Binding<[MessageAttachment]> = .constant([]),
+        onPasteImage: (() -> Void)? = nil,
+        onPickImages: (([URL]) -> Void)? = nil,
+        onRemoveAttachment: ((UUID) -> Void)? = nil
     ) {
         self._text = text
         self.isEnabled = isEnabled
@@ -32,6 +45,11 @@ struct ChatInputView: View {
         self.autoFocus = autoFocus
         self.onSend = onSend
         self.onStopGeneration = onStopGeneration
+        self.supportsImages = supportsImages
+        self._stagedAttachments = stagedAttachments
+        self.onPasteImage = onPasteImage
+        self.onPickImages = onPickImages
+        self.onRemoveAttachment = onRemoveAttachment
     }
 
     // Track the actual content height from NSTextView
@@ -45,37 +63,59 @@ struct ChatInputView: View {
     }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            // Scrollable text input using NSTextView for performance
-            ScrollableChatTextEditor(
-                text: $text,
-                placeholder: placeholder,
-                isEnabled: isEnabled,
-                autoFocus: autoFocus,
-                isFocused: $isFocused,
-                contentHeight: $contentHeight,
-                onSend: { sendIfNotEmpty() }
-            )
-            .frame(height: textHeight)
+        VStack(spacing: 0) {
+            // Staged attachments bar (above input)
+            if !stagedAttachments.isEmpty {
+                StagedAttachmentsBar(
+                    attachments: stagedAttachments,
+                    onRemove: { id in onRemoveAttachment?(id) }
+                )
+            }
 
-            // Show stop button when generating, otherwise show send button
-            if isGenerating {
-                Button(action: { onStopGeneration?() }) {
-                    Image(systemName: "stop.circle.fill")
-                        .font(.title2)
-                        .foregroundColor(.red)
+            HStack(alignment: .bottom, spacing: 8) {
+                // Attach image button (only when model supports images)
+                if supportsImages {
+                    Button(action: openFilePicker) {
+                        Image(systemName: "photo.badge.plus")
+                            .font(.system(size: 16))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Attach image")
                 }
-                .buttonStyle(.plain)
-                .help("Stop generating")
-            } else {
-                Button(action: sendIfNotEmpty) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.title2)
-                        .foregroundColor(canSend ? .accentColor : .secondary)
+
+                // Scrollable text input using NSTextView for performance
+                ScrollableChatTextEditor(
+                    text: $text,
+                    placeholder: placeholder,
+                    isEnabled: isEnabled,
+                    autoFocus: autoFocus,
+                    isFocused: $isFocused,
+                    contentHeight: $contentHeight,
+                    onSend: { sendIfNotEmpty() },
+                    onPasteImage: supportsImages ? onPasteImage : nil
+                )
+                .frame(height: textHeight)
+
+                // Show stop button when generating, otherwise show send button
+                if isGenerating {
+                    Button(action: { onStopGeneration?() }) {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.title2)
+                            .foregroundColor(.red)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stop generating")
+                } else {
+                    Button(action: sendIfNotEmpty) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.title2)
+                            .foregroundColor(canSend ? .accentColor : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canSend)
+                    .help("Send message (Enter)")
                 }
-                .buttonStyle(.plain)
-                .disabled(!canSend)
-                .help("Send message (Enter)")
             }
         }
         .padding(.horizontal, 12)
@@ -84,14 +124,19 @@ struct ChatInputView: View {
         .continuousCornerRadius(DS.Radii.pill)
         .overlay(
             RoundedRectangle(cornerRadius: DS.Radii.pill, style: .continuous)
-                .stroke(isFocused ? DS.Colors.borderFocused : DS.Colors.borderMedium, lineWidth: 1)
+                .stroke(isDragTargeted ? DS.Colors.borderFocused : (isFocused ? DS.Colors.borderFocused : DS.Colors.borderMedium), lineWidth: isDragTargeted ? 2 : 1)
                 .animation(DS.Animation.hoverTransition, value: isFocused)
         )
         .dsShadow(DS.Shadows.medium)
+        .onDrop(of: [.fileURL], isTargeted: supportsImages ? $isDragTargeted : .constant(false)) { providers in
+            guard supportsImages else { return false }
+            return handleDrop(providers: providers)
+        }
     }
 
     private func sendIfNotEmpty() {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        // Allow sending if text is non-empty OR staged attachments exist
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !stagedAttachments.isEmpty else { return }
         onSend()
         text = ""
         // Reset content height to minimum when text is cleared
@@ -99,7 +144,34 @@ struct ChatInputView: View {
     }
 
     private var canSend: Bool {
-        isEnabled && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        isEnabled && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !stagedAttachments.isEmpty)
+    }
+
+    private func openFilePicker() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.begin { response in
+            if response == .OK {
+                onPickImages?(panel.urls)
+            }
+        }
+    }
+
+    private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        for provider in providers {
+            if provider.hasItemConformingToTypeIdentifier("public.file-url") {
+                provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { data, _ in
+                    if let data = data as? Data, let url = URL(dataRepresentation: data, relativeTo: nil) {
+                        DispatchQueue.main.async {
+                            self.onPickImages?([url])
+                        }
+                    }
+                }
+            }
+        }
+        return true
     }
 }
 
@@ -115,10 +187,36 @@ struct ScrollableChatTextEditor: NSViewRepresentable {
     @Binding var isFocused: Bool
     @Binding var contentHeight: CGFloat
     let onSend: () -> Void
+    var onPasteImage: (() -> Void)?
+
+    /// Custom NSTextView that overrides paste: to intercept image paste via Cmd+V
+    class ImagePasteTextView: NSTextView {
+        var onPasteImage: (() -> Void)?
+
+        override func paste(_ sender: Any?) {
+            if let onPasteImage = onPasteImage, ImageProcessor.pasteboardHasImage() {
+                onPasteImage()
+                return
+            }
+            super.paste(sender)
+        }
+    }
 
     func makeNSView(context: NSViewRepresentableContext<ScrollableChatTextEditor>) -> NSScrollView {
-        let scrollView = NSTextView.scrollableTextView()
-        let textView = scrollView.documentView as! NSTextView
+        // Build text system from scratch with our custom text view
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        textStorage.addLayoutManager(layoutManager)
+        let textContainer = NSTextContainer(containerSize: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        textContainer.widthTracksTextView = true
+        layoutManager.addTextContainer(textContainer)
+
+        let textView = ImagePasteTextView(frame: .zero, textContainer: textContainer)
+        textView.onPasteImage = onPasteImage
+        textView.autoresizingMask = [.width]
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
 
         textView.delegate = context.coordinator
         textView.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
@@ -132,6 +230,8 @@ struct ScrollableChatTextEditor: NSViewRepresentable {
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
 
+        let scrollView = NSScrollView()
+        scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
@@ -165,12 +265,17 @@ struct ScrollableChatTextEditor: NSViewRepresentable {
         // Update coordinator's isEnabled state for Enter key handling
         context.coordinator.isEnabled = isEnabled
 
+        // Keep onPasteImage callback in sync
+        if let imagePasteTV = textView as? ImagePasteTextView {
+            imagePasteTV.onPasteImage = onPasteImage
+        }
+
         // Update placeholder visibility
         context.coordinator.updatePlaceholderVisibility(isEmpty: text.isEmpty)
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, isFocused: $isFocused, contentHeight: $contentHeight, isEnabled: isEnabled, onSend: onSend)
+        Coordinator(text: $text, isFocused: $isFocused, contentHeight: $contentHeight, isEnabled: isEnabled, onSend: onSend, onPasteImage: onPasteImage)
     }
 
     // Custom NSTextField that passes through mouse clicks to the text view behind it
@@ -188,14 +293,16 @@ struct ScrollableChatTextEditor: NSViewRepresentable {
         @Binding var contentHeight: CGFloat
         var isEnabled: Bool
         let onSend: () -> Void
+        var onPasteImage: (() -> Void)?
         private var placeholderLabel: NSTextField?
 
-        init(text: Binding<String>, isFocused: Binding<Bool>, contentHeight: Binding<CGFloat>, isEnabled: Bool, onSend: @escaping () -> Void) {
+        init(text: Binding<String>, isFocused: Binding<Bool>, contentHeight: Binding<CGFloat>, isEnabled: Bool, onSend: @escaping () -> Void, onPasteImage: (() -> Void)? = nil) {
             _text = text
             _isFocused = isFocused
             _contentHeight = contentHeight
             self.isEnabled = isEnabled
             self.onSend = onSend
+            self.onPasteImage = onPasteImage
         }
 
         func setupPlaceholder(textView: NSTextView, placeholder: String) {

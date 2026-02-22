@@ -24,6 +24,9 @@ final class OllamaProvider: LLMProvider, ObservableObject {
     /// Cache of model tool support status (modelId -> supportsTools)
     private var toolCapabilityCache: [String: Bool] = [:]
 
+    /// Cache of model vision support status (modelId -> supportsImages)
+    private var visionCapabilityCache: [String: Bool] = [:]
+
     /// Ollama doesn't require API key, just server connectivity
     var isConfigured: Bool { serverConnected }
 
@@ -311,6 +314,47 @@ final class OllamaProvider: LLMProvider, ObservableObject {
         }
     }
 
+    /// Check if the current model supports images/vision via /api/show
+    var supportsImages: Bool {
+        get async {
+            if let cached = visionCapabilityCache[currentModel.id] {
+                return cached
+            }
+            let supports = await detectVisionSupport(for: currentModel.id)
+            visionCapabilityCache[currentModel.id] = supports
+            return supports
+        }
+    }
+
+    /// Query Ollama's /api/show endpoint for vision capabilities
+    /// Returns true if the model's capabilities include "vision"
+    private func detectVisionSupport(for modelId: String) async -> Bool {
+        guard serverConnected else { return false }
+        guard let url = URL(string: "\(baseURL)/api/show") else { return false }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body = ["name": modelId]
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return false }
+        request.httpBody = bodyData
+
+        do {
+            let (data, _) = try await session.data(for: request)
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let capabilities = json["capabilities"] as? [String] {
+                let supportsVision = capabilities.contains("vision")
+                print("👁️ Ollama model '\(modelId)' vision support: \(supportsVision)")
+                return supportsVision
+            }
+            return false
+        } catch {
+            print("⚠️ Failed to detect vision support for '\(modelId)': \(error.localizedDescription)")
+            return false
+        }
+    }
+
     /// Query Ollama's /api/show endpoint for model capabilities
     /// Returns true if the model's capabilities include "tools"
     private func detectToolSupport(for modelId: String) async -> Bool {
@@ -350,7 +394,8 @@ final class OllamaProvider: LLMProvider, ObservableObject {
     /// Clear capability cache (called on server reconnect)
     func clearCapabilityCache() {
         toolCapabilityCache.removeAll()
-        print("🔧 Cleared Ollama tool capability cache")
+        visionCapabilityCache.removeAll()
+        print("🔧 Cleared Ollama capability cache")
     }
 
     // MARK: - Connection & Model Discovery
@@ -458,7 +503,7 @@ final class OllamaProvider: LLMProvider, ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let formattedMessages = PromptBuilder.shared.formatChatMessages(messages: messages)
+        let formattedMessages = OpenAIProvider.formatMessagesForAPI(messages: messages)
         let body: [String: Any] = [
             "model": currentModel.id,
             "messages": formattedMessages,
@@ -474,7 +519,7 @@ final class OllamaProvider: LLMProvider, ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let formattedMessages = PromptBuilder.shared.formatChatMessages(messages: messages)
+        let formattedMessages = OpenAIProvider.formatMessagesForAPI(messages: messages)
         let body: [String: Any] = [
             "model": currentModel.id,
             "messages": formattedMessages,
@@ -583,7 +628,10 @@ final class OllamaProvider: LLMProvider, ObservableObject {
                     context: message.context,
                     intent: message.intent
                 )
-                result.append(["role": "user", "content": formattedContent])
+                result.append(OpenAIProvider.buildOpenAIUserMessage(
+                    content: formattedContent,
+                    attachments: message.attachments
+                ))
 
             case .assistant:
                 if let toolRounds = message.toolRounds, !toolRounds.isEmpty {

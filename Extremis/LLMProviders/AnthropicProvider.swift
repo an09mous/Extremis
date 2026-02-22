@@ -331,14 +331,7 @@ final class AnthropicProvider: LLMProvider {
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        // Use formatChatMessages() which handles context formatting
-        let allMessages = PromptBuilder.shared.formatChatMessages(messages: messages)
-
-        // Extract system prompt for Anthropic's separate system parameter
-        let systemPrompt = allMessages.first { $0["role"] == "system" }?["content"] ?? ""
-
-        // Filter to non-system messages (already formatted with context)
-        let anthropicMessages = allMessages.filter { $0["role"] != "system" }
+        let (systemPrompt, anthropicMessages) = Self.formatMessagesForAPI(messages: messages)
 
         let body: [String: Any] = [
             "model": currentModel.id,
@@ -358,14 +351,7 @@ final class AnthropicProvider: LLMProvider {
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        // Use formatChatMessages() which handles context formatting
-        let allMessages = PromptBuilder.shared.formatChatMessages(messages: messages)
-
-        // Extract system prompt for Anthropic's separate system parameter
-        let systemPrompt = allMessages.first { $0["role"] == "system" }?["content"] ?? ""
-
-        // Filter to non-system messages (already formatted with context)
-        let anthropicMessages = allMessages.filter { $0["role"] != "system" }
+        let (systemPrompt, anthropicMessages) = Self.formatMessagesForAPI(messages: messages)
 
         let body: [String: Any] = [
             "model": currentModel.id,
@@ -467,7 +453,10 @@ final class AnthropicProvider: LLMProvider {
                     context: message.context,
                     intent: message.intent
                 )
-                result.append(["role": "user", "content": formattedContent])
+                result.append(Self.buildAnthropicUserMessage(
+                    content: formattedContent,
+                    attachments: message.attachments
+                ))
 
             case .assistant:
                 if let toolRounds = message.toolRounds, !toolRounds.isEmpty {
@@ -634,6 +623,56 @@ final class AnthropicProvider: LLMProvider {
         }
 
         return nil
+    }
+    // MARK: - Multimodal Helpers
+
+    /// Build an Anthropic-format user message, optionally with image content blocks
+    /// Images are placed BEFORE text per Anthropic best practice
+    static func buildAnthropicUserMessage(content: String, attachments: [MessageAttachment]?) -> [String: Any] {
+        guard let attachments = attachments, !attachments.isEmpty else {
+            return ["role": "user", "content": content]
+        }
+
+        var contentBlocks: [[String: Any]] = []
+
+        // Images BEFORE text (Anthropic recommendation)
+        for attachment in attachments {
+            if case .image(let img) = attachment {
+                contentBlocks.append([
+                    "type": "image",
+                    "source": [
+                        "type": "base64",
+                        "media_type": img.mediaType.rawValue,
+                        "data": img.base64Data
+                    ] as [String: Any]
+                ])
+            }
+        }
+
+        contentBlocks.append(["type": "text", "text": content])
+
+        return ["role": "user", "content": contentBlocks] as [String: Any]
+    }
+
+    /// Format messages for non-tool chat paths (with multimodal support)
+    /// Returns (systemPrompt, messages) tuple for Anthropic's separate system parameter
+    static func formatMessagesForAPI(messages: [ChatMessage]) -> (systemPrompt: String, messages: [[String: Any]]) {
+        let formatted = PromptBuilder.shared.formatChatMessagesWithAttachments(messages: messages)
+
+        var systemPrompt = ""
+        var anthropicMessages: [[String: Any]] = []
+
+        for msg in formatted {
+            if msg.role == "system" {
+                systemPrompt = msg.content
+            } else if msg.role == "user" {
+                anthropicMessages.append(buildAnthropicUserMessage(content: msg.content, attachments: msg.attachments))
+            } else {
+                anthropicMessages.append(["role": msg.role, "content": msg.content])
+            }
+        }
+
+        return (systemPrompt, anthropicMessages)
     }
 }
 

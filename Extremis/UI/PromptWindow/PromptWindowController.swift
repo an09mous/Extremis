@@ -404,6 +404,12 @@ final class PromptViewModel: ObservableObject {
     /// Callback when user approves all tools (one-time, no remember)
     var onApproveAll: (() -> Void)?
 
+    // Staged attachments (images queued for next message)
+    @Published var stagedAttachments: [MessageAttachment] = []
+
+    /// Whether the current model supports image input (updated asynchronously)
+    @Published var currentModelSupportsImages: Bool = false
+
     // Command palette state
     @Published var showCommandPalette: Bool = false
     @Published var commandFilter: String = ""
@@ -512,6 +518,7 @@ final class PromptViewModel: ObservableObject {
         chatInputText = ""
         isChatMode = false
         isFirstMessageSinceSpawn = true
+        stagedAttachments = []
         sessionCancellables.removeAll()
     }
 
@@ -552,6 +559,7 @@ final class PromptViewModel: ObservableObject {
         hasSelection = false
         selectedText = nil
         chatInputText = ""
+        stagedAttachments = []
         // Keep: session, sessionId, response, isChatMode, showResponse
     }
 
@@ -654,6 +662,45 @@ final class PromptViewModel: ObservableObject {
             providerName = "No Provider"
             providerConfigured = false
         }
+        updateImageSupport()
+    }
+
+    // MARK: - Image Attachment Methods
+
+    /// Query the active provider for image support and update the published property
+    func updateImageSupport() {
+        Task { @MainActor in
+            guard let provider = LLMProviderRegistry.shared.activeProvider else {
+                currentModelSupportsImages = false
+                return
+            }
+            let supports = await provider.supportsImages
+            currentModelSupportsImages = supports
+        }
+    }
+
+    /// Paste image(s) from the system clipboard
+    func pasteImageFromClipboard() {
+        guard currentModelSupportsImages else { return }
+        let attachments = ImageProcessor.processFromPasteboard()
+        for img in attachments {
+            stagedAttachments.append(.image(img))
+        }
+    }
+
+    /// Add image(s) from file URLs (drag & drop or file picker)
+    func addImagesFromFiles(_ urls: [URL]) {
+        guard currentModelSupportsImages else { return }
+        for url in urls {
+            if let attachment = ImageProcessor.processFromURL(url) {
+                stagedAttachments.append(.image(attachment))
+            }
+        }
+    }
+
+    /// Remove a staged attachment by ID
+    func removeStagedAttachment(id: UUID) {
+        stagedAttachments.removeAll { $0.id == id }
     }
 
     func generate(with context: Context) {
@@ -686,10 +733,12 @@ final class PromptViewModel: ObservableObject {
         // Ensure we have a session - create one if this is the first interaction
         ensureSession(context: context, instruction: userMessageContent)
 
-        // Add user message to session with embedded context and intent
+        // Add user message to session with embedded context, intent, and any staged images
         if let sess = session {
-            let message = ChatMessage.user(userMessageContent, context: context, intent: intent)
+            let attachmentsToSend = stagedAttachments.isEmpty ? nil : stagedAttachments
+            let message = ChatMessage.user(userMessageContent, context: context, intent: intent, attachments: attachmentsToSend)
             sess.addMessage(message)
+            stagedAttachments = []  // Clear after sending
 
             // Explicitly mark dirty to ensure hasDraftSession clears immediately
             // This is a safety net in case the Combine observation has timing issues
@@ -888,7 +937,8 @@ final class PromptViewModel: ObservableObject {
     /// Send a chat message and get a response
     func sendChatMessage() {
         let messageText = chatInputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !messageText.isEmpty else { return }
+        // Allow sending if text is non-empty OR staged attachments exist (images-only message)
+        guard !messageText.isEmpty || !stagedAttachments.isEmpty else { return }
 
         // If no session exists, create one for the chat
         if session == nil {
@@ -907,15 +957,17 @@ final class PromptViewModel: ObservableObject {
 
         // First message since spawning Extremis gets context attached
         // Follow-up messages within the same spawn don't need context
+        let attachmentsToSend = stagedAttachments.isEmpty ? nil : stagedAttachments
         let message: ChatMessage
         if isFirstMessageSinceSpawn, let ctx = currentContext {
-            message = ChatMessage.user(messageText, context: ctx, intent: .chat)
+            message = ChatMessage.user(messageText, context: ctx, intent: .chat, attachments: attachmentsToSend)
             isFirstMessageSinceSpawn = false  // Consume the flag
         } else {
-            message = ChatMessage.user(messageText)
+            message = ChatMessage.user(messageText, attachments: attachmentsToSend)
         }
         sess.addMessage(message)
         chatInputText = ""
+        stagedAttachments = []  // Clear after sending
         error = nil
 
         // Capture session ID for generation tracking
@@ -1527,7 +1579,12 @@ struct PromptContainerView: View {
                         pendingApprovalRequests: viewModel.pendingApprovalRequests,
                         onApproveRequest: viewModel.onApproveRequest,
                         onDenyRequest: viewModel.onDenyRequest,
-                        onApproveAll: viewModel.onApproveAll
+                        onApproveAll: viewModel.onApproveAll,
+                        supportsImages: viewModel.currentModelSupportsImages,
+                        stagedAttachments: $viewModel.stagedAttachments,
+                        onPasteImage: { viewModel.pasteImageFromClipboard() },
+                        onPickImages: { urls in viewModel.addImagesFromFiles(urls) },
+                        onRemoveAttachment: { id in viewModel.removeStagedAttachment(id: id) }
                     )
                     .id(sessionManager.currentSessionId)  // Force view recreation on session switch to reset scroll state
                 } else {
@@ -1558,7 +1615,12 @@ struct PromptContainerView: View {
                             } : nil,
                             onExecuteCommand: { command in
                                 viewModel.executeCommand(command)
-                            }
+                            },
+                            supportsImages: viewModel.currentModelSupportsImages,
+                            stagedAttachments: $viewModel.stagedAttachments,
+                            onPasteImage: { viewModel.pasteImageFromClipboard() },
+                            onPickImages: { urls in viewModel.addImagesFromFiles(urls) },
+                            onRemoveAttachment: { id in viewModel.removeStagedAttachment(id: id) }
                         )
                     }
                 }

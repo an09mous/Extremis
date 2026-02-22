@@ -346,33 +346,41 @@ final class GeminiProvider: LLMProvider {
     /// Format messages for Gemini API
     /// Gemini uses "user" and "model" roles, and system messages are prepended to first user message
     private func formatMessagesForGemini(messages: [ChatMessage]) -> [[String: Any]] {
-        // Use formatChatMessages() which handles context formatting
-        let allMessages = PromptBuilder.shared.formatChatMessages(messages: messages)
+        let formatted = PromptBuilder.shared.formatChatMessagesWithAttachments(messages: messages)
 
         var contents: [[String: Any]] = []
         var systemPrepended = false
+        var systemContent = ""
 
-        for message in allMessages {
-            // Skip system messages - we'll prepend to first user message
-            if message["role"] == "system" {
-                continue
+        // Extract system prompt
+        for msg in formatted {
+            if msg.role == "system" {
+                systemContent = msg.content
+                break
             }
+        }
 
-            // Map roles: user -> user, assistant -> model
-            let geminiRole = message["role"] == "user" ? "user" : "model"
-            var content = message["content"] ?? ""
+        for msg in formatted {
+            if msg.role == "system" { continue }
 
-            // Prepend system prompt to first user message
-            if message["role"] == "user" && !systemPrepended {
-                let systemContent = allMessages.first { $0["role"] == "system" }?["content"] ?? ""
-                content = systemContent + "\n\n" + content
-                systemPrepended = true
+            let geminiRole = msg.role == "user" ? "user" : "model"
+
+            if msg.role == "user" {
+                var textContent = msg.content
+                if !systemPrepended {
+                    textContent = systemContent + "\n\n" + textContent
+                    systemPrepended = true
+                }
+                contents.append(Self.buildGeminiUserMessage(
+                    content: textContent,
+                    attachments: msg.attachments
+                ))
+            } else {
+                contents.append([
+                    "role": geminiRole,
+                    "parts": [["text": msg.content]]
+                ])
             }
-
-            contents.append([
-                "role": geminiRole,
-                "parts": [["text": content]]
-            ])
         }
 
         logChatMessages(messages: messages, formattedCount: contents.count)
@@ -407,10 +415,10 @@ final class GeminiProvider: LLMProvider {
                     systemPrepended = true
                 }
 
-                contents.append([
-                    "role": "user",
-                    "parts": [["text": formattedContent]]
-                ])
+                contents.append(Self.buildGeminiUserMessage(
+                    content: formattedContent,
+                    attachments: message.attachments
+                ))
 
             case .assistant:
                 if let toolRounds = message.toolRounds, !toolRounds.isEmpty {
@@ -840,6 +848,29 @@ final class GeminiProvider: LLMProvider {
         }
 
         return results
+    }
+    // MARK: - Multimodal Helpers
+
+    /// Build a Gemini-format user message, optionally with inline image data parts
+    static func buildGeminiUserMessage(content: String, attachments: [MessageAttachment]?) -> [String: Any] {
+        guard let attachments = attachments, !attachments.isEmpty else {
+            return ["role": "user", "parts": [["text": content]]]
+        }
+
+        var parts: [[String: Any]] = [["text": content]]
+
+        for attachment in attachments {
+            if case .image(let img) = attachment {
+                parts.append([
+                    "inline_data": [
+                        "mime_type": img.mediaType.rawValue,
+                        "data": img.base64Data
+                    ] as [String: Any]
+                ])
+            }
+        }
+
+        return ["role": "user", "parts": parts] as [String: Any]
     }
 }
 

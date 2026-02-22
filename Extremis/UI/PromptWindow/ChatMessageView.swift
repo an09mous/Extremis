@@ -108,17 +108,27 @@ struct ChatMessageView: View {
                         .padding(.vertical, 4)
                 } else {
                     // User: prominent colored bubble
-                    Text(message.content)
-                        .font(.body)
-                        .textSelection(.enabled)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(DS.Colors.userBubble)
-                        .continuousCornerRadius(DS.Radii.large)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: DS.Radii.large, style: .continuous)
-                                .stroke(DS.Colors.userBubbleBorder, lineWidth: 1)
-                        )
+                    VStack(alignment: .trailing, spacing: 6) {
+                        // Image attachments (above text)
+                        if message.hasAttachments {
+                            ImageAttachmentsGrid(attachments: message.imageAttachments)
+                        }
+
+                        // Text content (only if non-empty)
+                        if !message.content.isEmpty {
+                            Text(message.content)
+                                .font(.body)
+                                .textSelection(.enabled)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(DS.Colors.userBubble)
+                                .continuousCornerRadius(DS.Radii.large)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: DS.Radii.large, style: .continuous)
+                                        .stroke(DS.Colors.userBubbleBorder, lineWidth: 1)
+                                )
+                        }
+                    }
                 }
 
                 // Action buttons at bottom (always in layout, visibility controlled by opacity)
@@ -398,6 +408,73 @@ struct StreamingMessageView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             showCopied = false
         }
+    }
+}
+
+// MARK: - Image Attachments Grid
+
+/// Grid layout for displaying image attachments in a message bubble
+struct ImageAttachmentsGrid: View {
+    let attachments: [ImageAttachment]
+
+    var body: some View {
+        if attachments.count == 1 {
+            // Single image — larger preview
+            ImageThumbnailView(attachment: attachments[0], maxSize: CGSize(width: 200, height: 150))
+        } else {
+            // Multiple images — compact grid
+            let columns = [GridItem(.adaptive(minimum: 80, maximum: 100), spacing: 4)]
+            LazyVGrid(columns: columns, spacing: 4) {
+                ForEach(attachments) { attachment in
+                    ImageThumbnailView(attachment: attachment, maxSize: CGSize(width: 100, height: 100))
+                }
+            }
+        }
+    }
+}
+
+/// Single image thumbnail with popover for full-size preview
+struct ImageThumbnailView: View {
+    let attachment: ImageAttachment
+    let maxSize: CGSize
+
+    @State private var showPopover = false
+
+    var body: some View {
+        if let nsImage = imageFromBase64(attachment.base64Data) {
+            Image(nsImage: nsImage)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(maxWidth: maxSize.width, maxHeight: maxSize.height)
+                .clipped()
+                .continuousCornerRadius(DS.Radii.medium)
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous)
+                        .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                )
+                .onTapGesture { showPopover = true }
+                .popover(isPresented: $showPopover, arrowEdge: .leading) {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: 500, maxHeight: 400)
+                        .padding(8)
+                }
+        } else {
+            // Fallback for undecodable image
+            RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous)
+                .fill(DS.Colors.surfaceSecondary)
+                .frame(width: maxSize.width, height: maxSize.height)
+                .overlay(
+                    Image(systemName: "photo")
+                        .foregroundColor(.secondary)
+                )
+        }
+    }
+
+    private func imageFromBase64(_ base64: String) -> NSImage? {
+        guard !base64.isEmpty, let data = Data(base64Encoded: base64) else { return nil }
+        return NSImage(data: data)
     }
 }
 

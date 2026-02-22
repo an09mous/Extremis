@@ -54,6 +54,10 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     /// Only populated for assistant messages that involved tool use
     let toolRounds: [ToolExecutionRoundRecord]?
 
+    /// Attachments (images, etc.) associated with this message
+    /// Only populated for user messages with multimodal content
+    let attachments: [MessageAttachment]?
+
     init(
         id: UUID = UUID(),
         role: ChatRole,
@@ -61,7 +65,8 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         timestamp: Date = Date(),
         context: Context? = nil,
         intent: MessageIntent? = nil,
-        toolRounds: [ToolExecutionRoundRecord]? = nil
+        toolRounds: [ToolExecutionRoundRecord]? = nil,
+        attachments: [MessageAttachment]? = nil
     ) {
         self.id = id
         self.role = role
@@ -70,16 +75,17 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         self.context = context
         self.intent = intent
         self.toolRounds = toolRounds
+        self.attachments = attachments
     }
 
     /// Create a user message (for follow-up chat messages)
-    static func user(_ content: String) -> ChatMessage {
-        ChatMessage(role: .user, content: content, intent: .followUp)
+    static func user(_ content: String, attachments: [MessageAttachment]? = nil) -> ChatMessage {
+        ChatMessage(role: .user, content: content, intent: .followUp, attachments: attachments)
     }
 
     /// Create a user message with context and intent
-    static func user(_ content: String, context: Context?, intent: MessageIntent = .chat) -> ChatMessage {
-        ChatMessage(role: .user, content: content, context: context, intent: intent)
+    static func user(_ content: String, context: Context?, intent: MessageIntent = .chat, attachments: [MessageAttachment]? = nil) -> ChatMessage {
+        ChatMessage(role: .user, content: content, context: context, intent: intent, attachments: attachments)
     }
 
     /// Create an assistant message
@@ -118,5 +124,21 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     /// All tool result records flattened
     var allToolResults: [ToolResultRecord] {
         toolRounds?.flatMap { $0.results } ?? []
+    }
+
+    // MARK: - Attachment Helpers
+
+    /// Whether this message has any attachments
+    var hasAttachments: Bool {
+        guard let attachments = attachments else { return false }
+        return !attachments.isEmpty
+    }
+
+    /// All image attachments from this message
+    var imageAttachments: [ImageAttachment] {
+        attachments?.compactMap {
+            if case .image(let img) = $0 { return img }
+            return nil
+        } ?? []
     }
 }

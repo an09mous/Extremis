@@ -180,6 +180,48 @@ final class PromptBuilder {
         return result
     }
 
+    // MARK: - Attachment-Aware Message Formatting
+
+    /// Formatted message preserving attachment data for provider-specific injection
+    struct FormattedMessage {
+        let role: String
+        let content: String
+        let attachments: [MessageAttachment]?
+    }
+
+    /// Format chat messages preserving attachment info for provider-specific multimodal formatting
+    /// Providers use this instead of formatChatMessages() when image support is needed
+    func formatChatMessagesWithAttachments(messages: [ChatMessage]) -> [FormattedMessage] {
+        var result: [FormattedMessage] = []
+
+        // System prompt
+        let systemPrompt = buildSystemPrompt()
+        result.append(FormattedMessage(role: "system", content: systemPrompt, attachments: nil))
+
+        for message in messages {
+            if message.role == .user {
+                let formattedContent = formatUserMessageWithContext(
+                    message.content,
+                    context: message.context,
+                    intent: message.intent
+                )
+                result.append(FormattedMessage(
+                    role: "user",
+                    content: formattedContent,
+                    attachments: message.attachments
+                ))
+            } else {
+                result.append(FormattedMessage(
+                    role: message.role.rawValue,
+                    content: message.content,
+                    attachments: nil
+                ))
+            }
+        }
+
+        return result
+    }
+
     /// Log full chat messages being sent (controlled by debugLogging flag)
     private func logChatMessages(_ messages: [[String: String]]) {
         guard debugLogging else { return }

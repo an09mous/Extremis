@@ -322,7 +322,7 @@ final class OpenAIProvider: LLMProvider {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let formattedMessages = PromptBuilder.shared.formatChatMessages(messages: messages)
+        let formattedMessages = Self.formatMessagesForAPI(messages: messages)
         let body: [String: Any] = [
             "model": currentModel.id,
             "messages": formattedMessages,
@@ -339,7 +339,7 @@ final class OpenAIProvider: LLMProvider {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let formattedMessages = PromptBuilder.shared.formatChatMessages(messages: messages)
+        let formattedMessages = Self.formatMessagesForAPI(messages: messages)
         let body: [String: Any] = [
             "model": currentModel.id,
             "messages": formattedMessages,
@@ -486,7 +486,10 @@ final class OpenAIProvider: LLMProvider {
                     context: message.context,
                     intent: message.intent
                 )
-                result.append(["role": "user", "content": formattedContent])
+                result.append(Self.buildOpenAIUserMessage(
+                    content: formattedContent,
+                    attachments: message.attachments
+                ))
 
             case .assistant:
                 if let toolRounds = message.toolRounds, !toolRounds.isEmpty {
@@ -686,6 +689,42 @@ final class OpenAIProvider: LLMProvider {
         }
 
         return nil
+    }
+    // MARK: - Multimodal Helpers
+
+    /// Build an OpenAI-format user message, optionally with image content blocks
+    static func buildOpenAIUserMessage(content: String, attachments: [MessageAttachment]?) -> [String: Any] {
+        guard let attachments = attachments, !attachments.isEmpty else {
+            return ["role": "user", "content": content]
+        }
+
+        var contentParts: [[String: Any]] = [
+            ["type": "text", "text": content]
+        ]
+
+        for attachment in attachments {
+            if case .image(let img) = attachment {
+                contentParts.append([
+                    "type": "image_url",
+                    "image_url": [
+                        "url": "data:\(img.mediaType.rawValue);base64,\(img.base64Data)"
+                    ]
+                ])
+            }
+        }
+
+        return ["role": "user", "content": contentParts] as [String: Any]
+    }
+
+    /// Format messages for non-tool chat paths (with multimodal support)
+    static func formatMessagesForAPI(messages: [ChatMessage]) -> [[String: Any]] {
+        let formatted = PromptBuilder.shared.formatChatMessagesWithAttachments(messages: messages)
+        return formatted.map { msg in
+            if msg.role == "user" {
+                return buildOpenAIUserMessage(content: msg.content, attachments: msg.attachments)
+            }
+            return ["role": msg.role, "content": msg.content] as [String: Any]
+        }
     }
 }
 

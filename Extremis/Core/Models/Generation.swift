@@ -129,11 +129,31 @@ struct ModelCapabilities: Codable, Equatable, Hashable {
     /// Whether the model supports tool/function calling
     let supportsTools: Bool
 
+    /// Whether the model supports image/vision input
+    let supportsImages: Bool
+
+    init(supportsTools: Bool, supportsImages: Bool = false) {
+        self.supportsTools = supportsTools
+        self.supportsImages = supportsImages
+    }
+
+    // Backward-compatible decoding: default supportsImages to false if key missing
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        supportsTools = try container.decode(Bool.self, forKey: .supportsTools)
+        supportsImages = try container.decodeIfPresent(Bool.self, forKey: .supportsImages) ?? false
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case supportsTools
+        case supportsImages
+    }
+
     /// Default capabilities (assumes tool support for cloud models)
-    static let `default` = ModelCapabilities(supportsTools: true)
+    static let `default` = ModelCapabilities(supportsTools: true, supportsImages: false)
 
     /// No capabilities (for models that don't support tools)
-    static let none = ModelCapabilities(supportsTools: false)
+    static let none = ModelCapabilities(supportsTools: false, supportsImages: false)
 }
 
 // MARK: - LLM Model
@@ -155,6 +175,12 @@ struct LLMModel: Identifiable, Codable, Equatable, Hashable {
     /// Defaults to true if capabilities not specified (most cloud models support tools)
     var supportsTools: Bool {
         capabilities?.supportsTools ?? true
+    }
+
+    /// Whether this model supports image/vision input
+    /// Defaults to false if capabilities not specified
+    var supportsImages: Bool {
+        capabilities?.supportsImages ?? false
     }
 
     // MARK: - Initializers

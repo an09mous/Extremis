@@ -246,6 +246,26 @@ run_test_suite "Design System Tests" \
     "$PROJECT_DIR/Tests/UI/DesignSystemTests.swift" \
     "Foundation"
 
+# 29. Message Attachment Tests (ImageAttachment, MessageAttachment, ChatMessage attachments)
+run_test_suite "Message Attachment Tests" \
+    "$PROJECT_DIR/Tests/Core/MessageAttachmentTests.swift" \
+    "Foundation"
+
+# 30. Image Processor Tests (resize calculations, encoding selection)
+run_test_suite "Image Processor Tests" \
+    "$PROJECT_DIR/Tests/Utilities/ImageProcessorTests.swift" \
+    "Foundation"
+
+# 31. Persisted Message Attachment Tests (PersistedAttachmentRef, backward compat)
+run_test_suite "Persisted Message Attachment Tests" \
+    "$PROJECT_DIR/Tests/Core/PersistedMessageAttachmentTests.swift" \
+    "Foundation"
+
+# 32. Model Capability Image Tests (supportsImages in ModelCapabilities and LLMModel)
+run_test_suite "Model Capability Image Tests" \
+    "$PROJECT_DIR/Tests/Core/ModelCapabilityImageTests.swift" \
+    "Foundation"
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------

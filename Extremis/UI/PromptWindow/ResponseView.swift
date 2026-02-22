@@ -38,6 +38,13 @@ struct ResponseView: View {
     var onDenyRequest: ((String) -> Void)?
     var onApproveAll: (() -> Void)?
 
+    // Image attachment support
+    var supportsImages: Bool = false
+    @Binding var stagedAttachments: [MessageAttachment]
+    var onPasteImage: (() -> Void)?
+    var onPickImages: (([URL]) -> Void)?
+    var onRemoveAttachment: ((UUID) -> Void)?
+
     @State private var showCopiedToast = false
 
     // Auto-scroll tracking for quick mode
@@ -78,6 +85,11 @@ struct ResponseView: View {
         self.onApproveRequest = nil
         self.onDenyRequest = nil
         self.onApproveAll = nil
+        self.supportsImages = false
+        self._stagedAttachments = .constant([])
+        self.onPasteImage = nil
+        self.onPickImages = nil
+        self.onRemoveAttachment = nil
     }
 
     // Full initializer with chat support
@@ -105,7 +117,12 @@ struct ResponseView: View {
         pendingApprovalRequests: [ApprovalRequestDisplayModel] = [],
         onApproveRequest: ((String, Bool) -> Void)? = nil,
         onDenyRequest: ((String) -> Void)? = nil,
-        onApproveAll: (() -> Void)? = nil
+        onApproveAll: (() -> Void)? = nil,
+        supportsImages: Bool = false,
+        stagedAttachments: Binding<[MessageAttachment]> = .constant([]),
+        onPasteImage: (() -> Void)? = nil,
+        onPickImages: (([URL]) -> Void)? = nil,
+        onRemoveAttachment: ((UUID) -> Void)? = nil
     ) {
         self.response = response
         self.isGenerating = isGenerating
@@ -131,6 +148,11 @@ struct ResponseView: View {
         self.onApproveRequest = onApproveRequest
         self.onDenyRequest = onDenyRequest
         self.onApproveAll = onApproveAll
+        self.supportsImages = supportsImages
+        self._stagedAttachments = stagedAttachments
+        self.onPasteImage = onPasteImage
+        self.onPickImages = onPickImages
+        self.onRemoveAttachment = onRemoveAttachment
     }
 
     var body: some View {
@@ -291,7 +313,12 @@ struct ResponseView: View {
                     placeholder: "Ask a follow-up question...",
                     autoFocus: true,
                     onSend: { onSendChat?() },
-                    onStopGeneration: onStopGeneration
+                    onStopGeneration: onStopGeneration,
+                    supportsImages: supportsImages,
+                    stagedAttachments: $stagedAttachments,
+                    onPasteImage: onPasteImage,
+                    onPickImages: onPickImages,
+                    onRemoveAttachment: onRemoveAttachment
                 )
             } else {
                 // Show "Continue chatting" prompt - entire row is clickable
