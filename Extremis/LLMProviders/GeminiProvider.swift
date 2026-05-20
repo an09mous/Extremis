@@ -351,6 +351,7 @@ final class GeminiProvider: LLMProvider {
 
         var contents: [[String: Any]] = []
         var systemPrepended = false
+        var userMessageIndex = 0
 
         for message in allMessages {
             // Skip system messages - we'll prepend to first user message
@@ -360,18 +361,33 @@ final class GeminiProvider: LLMProvider {
 
             // Map roles: user -> user, assistant -> model
             let geminiRole = message["role"] == "user" ? "user" : "model"
-            var content = message["content"] ?? ""
+            var textContent = message["content"] ?? ""
 
             // Prepend system prompt to first user message
             if message["role"] == "user" && !systemPrepended {
                 let systemContent = allMessages.first { $0["role"] == "system" }?["content"] ?? ""
-                content = systemContent + "\n\n" + content
+                textContent = systemContent + "\n\n" + textContent
                 systemPrepended = true
+            }
+
+            // Build parts array - add image parts if user message has images
+            var parts: [[String: Any]] = []
+            if message["role"] == "user" && userMessageIndex < messages.count {
+                let originalMessage = messages[userMessageIndex]
+                if let images = originalMessage.imageAttachments, !images.isEmpty {
+                    parts.append(contentsOf: PromptBuilder.shared.formatGeminiImageParts(images: images))
+                }
+                userMessageIndex += 1
+            } else if message["role"] == "assistant" {
+                userMessageIndex += 1
+            }
+            if !textContent.isEmpty {
+                parts.append(["text": textContent])
             }
 
             contents.append([
                 "role": geminiRole,
-                "parts": [["text": content]]
+                "parts": parts
             ])
         }
 
@@ -407,9 +423,16 @@ final class GeminiProvider: LLMProvider {
                     systemPrepended = true
                 }
 
+                // Build parts - add image parts if message has images
+                var parts: [[String: Any]] = []
+                if let images = message.imageAttachments, !images.isEmpty {
+                    parts.append(contentsOf: PromptBuilder.shared.formatGeminiImageParts(images: images))
+                }
+                parts.append(["text": formattedContent])
+
                 contents.append([
                     "role": "user",
-                    "parts": [["text": formattedContent]]
+                    "parts": parts
                 ])
 
             case .assistant:

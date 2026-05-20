@@ -129,11 +129,19 @@ struct ModelCapabilities: Codable, Equatable, Hashable {
     /// Whether the model supports tool/function calling
     let supportsTools: Bool
 
+    /// Whether the model supports image/vision inputs
+    let supportsVision: Bool
+
     /// Default capabilities (assumes tool support for cloud models)
-    static let `default` = ModelCapabilities(supportsTools: true)
+    static let `default` = ModelCapabilities(supportsTools: true, supportsVision: false)
 
     /// No capabilities (for models that don't support tools)
-    static let none = ModelCapabilities(supportsTools: false)
+    static let none = ModelCapabilities(supportsTools: false, supportsVision: false)
+
+    init(supportsTools: Bool, supportsVision: Bool = false) {
+        self.supportsTools = supportsTools
+        self.supportsVision = supportsVision
+    }
 }
 
 // MARK: - LLM Model
@@ -155,6 +163,12 @@ struct LLMModel: Identifiable, Codable, Equatable, Hashable {
     /// Defaults to true if capabilities not specified (most cloud models support tools)
     var supportsTools: Bool {
         capabilities?.supportsTools ?? true
+    }
+
+    /// Whether this model supports image/vision inputs
+    /// Defaults to false if capabilities not specified
+    var supportsVision: Bool {
+        capabilities?.supportsVision ?? false
     }
 
     // MARK: - Initializers

@@ -106,8 +106,8 @@ final class SessionManager: ObservableObject {
                 return
             }
 
-            // Convert to live session (context is now embedded in messages)
-            let session = persisted.toSession()
+            // Convert to live session (context and images restored from persistence)
+            let session = await persisted.toSession()
             currentSession = session
             currentSessionId = activeId
             isDirty = false
@@ -227,8 +227,8 @@ final class SessionManager: ObservableObject {
         saveDebounceTask?.cancel()
 
         do {
-            // Convert to persisted format (context is embedded in messages)
-            var persisted = PersistedSession.from(
+            // Convert to persisted format (context and images saved to disk)
+            var persisted = await PersistedSession.from(
                 session,
                 id: id,
                 currentContext: currentContext
@@ -286,7 +286,7 @@ final class SessionManager: ObservableObject {
 
         Task {
             do {
-                var persisted = PersistedSession.from(
+                var persisted = await PersistedSession.from(
                     session,
                     id: id,
                     currentContext: contextToSave
@@ -376,7 +376,7 @@ final class SessionManager: ObservableObject {
             guard let persisted = try await storage.loadSession(id: id) else {
                 throw StorageError.sessionNotFound(id: id)
             }
-            session = persisted.toSession()
+            session = await persisted.toSession()
             // Cache for future retrieval
             cacheSession(session, id: id)
         }

@@ -331,14 +331,8 @@ final class AnthropicProvider: LLMProvider {
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        // Use formatChatMessages() which handles context formatting
-        let allMessages = PromptBuilder.shared.formatChatMessages(messages: messages)
-
-        // Extract system prompt for Anthropic's separate system parameter
-        let systemPrompt = allMessages.first { $0["role"] == "system" }?["content"] ?? ""
-
-        // Filter to non-system messages (already formatted with context)
-        let anthropicMessages = allMessages.filter { $0["role"] != "system" }
+        // Format messages with image support
+        let (systemPrompt, anthropicMessages) = Self.formatAnthropicMessagesWithImages(messages: messages)
 
         let body: [String: Any] = [
             "model": currentModel.id,
@@ -358,14 +352,8 @@ final class AnthropicProvider: LLMProvider {
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        // Use formatChatMessages() which handles context formatting
-        let allMessages = PromptBuilder.shared.formatChatMessages(messages: messages)
-
-        // Extract system prompt for Anthropic's separate system parameter
-        let systemPrompt = allMessages.first { $0["role"] == "system" }?["content"] ?? ""
-
-        // Filter to non-system messages (already formatted with context)
-        let anthropicMessages = allMessages.filter { $0["role"] != "system" }
+        // Format messages with image support
+        let (systemPrompt, anthropicMessages) = Self.formatAnthropicMessagesWithImages(messages: messages)
 
         let body: [String: Any] = [
             "model": currentModel.id,
@@ -451,6 +439,39 @@ final class AnthropicProvider: LLMProvider {
         return request
     }
 
+    /// Format simple chat messages with image support for Anthropic (non-tool path)
+    private static func formatAnthropicMessagesWithImages(messages: [ChatMessage]) -> (systemPrompt: String, messages: [[String: Any]]) {
+        let allMessages = PromptBuilder.shared.formatChatMessages(messages: messages)
+        let systemPrompt = allMessages.first { $0["role"] == "system" }?["content"] ?? ""
+        let nonSystemMessages = allMessages.filter { $0["role"] != "system" }
+
+        var result: [[String: Any]] = []
+        var messageIndex = 0
+        for formatted in nonSystemMessages {
+            let role = formatted["role"] ?? "user"
+            let content = formatted["content"] ?? ""
+
+            if role == "user" && messageIndex < messages.count {
+                let originalMessage = messages[messageIndex]
+                if let images = originalMessage.imageAttachments, !images.isEmpty {
+                    let multimodal = PromptBuilder.shared.formatAnthropicMultimodalContent(
+                        text: content, images: images
+                    )
+                    result.append(["role": role, "content": multimodal as Any])
+                } else {
+                    result.append(["role": role, "content": content])
+                }
+                messageIndex += 1
+            } else {
+                if role == "assistant" && messageIndex < messages.count {
+                    messageIndex += 1
+                }
+                result.append(["role": role, "content": content])
+            }
+        }
+        return (systemPrompt, result)
+    }
+
     /// Format messages with tool rounds expanded inline in correct chronological order
     /// - Parameter messages: Chat messages (may contain tool rounds in assistant messages)
     /// - Returns: Tuple of (system prompt, formatted messages array) for Anthropic API
@@ -467,7 +488,15 @@ final class AnthropicProvider: LLMProvider {
                     context: message.context,
                     intent: message.intent
                 )
-                result.append(["role": "user", "content": formattedContent])
+                // Use multimodal content blocks if message has images
+                if let images = message.imageAttachments, !images.isEmpty {
+                    let content: Any = PromptBuilder.shared.formatAnthropicMultimodalContent(
+                        text: formattedContent, images: images
+                    )
+                    result.append(["role": "user", "content": content])
+                } else {
+                    result.append(["role": "user", "content": formattedContent])
+                }
 
             case .assistant:
                 if let toolRounds = message.toolRounds, !toolRounds.isEmpty {

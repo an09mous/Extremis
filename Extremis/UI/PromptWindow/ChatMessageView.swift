@@ -15,6 +15,7 @@ struct ChatMessageView: View {
     var context: Context? = nil
 
     @State private var isHovering = false
+    @State private var hoverGeneration = 0
     @State private var showCopied = false
     @State private var showContextSheet = false
     /// Collapse tool history by default after generation completes
@@ -107,18 +108,28 @@ struct ChatMessageView: View {
                         .padding(.horizontal, 4)
                         .padding(.vertical, 4)
                 } else {
-                    // User: prominent colored bubble
-                    Text(message.content)
-                        .font(.body)
-                        .textSelection(.enabled)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(DS.Colors.userBubble)
-                        .continuousCornerRadius(DS.Radii.large)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: DS.Radii.large, style: .continuous)
-                                .stroke(DS.Colors.userBubbleBorder, lineWidth: 1)
-                        )
+                    // User: prominent colored bubble with optional images
+                    VStack(alignment: .trailing, spacing: 6) {
+                        // Image thumbnails (if any)
+                        if message.hasImages, let images = message.imageAttachments {
+                            ChatMessageImageView(attachments: images)
+                        }
+
+                        // Text content (may be empty for image-only messages)
+                        if !message.content.isEmpty {
+                            Text(message.content)
+                                .font(.body)
+                                .textSelection(.enabled)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(DS.Colors.userBubble)
+                    .continuousCornerRadius(DS.Radii.large)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: DS.Radii.large, style: .continuous)
+                            .stroke(DS.Colors.userBubbleBorder, lineWidth: 1)
+                    )
                 }
 
                 // Action buttons at bottom (always in layout, visibility controlled by opacity)
@@ -158,9 +169,21 @@ struct ChatMessageView: View {
 
             if !isUser { Spacer(minLength: 40) }
         }
+        .contentShape(Rectangle())
         .onHover { hovering in
-            withAnimation(DS.Animation.hoverTransition) {
-                isHovering = hovering
+            if hovering {
+                hoverGeneration += 1
+                withAnimation(DS.Animation.hoverTransition) {
+                    isHovering = true
+                }
+            } else {
+                let gen = hoverGeneration
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    guard gen == hoverGeneration else { return }
+                    withAnimation(DS.Animation.hoverTransition) {
+                        isHovering = false
+                    }
+                }
             }
         }
         .sheet(isPresented: $showContextSheet) {
@@ -321,6 +344,7 @@ struct StreamingMessageView: View {
     let isGenerating: Bool
 
     @State private var isHovering = false
+    @State private var hoverGeneration = 0
     @State private var showCopied = false
 
     private var canCopy: Bool {
@@ -384,9 +408,21 @@ struct StreamingMessageView: View {
 
             Spacer(minLength: 40)
         }
+        .contentShape(Rectangle())
         .onHover { hovering in
-            withAnimation(DS.Animation.hoverTransition) {
-                isHovering = hovering
+            if hovering {
+                hoverGeneration += 1
+                withAnimation(DS.Animation.hoverTransition) {
+                    isHovering = true
+                }
+            } else {
+                let gen = hoverGeneration
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    guard gen == hoverGeneration else { return }
+                    withAnimation(DS.Animation.hoverTransition) {
+                        isHovering = false
+                    }
+                }
             }
         }
     }

@@ -38,6 +38,12 @@ struct ResponseView: View {
     var onDenyRequest: ((String) -> Void)?
     var onApproveAll: (() -> Void)?
 
+    // Image attachment state
+    var supportsVision: Bool = false
+    var showNonVisionToast: Bool = false
+    var onNonVisionPasteAttempt: (() -> Void)?
+    @Binding var pendingImageAttachments: [ImageAttachment]
+
     @State private var showCopiedToast = false
 
     // Auto-scroll tracking for quick mode
@@ -78,6 +84,10 @@ struct ResponseView: View {
         self.onApproveRequest = nil
         self.onDenyRequest = nil
         self.onApproveAll = nil
+        self.supportsVision = false
+        self.showNonVisionToast = false
+        self.onNonVisionPasteAttempt = nil
+        self._pendingImageAttachments = .constant([])
     }
 
     // Full initializer with chat support
@@ -105,7 +115,11 @@ struct ResponseView: View {
         pendingApprovalRequests: [ApprovalRequestDisplayModel] = [],
         onApproveRequest: ((String, Bool) -> Void)? = nil,
         onDenyRequest: ((String) -> Void)? = nil,
-        onApproveAll: (() -> Void)? = nil
+        onApproveAll: (() -> Void)? = nil,
+        supportsVision: Bool = false,
+        showNonVisionToast: Bool = false,
+        onNonVisionPasteAttempt: (() -> Void)? = nil,
+        pendingImageAttachments: Binding<[ImageAttachment]> = .constant([])
     ) {
         self.response = response
         self.isGenerating = isGenerating
@@ -131,6 +145,10 @@ struct ResponseView: View {
         self.onApproveRequest = onApproveRequest
         self.onDenyRequest = onDenyRequest
         self.onApproveAll = onApproveAll
+        self.supportsVision = supportsVision
+        self.showNonVisionToast = showNonVisionToast
+        self.onNonVisionPasteAttempt = onNonVisionPasteAttempt
+        self._pendingImageAttachments = pendingImageAttachments
     }
 
     var body: some View {
@@ -291,6 +309,14 @@ struct ResponseView: View {
                 }
             }
         }
+        .overlay(alignment: .bottom) {
+            if showNonVisionToast {
+                NonVisionToast()
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .padding(.bottom, 80)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: showNonVisionToast)
     }
 
     @ViewBuilder
@@ -299,12 +325,15 @@ struct ResponseView: View {
             if isChatMode {
                 ChatInputView(
                     text: $chatInputText,
+                    pendingAttachments: $pendingImageAttachments,
                     isEnabled: !isGenerating,
                     isGenerating: isGenerating,
                     placeholder: "Ask a follow-up question...",
                     autoFocus: true,
+                    supportsVision: supportsVision,
                     onSend: { onSendChat?() },
-                    onStopGeneration: onStopGeneration
+                    onStopGeneration: onStopGeneration,
+                    onNonVisionPasteAttempt: onNonVisionPasteAttempt
                 )
             } else {
                 // Show "Continue chatting" prompt - entire row is clickable
@@ -393,6 +422,26 @@ struct ResponseView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
+    }
+}
+
+// MARK: - Non-Vision Toast
+
+struct NonVisionToast: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "eye.slash")
+                .font(.system(size: 12, weight: .medium))
+            Text("Current model doesn't support images")
+                .font(.system(size: 12, weight: .medium))
+        }
+        .foregroundColor(.white)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
+        .background(Color.secondary.opacity(0.7))
+        .continuousCornerRadius(DS.Radii.pill)
+        .dsShadow(DS.Shadows.medium)
     }
 }
 

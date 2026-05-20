@@ -183,7 +183,7 @@ Feature specs are in `specs/` directory, each containing:
 - `tasks.md` - Task breakdown
 - `data-model.md` - Data model schemas (when applicable)
 
-Latest completed feature: `specs/011-tool-approval/` (Human-in-Loop Tool Approval) ✅
+Latest completed feature: `specs/012-image-attachments/` (Image Attachments)
 
 ## Key Files
 
@@ -210,6 +210,11 @@ Latest completed feature: `specs/011-tool-approval/` (Human-in-Loop Tool Approva
 - `Extremis/Core/Models/ShellCommand.swift` - Shell command risk classification
 - `Extremis/Core/Services/ShellCommandExecutor.swift` - Safe shell execution with sandboxing
 - `Extremis/UI/Components/DesignSystem.swift` - Centralized design tokens (colors, radii, spacing, shadows)
+- `Extremis/Core/Models/ImageAttachment.swift` - ImageAttachment model, ImageRef persistence struct, ImageFormat/ImageSourceType enums
+- `Extremis/Core/Services/ImageProcessor.swift` - Image processing, resizing, thumbnail generation (ImageIO)
+- `Extremis/Utilities/ImagePersistence.swift` - File-based image storage actor
+- `Extremis/UI/PromptWindow/ImageAttachmentView.swift` - Thumbnail strip and chat message image views
+- `Extremis/UI/PromptWindow/ImageDropZoneView.swift` - Drag-and-drop overlay
 
 ## Configuration & Storage
 
@@ -332,3 +337,11 @@ MCP servers are configured in `~/Library/Application Support/Extremis/mcp-server
 - Tool names are prefixed with server name to avoid collisions
 - Tool execution supports multi-turn loops (LLM → tools → LLM → ...)
 
+
+## Active Technologies
+- Swift 5.9+ with Swift Concurrency, SwiftUI + AppKit hybrid (NSPanel, NSHostingView, NSPasteboard, NSDragging)
+- ImageIO (CGImageSource for efficient image resizing and thumbnail generation)
+- File-based image storage in `~/Library/Application Support/Extremis/images/`, JSON session persistence with file references and inline base64 thumbnails
+
+## Recent Changes
+- 012-image-attachments: Image attachments for chat messages via paste, drag-and-drop, and file picker. Uses ImageIO for processing, actor-based file persistence, and inline base64 thumbnails in session JSON.
