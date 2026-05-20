@@ -9,6 +9,8 @@ import AppKit
 enum HotkeyIdentifier: UInt32, CaseIterable {
     case prompt = 1        // Main prompt window hotkey
     case magicMode = 2     // Magic mode hotkey (Option+Tab for summarization)
+    case stealthToggle = 3 // Stealth mode toggle
+    case preferences = 4   // Open Preferences (when menu bar hidden)
 }
 
 /// Manages global hotkey registration and handling

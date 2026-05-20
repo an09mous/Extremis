@@ -193,6 +193,11 @@ struct ChatInputView: View {
         panel.canChooseFiles = true
         panel.message = "Select images to attach"
 
+        // Apply stealth to file picker if stealth mode is active
+        if StealthManager.shared.isStealthActive {
+            panel.sharingType = .none
+        }
+
         let remaining = ImageProcessor.shared.maxImagesPerMessage - pendingAttachments.count
         guard remaining > 0 else {
             showImageError("Maximum \(ImageProcessor.shared.maxImagesPerMessage) images per message")

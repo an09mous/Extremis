@@ -61,7 +61,10 @@ final class LoadingOverlayController {
         window.hasShadow = true
         window.isMovableByWindowBackground = false
         window.collectionBehavior = [.canJoinAllSpaces, .transient]
-        
+
+        // Register with StealthManager for screen capture exclusion
+        StealthManager.shared.registerWindow(window)
+
         // Animate in
         window.alphaValue = 0
         window.orderFrontRegardless()

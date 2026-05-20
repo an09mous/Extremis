@@ -22,7 +22,10 @@ final class PreferencesWindowController: NSWindowController {
         window.isReleasedWhenClosed = false
         
         super.init(window: window)
-        
+
+        // Register with StealthManager for screen capture exclusion
+        StealthManager.shared.registerWindow(window)
+
         let contentView = PreferencesView()
         window.contentView = NSHostingView(rootView: contentView)
     }

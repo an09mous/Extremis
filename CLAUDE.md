@@ -183,7 +183,7 @@ Feature specs are in `specs/` directory, each containing:
 - `tasks.md` - Task breakdown
 - `data-model.md` - Data model schemas (when applicable)
 
-Latest completed feature: `specs/012-image-attachments/` (Image Attachments)
+Latest completed feature: `specs/013-stealth-mode/` (Stealth Mode)
 
 ## Key Files
 
@@ -215,6 +215,11 @@ Latest completed feature: `specs/012-image-attachments/` (Image Attachments)
 - `Extremis/Utilities/ImagePersistence.swift` - File-based image storage actor
 - `Extremis/UI/PromptWindow/ImageAttachmentView.swift` - Thumbnail strip and chat message image views
 - `Extremis/UI/PromptWindow/ImageDropZoneView.swift` - Drag-and-drop overlay
+- `Extremis/Core/Services/StealthManager.swift` - Stealth mode state coordinator (singleton, @MainActor)
+- `Extremis/Core/Protocols/StealthStrategy.swift` - StealthStrategy protocol, SharingTypeStrategy, CollectionBehaviorStrategy
+- `Extremis/Core/Models/StealthConfiguration.swift` - UserDefaults-backed stealth settings
+- `Extremis/Core/Services/StealthVerifier.swift` - Runtime stealth self-test via CGWindowListCreateImage
+- `Extremis/UI/Components/StealthToastController.swift` - Transient stealth toggle toast
 
 ## Configuration & Storage
 
@@ -342,6 +347,9 @@ MCP servers are configured in `~/Library/Application Support/Extremis/mcp-server
 - Swift 5.9+ with Swift Concurrency, SwiftUI + AppKit hybrid (NSPanel, NSHostingView, NSPasteboard, NSDragging)
 - ImageIO (CGImageSource for efficient image resizing and thumbnail generation)
 - File-based image storage in `~/Library/Application Support/Extremis/images/`, JSON session persistence with file references and inline base64 thumbnails
+- Swift 5.9+ + AppKit (NSWindow.sharingType, NSStatusBar, NSPanel), Carbon (global hotkeys), SwiftUI (013-stealth-mode)
+- UserDefaults (stealth state and configuration) (013-stealth-mode)
 
 ## Recent Changes
+- 013-stealth-mode: Stealth mode makes Extremis invisible during screen sharing. Uses NSWindow.sharingType=.none for screen capture exclusion, collectionBehavior for Mission Control hiding, process name disguise, menu bar icon hiding. Toggle via Option+Shift+S hotkey. Configurable in Preferences.
 - 012-image-attachments: Image attachments for chat messages via paste, drag-and-drop, and file picker. Uses ImageIO for processing, actor-based file persistence, and inline base64 thumbnails in session JSON.
