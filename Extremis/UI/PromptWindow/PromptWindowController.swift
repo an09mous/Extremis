@@ -1501,7 +1501,7 @@ struct PromptContainerView: View {
                     if stealthManager.isStealthActive {
                         HStack(spacing: 4) {
                             IncognitoIcon(size: 12)
-                            Text("INCOGNITO")
+                            Text("STEALTH")
                                 .font(.system(size: 8, weight: .bold, design: .rounded))
                         }
                         .foregroundColor(Color(red: 0.55, green: 0.36, blue: 0.96)) // Muted purple

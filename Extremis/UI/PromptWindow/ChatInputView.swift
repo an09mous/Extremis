@@ -87,18 +87,31 @@ struct ChatInputView: View {
             }
 
             HStack(alignment: .bottom, spacing: 8) {
-                // Attachment button (only when vision is supported)
+                // Attachment buttons (only when vision is supported)
                 if supportsVision {
-                    Button(action: openFilePicker) {
-                        Image(systemName: "paperclip")
-                            .font(.system(size: 16))
-                            .foregroundColor(.secondary)
+                    HStack(spacing: 4) {
+                        Button(action: openFilePicker) {
+                            Image(systemName: "paperclip")
+                                .font(.system(size: 16))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(pendingAttachments.count >= ImageProcessor.shared.maxImagesPerMessage)
+                        .help(pendingAttachments.count >= ImageProcessor.shared.maxImagesPerMessage
+                              ? "Maximum \(ImageProcessor.shared.maxImagesPerMessage) images"
+                              : "Attach image")
+
+                        Button(action: captureScreenshot) {
+                            Image(systemName: "camera.viewfinder")
+                                .font(.system(size: 16))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(pendingAttachments.count >= ImageProcessor.shared.maxImagesPerMessage)
+                        .help(pendingAttachments.count >= ImageProcessor.shared.maxImagesPerMessage
+                              ? "Maximum \(ImageProcessor.shared.maxImagesPerMessage) images"
+                              : "Screenshot visible screen")
                     }
-                    .buttonStyle(.plain)
-                    .disabled(pendingAttachments.count >= ImageProcessor.shared.maxImagesPerMessage)
-                    .help(pendingAttachments.count >= ImageProcessor.shared.maxImagesPerMessage
-                          ? "Maximum \(ImageProcessor.shared.maxImagesPerMessage) images"
-                          : "Attach image")
                 }
 
                 // Scrollable text input using NSTextView for performance
@@ -210,6 +223,16 @@ struct ChatInputView: View {
             guard let data = try? Data(contentsOf: url) else { continue }
             processAndAttachImage(data: data, sourceType: .filePicker, filename: url.lastPathComponent)
         }
+    }
+
+    // MARK: - Screenshot Capture
+
+    private func captureScreenshot() {
+        guard let imageData = ScreenshotService.shared.captureScreenBehindPanel() else {
+            showImageError("Failed to capture screenshot")
+            return
+        }
+        processAndAttachImage(data: imageData, sourceType: .screenshot, filename: "screenshot.png")
     }
 
     // MARK: - Image Processing
