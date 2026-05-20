@@ -246,6 +246,26 @@ run_test_suite "Design System Tests" \
     "$PROJECT_DIR/Tests/UI/DesignSystemTests.swift" \
     "Foundation"
 
+# 29. ImageAttachment Model Tests (Codable, Equatable, ImageFormat, ImageSourceType, ImageRef)
+run_test_suite "ImageAttachment Model Tests" \
+    "$PROJECT_DIR/Tests/Core/ImageAttachmentTests.swift" \
+    "Foundation"
+
+# 30. ImageProcessor Tests (format validation, size validation, dimension calculations)
+run_test_suite "ImageProcessor Tests" \
+    "$PROJECT_DIR/Tests/Core/ImageProcessorTests.swift" \
+    "Foundation"
+
+# 31. ImagePersistence Tests (save/load, file naming, delete, missing file handling)
+run_test_suite "ImagePersistence Tests" \
+    "$PROJECT_DIR/Tests/Utilities/ImagePersistenceTests.swift" \
+    "Foundation"
+
+# 32. PromptBuilder Multimodal Tests (OpenAI, Anthropic, Gemini, Ollama image formatting)
+run_test_suite "PromptBuilder Multimodal Tests" \
+    "$PROJECT_DIR/Tests/LLMProviders/PromptBuilderImageTests.swift" \
+    "Foundation"
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------

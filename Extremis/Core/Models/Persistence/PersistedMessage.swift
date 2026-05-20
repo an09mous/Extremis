@@ -13,6 +13,7 @@ struct PersistedMessage: Codable, Identifiable, Equatable {
     let timestamp: Date
     let contextData: Data?  // Encoded Context (optional, for user messages)
     let toolRoundsData: Data?  // Encoded [ToolExecutionRoundRecord] (optional, for assistant messages)
+    let imageRefs: [ImageRef]?  // Image file references (optional, for user messages with images)
 
     // MARK: - Initialization
 
@@ -22,7 +23,8 @@ struct PersistedMessage: Codable, Identifiable, Equatable {
         content: String,
         timestamp: Date = Date(),
         contextData: Data? = nil,
-        toolRoundsData: Data? = nil
+        toolRoundsData: Data? = nil,
+        imageRefs: [ImageRef]? = nil
     ) {
         self.id = id
         self.role = role
@@ -30,21 +32,25 @@ struct PersistedMessage: Codable, Identifiable, Equatable {
         self.timestamp = timestamp
         self.contextData = contextData
         self.toolRoundsData = toolRoundsData
+        self.imageRefs = imageRefs
     }
 
     // MARK: - Convenience Initializers
 
     /// Create from existing ChatMessage (context and tool rounds are embedded in message)
-    init(from message: ChatMessage) {
+    /// imageRefs can be provided when images have been saved via ImagePersistence
+    init(from message: ChatMessage, imageRefs: [ImageRef]? = nil) {
         self.id = message.id
         self.role = message.role
         self.content = message.content
         self.timestamp = message.timestamp
         self.contextData = Self.encodeContext(message.context)
         self.toolRoundsData = Self.encodeToolRounds(message.toolRounds)
+        self.imageRefs = imageRefs
     }
 
     /// Convert to ChatMessage (restores embedded context and tool rounds)
+    /// Note: imageAttachments are restored separately via ImagePersistence
     func toChatMessage() -> ChatMessage {
         ChatMessage(
             id: id,
@@ -54,6 +60,20 @@ struct PersistedMessage: Codable, Identifiable, Equatable {
             context: decodeContext(),
             intent: nil,
             toolRounds: decodeToolRounds()
+        )
+    }
+
+    /// Convert to ChatMessage with restored image attachments
+    func toChatMessage(imageAttachments: [ImageAttachment]?) -> ChatMessage {
+        ChatMessage(
+            id: id,
+            role: role,
+            content: content,
+            timestamp: timestamp,
+            context: decodeContext(),
+            intent: nil,
+            toolRounds: decodeToolRounds(),
+            imageAttachments: imageAttachments
         )
     }
 
@@ -93,5 +113,13 @@ struct PersistedMessage: Codable, Identifiable, Equatable {
     /// Check if message has tool execution history
     var hasToolExecutions: Bool {
         toolRoundsData != nil
+    }
+
+    // MARK: - Image Helpers
+
+    /// Check if message has image references
+    var hasImages: Bool {
+        guard let refs = imageRefs else { return false }
+        return !refs.isEmpty
     }
 }

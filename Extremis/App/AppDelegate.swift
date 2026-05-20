@@ -60,6 +60,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
             // Restore last session after provider is ready
             await restoreSessionOnLaunch()
+
+            // Cleanup orphaned images in background (non-blocking)
+            Task.detached(priority: .background) {
+                await Self.cleanupOrphanedImages()
+            }
         }
 
         print("✅ Extremis launched successfully")
@@ -73,6 +78,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let session = sessionManager.currentSession {
             promptWindowController.setSession(session, id: sessionManager.currentSessionId)
             print("📚 Restored session with \(session.messages.count) messages")
+        }
+    }
+
+    /// Remove orphaned image files not referenced by any session
+    private static func cleanupOrphanedImages() async {
+        do {
+            let storage = JSONSessionStorage()
+            let sessions = try await storage.listSessions()
+            var activeFilenames = Set<String>()
+
+            for entry in sessions {
+                if let persisted = try await storage.loadSession(id: entry.id) {
+                    for message in persisted.messages {
+                        if let refs = message.imageRefs {
+                            for ref in refs {
+                                activeFilenames.insert(ref.filename)
+                            }
+                        }
+                    }
+                }
+            }
+
+            let removed = try await ImagePersistence.shared.cleanupOrphaned(activeRefs: activeFilenames)
+            if removed > 0 {
+                print("[ImageCleanup] Removed \(removed) orphaned image files")
+            }
+        } catch {
+            print("[ImageCleanup] Failed: \(error)")
         }
     }
 

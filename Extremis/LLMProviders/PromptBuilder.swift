@@ -180,6 +180,58 @@ final class PromptBuilder {
         return result
     }
 
+    // MARK: - Multimodal Content Formatting
+
+    /// Format a user message's content as multimodal content blocks for OpenAI-style APIs
+    /// Returns nil if the message has no images (caller should use plain string content)
+    func formatOpenAIMultimodalContent(text: String, images: [ImageAttachment]) -> [[String: Any]] {
+        var content: [[String: Any]] = []
+        for image in images {
+            content.append([
+                "type": "image_url",
+                "image_url": [
+                    "url": "data:\(image.mimeType);base64,\(image.base64EncodedData)",
+                    "detail": "auto"
+                ]
+            ])
+        }
+        if !text.isEmpty {
+            content.append(["type": "text", "text": text])
+        }
+        return content
+    }
+
+    /// Format a user message's content as multimodal content blocks for Anthropic API
+    func formatAnthropicMultimodalContent(text: String, images: [ImageAttachment]) -> [[String: Any]] {
+        var content: [[String: Any]] = []
+        for image in images {
+            content.append([
+                "type": "image",
+                "source": [
+                    "type": "base64",
+                    "media_type": image.mimeType,
+                    "data": image.base64EncodedData
+                ]
+            ])
+        }
+        if !text.isEmpty {
+            content.append(["type": "text", "text": text])
+        }
+        return content
+    }
+
+    /// Format image parts for Gemini API
+    func formatGeminiImageParts(images: [ImageAttachment]) -> [[String: Any]] {
+        images.map { image in
+            ["inlineData": ["mimeType": image.mimeType, "data": image.base64EncodedData]]
+        }
+    }
+
+    /// Format Ollama images array (raw base64, no data URI prefix)
+    func formatOllamaImages(images: [ImageAttachment]) -> [String] {
+        images.map { $0.base64EncodedData }
+    }
+
     /// Log full chat messages being sent (controlled by debugLogging flag)
     private func logChatMessages(_ messages: [[String: String]]) {
         guard debugLogging else { return }

@@ -23,6 +23,10 @@ protocol LLMProvider: AnyObject {
     /// Providers can override for dynamic detection (e.g., Ollama)
     var supportsTools: Bool { get async }
 
+    /// Whether the current model supports vision/image inputs
+    /// Default implementation checks currentModel.capabilities.supportsVision
+    var supportsVision: Bool { get }
+
     /// Configure the provider with an API key
     /// - Parameter apiKey: The API key to use
     /// - Throws: LLMProviderError.invalidAPIKey if key is invalid
@@ -90,6 +94,11 @@ extension LLMProvider {
         get async {
             currentModel.capabilities?.supportsTools ?? true
         }
+    }
+
+    /// Default implementation: check the model's capabilities.supportsVision flag
+    var supportsVision: Bool {
+        currentModel.capabilities?.supportsVision ?? false
     }
 }
 

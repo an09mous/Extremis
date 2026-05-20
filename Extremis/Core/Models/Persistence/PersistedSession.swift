@@ -94,7 +94,7 @@ struct PersistedSession: Codable, Identifiable, Equatable {
 // MARK: - Conversion Extensions
 
 extension PersistedSession {
-    /// Create from live ChatSession
+    /// Create from live ChatSession, saving images to disk
     /// - Parameters:
     ///   - session: The live session
     ///   - id: Existing ID (for updates) or nil (for new)
@@ -104,10 +104,22 @@ extension PersistedSession {
         _ session: ChatSession,
         id: UUID? = nil,
         currentContext: Context? = nil
-    ) -> PersistedSession {
-        // Convert messages - context is now embedded in ChatMessage
-        let persistedMessages = session.messages.map { message -> PersistedMessage in
-            PersistedMessage(from: message)
+    ) async -> PersistedSession {
+        // Convert messages - save images to disk for messages that have them
+        var persistedMessages: [PersistedMessage] = []
+        for message in session.messages {
+            if message.hasImages, let images = message.imageAttachments {
+                // Save images to disk and create refs
+                do {
+                    let refs = try await ImagePersistence.shared.save(images)
+                    persistedMessages.append(PersistedMessage(from: message, imageRefs: refs))
+                } catch {
+                    print("[PersistedSession] Failed to save images for message \(message.id): \(error)")
+                    persistedMessages.append(PersistedMessage(from: message))
+                }
+            } else {
+                persistedMessages.append(PersistedMessage(from: message))
+            }
         }
 
         return PersistedSession(
@@ -120,9 +132,9 @@ extension PersistedSession {
         )
     }
 
-    /// Convert to live ChatSession
+    /// Convert to live ChatSession, restoring images from disk
     @MainActor
-    func toSession() -> ChatSession {
+    func toSession() async -> ChatSession {
         // Extract original context from first user message
         let originalContext = firstUserMessage?.decodeContext()
 
@@ -134,9 +146,15 @@ extension PersistedSession {
             summaryCoversCount: summary?.coversMessageCount ?? 0
         )
 
-        // Restore messages with embedded context
+        // Restore messages with embedded context and images
         for message in messages {
-            session.messages.append(message.toChatMessage())
+            if message.hasImages, let refs = message.imageRefs {
+                // Restore images from disk (per-image errors are logged internally)
+                let attachments = await ImagePersistence.shared.restore(from: refs)
+                session.messages.append(message.toChatMessage(imageAttachments: attachments.isEmpty ? nil : attachments))
+            } else {
+                session.messages.append(message.toChatMessage())
+            }
         }
 
         return session

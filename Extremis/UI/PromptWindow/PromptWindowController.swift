@@ -404,12 +404,21 @@ final class PromptViewModel: ObservableObject {
     /// Callback when user approves all tools (one-time, no remember)
     var onApproveAll: (() -> Void)?
 
+    // Image attachment state
+    @Published var pendingImageAttachments: [ImageAttachment] = []
+    @Published var showNonVisionToast: Bool = false
+
     // Command palette state
     @Published var showCommandPalette: Bool = false
     @Published var commandFilter: String = ""
 
     /// Command manager for accessing commands
     let commandManager = CommandManager.shared
+
+    /// Whether the active model supports vision/image inputs
+    var supportsVision: Bool {
+        LLMProviderRegistry.shared.activeProvider?.supportsVision ?? false
+    }
 
     // Persistence properties
     private(set) var sessionId: UUID?
@@ -845,6 +854,14 @@ final class PromptViewModel: ObservableObject {
 
     // MARK: - Chat Mode
 
+    /// Show a brief toast when user tries to paste an image with a non-vision model
+    func showNonVisionPasteNotification() {
+        showNonVisionToast = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+            self?.showNonVisionToast = false
+        }
+    }
+
     /// Enable chat mode after initial response is complete
     /// Note: This is now called when user submits a follow-up message
     /// The session may already exist from initial generation, so we only need to enable chat mode
@@ -888,7 +905,8 @@ final class PromptViewModel: ObservableObject {
     /// Send a chat message and get a response
     func sendChatMessage() {
         let messageText = chatInputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !messageText.isEmpty else { return }
+        let images = pendingImageAttachments.isEmpty ? nil : pendingImageAttachments
+        guard !messageText.isEmpty || images != nil else { return }
 
         // If no session exists, create one for the chat
         if session == nil {
@@ -909,13 +927,14 @@ final class PromptViewModel: ObservableObject {
         // Follow-up messages within the same spawn don't need context
         let message: ChatMessage
         if isFirstMessageSinceSpawn, let ctx = currentContext {
-            message = ChatMessage.user(messageText, context: ctx, intent: .chat)
+            message = ChatMessage.user(messageText, context: ctx, intent: .chat, imageAttachments: images)
             isFirstMessageSinceSpawn = false  // Consume the flag
         } else {
-            message = ChatMessage.user(messageText)
+            message = ChatMessage(role: .user, content: messageText, intent: .followUp, imageAttachments: images)
         }
         sess.addMessage(message)
         chatInputText = ""
+        pendingImageAttachments = []
         error = nil
 
         // Capture session ID for generation tracking
@@ -1527,7 +1546,11 @@ struct PromptContainerView: View {
                         pendingApprovalRequests: viewModel.pendingApprovalRequests,
                         onApproveRequest: viewModel.onApproveRequest,
                         onDenyRequest: viewModel.onDenyRequest,
-                        onApproveAll: viewModel.onApproveAll
+                        onApproveAll: viewModel.onApproveAll,
+                        supportsVision: viewModel.supportsVision,
+                        showNonVisionToast: viewModel.showNonVisionToast,
+                        onNonVisionPasteAttempt: { viewModel.showNonVisionPasteNotification() },
+                        pendingImageAttachments: $viewModel.pendingImageAttachments
                     )
                     .id(sessionManager.currentSessionId)  // Force view recreation on session switch to reset scroll state
                 } else {

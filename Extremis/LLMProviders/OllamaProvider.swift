@@ -21,8 +21,9 @@ final class OllamaProvider: LLMProvider, ObservableObject {
     /// Cached list of available models from Ollama server
     private(set) var availableModelsFromServer: [LLMModel] = []
 
-    /// Cache of model tool support status (modelId -> supportsTools)
+    /// Cache of model capability status (modelId -> capabilities)
     private var toolCapabilityCache: [String: Bool] = [:]
+    private var visionCapabilityCache: [String: Bool] = [:]
 
     /// Ollama doesn't require API key, just server connectivity
     var isConfigured: Bool { serverConnected }
@@ -65,6 +66,8 @@ final class OllamaProvider: LLMProvider, ObservableObject {
         self.currentModel = model
         UserDefaults.standard.set(model.id, forKey: "ollama_model")
         print("✅ Ollama model set to: \(model.name)")
+        // Pre-detect capabilities for the new model
+        Task { await detectCapabilities(for: model.id) }
     }
 
     /// Generate from a raw prompt (already built, no additional processing)
@@ -304,26 +307,51 @@ final class OllamaProvider: LLMProvider, ObservableObject {
                 return cached
             }
 
-            // Query Ollama for model capabilities
-            let supports = await detectToolSupport(for: currentModel.id)
-            toolCapabilityCache[currentModel.id] = supports
-            return supports
+            // Query Ollama for model capabilities (caches both tools and vision)
+            await detectCapabilities(for: currentModel.id)
+            return toolCapabilityCache[currentModel.id] ?? false
         }
     }
 
-    /// Query Ollama's /api/show endpoint for model capabilities
-    /// Returns true if the model's capabilities include "tools"
-    private func detectToolSupport(for modelId: String) async -> Bool {
-        guard serverConnected else { return false }
+    /// Override: Check if the current model supports vision via /api/show
+    var supportsVision: Bool {
+        // Check cache first — if not cached, default to false (async detection happens via supportsTools)
+        if let cached = visionCapabilityCache[currentModel.id] {
+            return cached
+        }
+        // Trigger async detection in the background so it's ready for next check
+        Task { await detectCapabilities(for: currentModel.id) }
+        return false
+    }
 
-        guard let url = URL(string: "\(baseURL)/api/show") else { return false }
+    /// Query Ollama's /api/show endpoint for model capabilities
+    /// Caches both tool and vision support for the given model
+    private func detectCapabilities(for modelId: String) async {
+        // Skip if already cached
+        if toolCapabilityCache[modelId] != nil { return }
+
+        guard serverConnected else {
+            toolCapabilityCache[modelId] = false
+            visionCapabilityCache[modelId] = false
+            return
+        }
+
+        guard let url = URL(string: "\(baseURL)/api/show") else {
+            toolCapabilityCache[modelId] = false
+            visionCapabilityCache[modelId] = false
+            return
+        }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         let body = ["name": modelId]
-        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return false }
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else {
+            toolCapabilityCache[modelId] = false
+            visionCapabilityCache[modelId] = false
+            return
+        }
         request.httpBody = bodyData
 
         do {
@@ -334,22 +362,29 @@ final class OllamaProvider: LLMProvider, ObservableObject {
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let capabilities = json["capabilities"] as? [String] {
                 let supportsTools = capabilities.contains("tools")
-                print("🔧 Ollama model '\(modelId)' capabilities: \(capabilities), supportsTools: \(supportsTools)")
-                return supportsTools
+                let supportsVision = capabilities.contains("vision")
+                toolCapabilityCache[modelId] = supportsTools
+                visionCapabilityCache[modelId] = supportsVision
+                print("🔧 Ollama model '\(modelId)' capabilities: \(capabilities), supportsTools: \(supportsTools), supportsVision: \(supportsVision)")
+                return
             }
 
-            // If capabilities field is missing (older Ollama version), assume no tool support
-            print("⚠️ Ollama model '\(modelId)' has no capabilities field - assuming no tool support")
-            return false
+            // If capabilities field is missing (older Ollama version), assume no support
+            print("⚠️ Ollama model '\(modelId)' has no capabilities field - assuming no tool/vision support")
+            toolCapabilityCache[modelId] = false
+            visionCapabilityCache[modelId] = false
+            return
         } catch {
-            print("⚠️ Failed to detect tool support for '\(modelId)': \(error.localizedDescription)")
-            return false // Conservative: assume no support on error
+            print("⚠️ Failed to detect capabilities for '\(modelId)': \(error.localizedDescription)")
+            toolCapabilityCache[modelId] = false
+            visionCapabilityCache[modelId] = false
         }
     }
 
     /// Clear capability cache (called on server reconnect)
     func clearCapabilityCache() {
         toolCapabilityCache.removeAll()
+        visionCapabilityCache.removeAll()
         print("🔧 Cleared Ollama tool capability cache")
     }
 
@@ -413,6 +448,9 @@ final class OllamaProvider: LLMProvider, ObservableObject {
             }
 
             print("✅ Ollama models loaded: \(availableModelsFromServer.map { $0.id }), current: \(currentModel.id)")
+
+            // Pre-detect capabilities for the current model so supportsVision is ready synchronously
+            await detectCapabilities(for: currentModel.id)
         } catch {
             print("⚠️ Failed to fetch Ollama models: \(error.localizedDescription)")
             availableModelsFromServer = []
@@ -458,7 +496,7 @@ final class OllamaProvider: LLMProvider, ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let formattedMessages = PromptBuilder.shared.formatChatMessages(messages: messages)
+        let formattedMessages = Self.formatOllamaMessagesWithImages(messages: messages)
         let body: [String: Any] = [
             "model": currentModel.id,
             "messages": formattedMessages,
@@ -474,7 +512,7 @@ final class OllamaProvider: LLMProvider, ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let formattedMessages = PromptBuilder.shared.formatChatMessages(messages: messages)
+        let formattedMessages = Self.formatOllamaMessagesWithImages(messages: messages)
         let body: [String: Any] = [
             "model": currentModel.id,
             "messages": formattedMessages,
@@ -564,6 +602,34 @@ final class OllamaProvider: LLMProvider, ObservableObject {
         return request
     }
 
+    /// Format simple chat messages with image support for Ollama (non-tool path)
+    /// Ollama uses a separate "images" array field with raw base64 (no data URI prefix)
+    private static func formatOllamaMessagesWithImages(messages: [ChatMessage]) -> [[String: Any]] {
+        let textMessages = PromptBuilder.shared.formatChatMessages(messages: messages)
+        var result: [[String: Any]] = []
+
+        var messageIndex = 0
+        for formatted in textMessages {
+            let role = formatted["role"] ?? "user"
+            let content = formatted["content"] ?? ""
+
+            var msg: [String: Any] = ["role": role, "content": content]
+
+            if role == "user" && messageIndex < messages.count {
+                let originalMessage = messages[messageIndex]
+                if let images = originalMessage.imageAttachments, !images.isEmpty {
+                    msg["images"] = PromptBuilder.shared.formatOllamaImages(images: images)
+                }
+                messageIndex += 1
+            } else if role == "assistant" {
+                messageIndex += 1
+            }
+
+            result.append(msg)
+        }
+        return result
+    }
+
     /// Format messages with tool rounds expanded inline in correct chronological order
     /// - Parameter messages: Chat messages (may contain tool rounds in assistant messages)
     /// - Returns: Formatted messages array for OpenAI-compatible API
@@ -583,7 +649,12 @@ final class OllamaProvider: LLMProvider, ObservableObject {
                     context: message.context,
                     intent: message.intent
                 )
-                result.append(["role": "user", "content": formattedContent])
+                // Add images array if message has images (Ollama format)
+                var msg: [String: Any] = ["role": "user", "content": formattedContent]
+                if let images = message.imageAttachments, !images.isEmpty {
+                    msg["images"] = PromptBuilder.shared.formatOllamaImages(images: images)
+                }
+                result.append(msg)
 
             case .assistant:
                 if let toolRounds = message.toolRounds, !toolRounds.isEmpty {

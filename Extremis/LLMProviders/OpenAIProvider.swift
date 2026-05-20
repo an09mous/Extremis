@@ -322,7 +322,7 @@ final class OpenAIProvider: LLMProvider {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let formattedMessages = PromptBuilder.shared.formatChatMessages(messages: messages)
+        let formattedMessages = Self.formatMessagesWithImages(messages: messages)
         let body: [String: Any] = [
             "model": currentModel.id,
             "messages": formattedMessages,
@@ -339,7 +339,7 @@ final class OpenAIProvider: LLMProvider {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let formattedMessages = PromptBuilder.shared.formatChatMessages(messages: messages)
+        let formattedMessages = Self.formatMessagesWithImages(messages: messages)
         let body: [String: Any] = [
             "model": currentModel.id,
             "messages": formattedMessages,
@@ -466,6 +466,43 @@ final class OpenAIProvider: LLMProvider {
         return request
     }
 
+    /// Format simple chat messages with image support (non-tool path)
+    /// Converts [[String: String]] to [[String: Any]] with multimodal content blocks where needed
+    private static func formatMessagesWithImages(messages: [ChatMessage]) -> [[String: Any]] {
+        let textMessages = PromptBuilder.shared.formatChatMessages(messages: messages)
+        var result: [[String: Any]] = []
+
+        // Map original ChatMessages to their formatted versions, injecting images
+        var messageIndex = 0
+        for formatted in textMessages {
+            let role = formatted["role"] ?? "user"
+            let content = formatted["content"] ?? ""
+
+            if role == "user" && messageIndex < messages.count {
+                // Find matching user message to check for images
+                let originalMessage = messages[messageIndex]
+                if let images = originalMessage.imageAttachments, !images.isEmpty {
+                    let multimodal = PromptBuilder.shared.formatOpenAIMultimodalContent(
+                        text: content, images: images
+                    )
+                    result.append(["role": role, "content": multimodal as Any])
+                } else {
+                    result.append(["role": role, "content": content])
+                }
+                messageIndex += 1
+            } else if role == "system" {
+                result.append(["role": role, "content": content])
+            } else {
+                if role == "assistant" && messageIndex < messages.count {
+                    messageIndex += 1
+                }
+                result.append(["role": role, "content": content])
+            }
+        }
+
+        return result
+    }
+
     /// Format messages with tool rounds expanded inline in correct chronological order
     /// - Parameter messages: Chat messages (may contain tool rounds in assistant messages)
     /// - Returns: Formatted messages array for OpenAI API
@@ -486,7 +523,15 @@ final class OpenAIProvider: LLMProvider {
                     context: message.context,
                     intent: message.intent
                 )
-                result.append(["role": "user", "content": formattedContent])
+                // Use multimodal content blocks if message has images
+                if let images = message.imageAttachments, !images.isEmpty {
+                    let content: Any = PromptBuilder.shared.formatOpenAIMultimodalContent(
+                        text: formattedContent, images: images
+                    )
+                    result.append(["role": "user", "content": content])
+                } else {
+                    result.append(["role": "user", "content": formattedContent])
+                }
 
             case .assistant:
                 if let toolRounds = message.toolRounds, !toolRounds.isEmpty {
