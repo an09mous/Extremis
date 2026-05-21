@@ -215,11 +215,12 @@ Latest completed feature: `specs/013-stealth-mode/` (Stealth Mode)
 - `Extremis/Utilities/ImagePersistence.swift` - File-based image storage actor
 - `Extremis/UI/PromptWindow/ImageAttachmentView.swift` - Thumbnail strip and chat message image views
 - `Extremis/UI/PromptWindow/ImageDropZoneView.swift` - Drag-and-drop overlay
-- `Extremis/Core/Services/StealthManager.swift` - Stealth mode state coordinator (singleton, @MainActor)
+- `Extremis/Core/Services/StealthManager.swift` - Stealth mode state coordinator (singleton, @MainActor), window opacity management
 - `Extremis/Core/Protocols/StealthStrategy.swift` - StealthStrategy protocol, SharingTypeStrategy, CollectionBehaviorStrategy
-- `Extremis/Core/Models/StealthConfiguration.swift` - UserDefaults-backed stealth settings
+- `Extremis/Core/Models/StealthConfiguration.swift` - UserDefaults-backed stealth settings (opacity, process disguise)
 - `Extremis/Core/Services/StealthVerifier.swift` - Runtime stealth self-test via CGWindowListCreateImage
 - `Extremis/UI/Components/StealthToastController.swift` - Transient stealth toggle toast
+- `Extremis/Core/Services/ScreenshotService.swift` - Captures screen content behind Extremis panel via CGWindowListCreateImage
 
 ## Configuration & Storage
 
@@ -351,5 +352,5 @@ MCP servers are configured in `~/Library/Application Support/Extremis/mcp-server
 - UserDefaults (stealth state and configuration) (013-stealth-mode)
 
 ## Recent Changes
-- 013-stealth-mode: Stealth mode makes Extremis invisible during screen sharing. Uses NSWindow.sharingType=.none for screen capture exclusion, collectionBehavior for Mission Control hiding, process name disguise, menu bar icon hiding. Toggle via Option+Shift+S hotkey. Configurable in Preferences.
+- 013-stealth-mode: Stealth mode makes Extremis invisible during screen sharing. Uses NSWindow.sharingType=.none for screen capture exclusion, collectionBehavior for Mission Control hiding, process name disguise, menu bar icon hiding. Toggle via Option+Shift+S hotkey. Configurable in Preferences. Adjustable window opacity with material blur (text stays readable). Sound notifications auto-suppressed in stealth. Screenshot button captures screen behind Extremis panel via CGWindowListCreateImage.
 - 012-image-attachments: Image attachments for chat messages via paste, drag-and-drop, and file picker. Uses ImageIO for processing, actor-based file persistence, and inline base64 thumbnails in session JSON.

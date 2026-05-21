@@ -21,7 +21,8 @@ https://github.com/user-attachments/assets/71bd737a-529a-4c46-9366-9853b3f3c7fe
 - **Markdown Rendering** — Rich markdown responses with syntax-highlighted code blocks
 - **Multi-Provider** — OpenAI, Anthropic, Google Gemini, and Ollama (local models)
 - **Smart Text Insertion** — Results insert directly at your cursor with `Cmd+Enter`
-- **Stealth Mode** — Invisible to screen sharing, screenshots, and recordings. Toggle with `Option+Shift+S`
+- **Image Attachments** — Paste, drag-and-drop, or pick images to send with messages. Screenshot button captures what's behind Extremis
+- **Stealth Mode** — Invisible to screen sharing, screenshots, and recordings. Adjustable transparency, sound suppression, process disguise. Toggle with `Option+Shift+S`
 
 ## Requirements
 
