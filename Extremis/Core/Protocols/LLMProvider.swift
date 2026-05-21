@@ -178,6 +178,9 @@ enum LLMProviderError: LocalizedError, Equatable {
             if provider == .ollama {
                 return "Ollama server is not running. Please start Ollama and try again."
             }
+            if provider == .claudeCode {
+                return "Claude Code CLI is not available. Please install it and ensure it is authenticated."
+            }
             return "\(provider.rawValue) is not configured. Please add your API key in Preferences."
         case .invalidAPIKey:
             return "Invalid API key. Please check your API key in Preferences."

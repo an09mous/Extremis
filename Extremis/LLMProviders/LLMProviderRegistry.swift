@@ -52,7 +52,18 @@ final class LLMProviderRegistry: LLMProviderRegistryProtocol, ObservableObject {
             throw LLMProviderError.notConfigured(provider: providerType)
         }
 
+        // Deactivate previous Claude Code process if switching away
+        if let currentClaudeCode = activeProvider as? ClaudeCodeProvider,
+           providerType != .claudeCode {
+            currentClaudeCode.deactivateProcess()
+        }
+
         activeProvider = provider
+
+        // Activate Claude Code process if switching to it
+        if let claudeCode = provider as? ClaudeCodeProvider {
+            claudeCode.activateProcess()
+        }
 
         // Save to preferences
         try userDefaults.setActiveProvider(providerType)
@@ -82,6 +93,7 @@ final class LLMProviderRegistry: LLMProviderRegistryProtocol, ObservableObject {
         providers.append(AnthropicProvider())
         providers.append(GeminiProvider())
         providers.append(OllamaProvider())
+        providers.append(ClaudeCodeProvider())
     }
     
     private func restoreActiveProvider() {

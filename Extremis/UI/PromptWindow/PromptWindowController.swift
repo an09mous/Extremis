@@ -308,6 +308,9 @@ final class PromptWindowController: NSWindowController {
         await SessionManager.shared.startNewSession()
         // Badge visibility is now tied to SessionManager.hasDraftSession
         // which is automatically set to true when startNewSession() creates an empty session
+
+        // Reset Claude Code CLI process so context doesn't leak between sessions
+        notifyClaudeCodeSessionChanged()
     }
 
     /// Select and load a specific session
@@ -322,6 +325,9 @@ final class PromptWindowController: NSWindowController {
         print("📋 PromptWindow: Selecting session \(id)")
         viewModel.cancelGeneration()
 
+        // Reset Claude Code CLI process so context doesn't leak between sessions
+        notifyClaudeCodeSessionChanged()
+
         do {
             try await SessionManager.shared.loadSession(id: id)
 
@@ -331,6 +337,14 @@ final class PromptWindowController: NSWindowController {
             }
         } catch {
             print("📋 PromptWindow: Failed to load session: \(error)")
+        }
+    }
+
+    /// Notify Claude Code provider that the Extremis session changed
+    private func notifyClaudeCodeSessionChanged() {
+        if let claudeProvider = LLMProviderRegistry.shared.provider(for: .claudeCode) as? ClaudeCodeProvider,
+           LLMProviderRegistry.shared.activeProviderType == .claudeCode {
+            claudeProvider.notifySessionChanged()
         }
     }
 

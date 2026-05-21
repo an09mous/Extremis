@@ -64,6 +64,7 @@ enum LLMProviderType: String, Codable, CaseIterable, Identifiable {
     case anthropic = "Anthropic"
     case gemini = "Gemini"
     case ollama = "Ollama"
+    case claudeCode = "Claude Code"
 
     var id: String { rawValue }
 
@@ -74,13 +75,14 @@ enum LLMProviderType: String, Codable, CaseIterable, Identifiable {
         case .anthropic: return "Anthropic"
         case .gemini: return "Google Gemini"
         case .ollama: return "Ollama (Local)"
+        case .claudeCode: return "Claude Code (CLI)"
         }
     }
 
     /// Whether this provider requires an API key
     var requiresAPIKey: Bool {
         switch self {
-        case .ollama: return false
+        case .ollama, .claudeCode: return false
         default: return true
         }
     }
@@ -93,6 +95,9 @@ enum LLMProviderType: String, Codable, CaseIterable, Identifiable {
         case .ollama:
             // Models are fetched dynamically from Ollama server
             return []
+        case .claudeCode:
+            // Claude Code uses model aliases loaded from models.json
+            return ModelConfigLoader.shared.models(for: self)
         default:
             // Cloud providers: load from JSON configuration
             return ModelConfigLoader.shared.models(for: self)
@@ -118,6 +123,7 @@ enum LLMProviderType: String, Codable, CaseIterable, Identifiable {
         case .anthropic: return URL(string: "https://api.anthropic.com/v1")!
         case .gemini: return URL(string: "https://generativelanguage.googleapis.com/v1beta")!
         case .ollama: return URL(string: "http://127.0.0.1:11434")!
+        case .claudeCode: return URL(string: "file:///local/cli")!  // Not used — CLI is subprocess-based
         }
     }
 }

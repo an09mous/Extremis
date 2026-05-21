@@ -271,6 +271,21 @@ run_test_suite "StealthManager Tests" \
     "$PROJECT_DIR/Tests/Core/StealthManagerTests.swift" \
     "Foundation"
 
+# 34. CLIStreamParser Tests (Claude Code CLI JSONL stream event parsing)
+run_test_suite "CLIStreamParser Tests" \
+    "$PROJECT_DIR/Tests/LLMProviders/CLIStreamParserTests.swift" \
+    "Foundation"
+
+# 35. ClaudeCodeProcessManager Tests (Process state transitions and lifecycle)
+run_test_suite "ClaudeCodeProcessManager Tests" \
+    "$PROJECT_DIR/Tests/LLMProviders/ClaudeCodeProcessManagerTests.swift" \
+    "Foundation"
+
+# 36. ClaudeCodeProvider Tests (Provider config, model selection, tool approvals)
+run_test_suite "ClaudeCodeProvider Tests" \
+    "$PROJECT_DIR/Tests/LLMProviders/ClaudeCodeProviderTests.swift" \
+    "Foundation"
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------
