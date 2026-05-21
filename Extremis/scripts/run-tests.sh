@@ -266,6 +266,11 @@ run_test_suite "PromptBuilder Multimodal Tests" \
     "$PROJECT_DIR/Tests/LLMProviders/PromptBuilderImageTests.swift" \
     "Foundation"
 
+# 33. StealthManager Tests (Stealth mode logic, configuration, strategies, process name)
+run_test_suite "StealthManager Tests" \
+    "$PROJECT_DIR/Tests/Core/StealthManagerTests.swift" \
+    "Foundation"
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------

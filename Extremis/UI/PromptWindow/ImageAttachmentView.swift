@@ -301,6 +301,8 @@ extension ImageAttachment {
             return "Selected image"
         case .dragAndDrop:
             return "Dropped image"
+        case .screenshot:
+            return "Screenshot"
         }
     }
 }

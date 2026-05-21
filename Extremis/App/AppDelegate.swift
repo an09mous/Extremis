@@ -41,8 +41,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Initialize stealth mode before any UI is shown
+        initializeStealth()
+
         setupMainMenu()
-        setupMenuBar()
+
+        // Skip menu bar setup if stealth mode is active (icon should remain hidden)
+        if !StealthManager.shared.isStealthActive {
+            setupMenuBar()
+        }
+
         setupHotkey()
         checkPermissions()
 
@@ -117,8 +125,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 ollamaProvider.updateBaseURL(savedURL)
             }
             let _ = await ollamaProvider.checkConnection()
-            // Rebuild menu after connection check
-            setupMenuBar()
+            // Rebuild menu after connection check (skip if stealth hides the icon)
+            if !StealthManager.shared.isStealthActive {
+                setupMenuBar()
+            }
         }
     }
 
@@ -236,6 +246,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Refresh menu bar - called when provider/model changes
     @objc func refreshMenuBar() {
         DispatchQueue.main.async { [weak self] in
+            // Don't re-create menu bar icon while stealth is active
+            guard !StealthManager.shared.isStealthActive else { return }
             self?.setupMenuBar()
         }
     }
@@ -309,6 +321,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         window.contentView = contentView
 
+        // Register with StealthManager for screen capture exclusion
+        StealthManager.shared.registerWindow(window)
+
         // Store references as instance properties
         self.apiKeyWindow = window
         self.apiKeyProviderType = providerType
@@ -345,7 +360,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 print("🔧 API key saved, now setting as active...")
                 try LLMProviderRegistry.shared.setActive(providerType)
                 print("🔧 Active provider is now: \(LLMProviderRegistry.shared.activeProviderType?.displayName ?? "none")")
-                setupMenuBar() // Refresh menu
+                // Refresh menu (skip if stealth hides the icon)
+                if !StealthManager.shared.isStealthActive {
+                    setupMenuBar()
+                }
                 print("✅ Provider \(providerType.displayName) configured and active")
                 showAlert(title: "Success", message: "\(providerType.displayName) configured and set as active provider.")
             } catch {
@@ -371,6 +389,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.informativeText = message
         alert.alertStyle = title == "Error" ? .warning : .informational
         alert.addButton(withTitle: "OK")
+
+        // Apply stealth to alert window if stealth mode is active
+        if StealthManager.shared.isStealthActive {
+            StealthManager.shared.registerWindow(alert.window)
+        }
+
         alert.runModal()
     }
 
@@ -403,12 +427,76 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } catch {
             print("❌ Failed to register magic mode hotkey: \(error)")
         }
+
+        // Stealth toggle hotkey: Option+Shift+S (configurable)
+        let stealthConfig = StealthHotkeyConfig.stealthToggle
+        do {
+            try hotkeyManager.register(
+                identifier: .stealthToggle,
+                configuration: stealthConfig
+            ) {
+                StealthManager.shared.toggle()
+            }
+        } catch {
+            print("❌ Failed to register stealth toggle hotkey: \(error)")
+        }
+
+        // Preferences hotkey: Option+Shift+, (for when menu bar is hidden)
+        let prefsConfig = StealthHotkeyConfig.preferences
+        do {
+            try hotkeyManager.register(
+                identifier: .preferences,
+                configuration: prefsConfig
+            ) {
+                PreferencesWindowController.shared.showWindow()
+            }
+        } catch {
+            print("❌ Failed to register preferences hotkey: \(error)")
+        }
     }
 
     private func checkPermissions() {
         if !permissionManager.isAccessibilityEnabled() {
             print("⚠️ Accessibility permission not granted")
             permissionManager.requestAccessibility()
+        }
+    }
+
+    // MARK: - Stealth Mode
+
+    /// Initialize stealth mode from persisted state (called before any UI)
+    private func initializeStealth() {
+        let stealth = StealthManager.shared
+
+        // Wire menu bar hide/show callbacks
+        stealth.onMenuBarHide = { [weak self] in
+            self?.hideMenuBarIcon()
+        }
+        stealth.onMenuBarShow = { [weak self] in
+            self?.showMenuBarIcon()
+        }
+
+        // Wire toast callback
+        stealth.onShowToast = { message in
+            StealthToastController.shared.showToast(message: message)
+        }
+
+        // Restore persisted stealth state (applies strategies, hides menu bar, disguises process)
+        stealth.restorePersistedState()
+    }
+
+    /// Hide the menu bar icon (called by StealthManager)
+    private func hideMenuBarIcon() {
+        if let item = statusItem {
+            NSStatusBar.system.removeStatusItem(item)
+            statusItem = nil
+        }
+    }
+
+    /// Show the menu bar icon (called by StealthManager)
+    private func showMenuBarIcon() {
+        if statusItem == nil {
+            setupMenuBar()
         }
     }
 

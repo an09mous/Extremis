@@ -76,6 +76,9 @@ final class PromptWindowController: NSWindowController {
         // Set up tool approval UI delegate (T3.14)
         ToolApprovalManager.shared.uiDelegate = self
 
+        // Register with StealthManager for screen capture exclusion
+        StealthManager.shared.registerWindow(panel)
+
         updateContentView()
         panel.center()
     }
@@ -1422,6 +1425,7 @@ final class PromptViewModel: ObservableObject {
 struct PromptContainerView: View {
     @ObservedObject var viewModel: PromptViewModel
     @ObservedObject var sessionManager = SessionManager.shared
+    @ObservedObject var stealthManager = StealthManager.shared
     let onInsert: (String) -> Void
     let onCancel: () -> Void
     let onGenerate: () -> Void
@@ -1492,6 +1496,21 @@ struct PromptContainerView: View {
                     NewSessionBadge(isVisible: .constant(sessionManager.hasDraftSession))
 
                     Spacer()
+
+                    // Stealth mode indicator
+                    if stealthManager.isStealthActive {
+                        HStack(spacing: 4) {
+                            IncognitoIcon(size: 12)
+                            Text("STEALTH")
+                                .font(.system(size: 8, weight: .bold, design: .rounded))
+                        }
+                        .foregroundColor(Color(red: 0.55, green: 0.36, blue: 0.96)) // Muted purple
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color(red: 0.55, green: 0.36, blue: 0.96).opacity(0.12))
+                        .continuousCornerRadius(DS.Radii.small)
+                        .help("Stealth Mode Active — invisible to screen capture")
+                    }
 
                     // Provider status - compact
                     HStack(spacing: 6) {
@@ -1588,6 +1607,19 @@ struct PromptContainerView: View {
             }
         }
         .frame(minWidth: 500, idealWidth: 600, minHeight: 350, idealHeight: 450)
+        .background {
+            if stealthManager.isStealthActive {
+                // Transparent frosted glass background — text stays fully opaque
+                ZStack {
+                    Color.clear
+                    Color(nsColor: .windowBackgroundColor)
+                        .opacity(stealthManager.currentOpacity)
+                }
+                .background(.ultraThinMaterial.opacity(stealthManager.currentOpacity))
+            } else {
+                Color(nsColor: .windowBackgroundColor)
+            }
+        }
         .overlay {
             // Context viewer overlay (faster than sheet)
             if showContextViewer, let context = contextForViewer {

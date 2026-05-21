@@ -29,6 +29,7 @@ enum ImageSourceType: String, Codable, Equatable, Hashable {
     case clipboard
     case filePicker = "file_picker"
     case dragAndDrop = "drag_and_drop"
+    case screenshot
 }
 
 // MARK: - Image Processing Error

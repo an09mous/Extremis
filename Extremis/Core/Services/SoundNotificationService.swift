@@ -43,7 +43,9 @@ final class SoundNotificationService {
     }
 
     /// Play a notification sound if enabled and app is in background
+    /// Sounds are always suppressed in stealth mode
     func notify(_ type: NotificationType) {
+        guard !StealthManager.shared.isStealthActive else { return }
         guard isEnabled else { return }
         guard isInBackground else { return }
 

@@ -1,4 +1,4 @@
-# Extremis [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/an09mous/Extremis)
+`# Extremis [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/an09mous/Extremis)
 
 A context-aware AI assistant for macOS that lives in your menu bar. Press a global hotkey anywhere to chat, transform text, execute tools, and get things done — all with full awareness of your current app, window, and selection.
 
@@ -21,6 +21,8 @@ https://github.com/user-attachments/assets/71bd737a-529a-4c46-9366-9853b3f3c7fe
 - **Markdown Rendering** — Rich markdown responses with syntax-highlighted code blocks
 - **Multi-Provider** — OpenAI, Anthropic, Google Gemini, and Ollama (local models)
 - **Smart Text Insertion** — Results insert directly at your cursor with `Cmd+Enter`
+- **Image Attachments** — Paste, drag-and-drop, or pick images to send with messages. Screenshot button captures what's behind Extremis
+- **Stealth Mode** — Invisible to screen sharing, screenshots, and recordings. Adjustable transparency, sound suppression, process disguise. Toggle with `Option+Shift+S`
 
 ## Requirements
 
@@ -132,6 +134,8 @@ Commands automatically operate on selected text when available.
 | `Cmd+C` | Copy generated text |
 | `Option+Return` | Allow all tool calls |
 | `Option+Escape` | Deny all tool calls |
+| `Option+Shift+S` | Toggle Stealth Mode |
+| `Option+Shift+,` | Open Preferences (when menu bar hidden) |
 | `Escape` | Close window |
 
 ## Privacy
@@ -148,3 +152,4 @@ MIT License
 ## Contributing
 
 Contributions welcome! Please open an issue or submit a PR.
+`
