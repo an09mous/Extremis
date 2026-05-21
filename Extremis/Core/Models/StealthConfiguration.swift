@@ -46,6 +46,15 @@ extension UserDefaults {
         get { string(forKey: "stealth_disguise_name") ?? "com.apple.hiservices-xpcservice" }
         set { set(newValue, forKey: "stealth_disguise_name") }
     }
+
+    /// Window opacity in stealth mode (0.0–1.0, default 0.35)
+    var stealthOpacity: Double {
+        get {
+            if object(forKey: "stealth_opacity") == nil { return 0.35 }
+            return double(forKey: "stealth_opacity")
+        }
+        set { set(newValue, forKey: "stealth_opacity") }
+    }
 }
 
 /// Stealth-specific hotkey configuration helpers

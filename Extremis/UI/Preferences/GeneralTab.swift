@@ -9,6 +9,7 @@ struct GeneralTab: View {
     @ObservedObject private var stealthManager = StealthManager.shared
     @State private var processDisguise = UserDefaults.standard.stealthProcessDisguise
     @State private var disguiseName = UserDefaults.standard.stealthDisguiseName
+    @State private var stealthOpacity = UserDefaults.standard.stealthOpacity
     @State private var stealthVerifyResult: StealthVerifyResult?
 
     private enum StealthVerifyResult {
@@ -161,6 +162,34 @@ struct GeneralTab: View {
                 }
             }
 
+            // Window opacity
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Window Opacity:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("\(Int(stealthOpacity * 100))%")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .frame(width: 32, alignment: .trailing)
+                }
+                HStack(spacing: 8) {
+                    Image(systemName: "eye.slash")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Slider(value: $stealthOpacity, in: 0.15...1.0, step: 0.05)
+                        .onChange(of: stealthOpacity) { newValue in
+                            StealthManager.shared.updateOpacity(newValue)
+                        }
+                    Image(systemName: "eye")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                Text("How transparent the window appears in stealth mode")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
             // Test Stealth button
             HStack(spacing: 8) {
                 Button("Test Stealth") {
@@ -208,6 +237,7 @@ struct GeneralTab: View {
         launchAtLogin = LaunchAtLoginService.shared.isEnabled
         processDisguise = UserDefaults.standard.stealthProcessDisguise
         disguiseName = UserDefaults.standard.stealthDisguiseName
+        stealthOpacity = UserDefaults.standard.stealthOpacity
     }
 
     private func setLaunchAtLogin(_ enabled: Bool) {

@@ -1607,6 +1607,19 @@ struct PromptContainerView: View {
             }
         }
         .frame(minWidth: 500, idealWidth: 600, minHeight: 350, idealHeight: 450)
+        .background {
+            if stealthManager.isStealthActive {
+                // Transparent frosted glass background — text stays fully opaque
+                ZStack {
+                    Color.clear
+                    Color(nsColor: .windowBackgroundColor)
+                        .opacity(stealthManager.currentOpacity)
+                }
+                .background(.ultraThinMaterial.opacity(stealthManager.currentOpacity))
+            } else {
+                Color(nsColor: .windowBackgroundColor)
+            }
+        }
         .overlay {
             // Context viewer overlay (faster than sheet)
             if showContextViewer, let context = contextForViewer {

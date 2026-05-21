@@ -297,6 +297,77 @@ func testActivateDeactivateCycle() {
     UserDefaults.standard.removeObject(forKey: "stealth_mode_enabled")
 }
 
+// MARK: - Opacity Configuration Tests
+
+func testStealthOpacityDefault() {
+    TestRunner.suite("Stealth Opacity Default")
+
+    UserDefaults.standard.removeObject(forKey: "stealth_opacity")
+
+    TestRunner.assertEqual(UserDefaults.standard.stealthOpacity, 0.35,
+        "stealthOpacity defaults to 0.35")
+
+    UserDefaults.standard.removeObject(forKey: "stealth_opacity")
+}
+
+func testStealthOpacityCustomValue() {
+    TestRunner.suite("Stealth Opacity Custom Value")
+
+    UserDefaults.standard.removeObject(forKey: "stealth_opacity")
+
+    UserDefaults.standard.stealthOpacity = 0.5
+    TestRunner.assertEqual(UserDefaults.standard.stealthOpacity, 0.5,
+        "stealthOpacity persists 0.5")
+
+    UserDefaults.standard.stealthOpacity = 0.15
+    TestRunner.assertEqual(UserDefaults.standard.stealthOpacity, 0.15,
+        "stealthOpacity persists minimum 0.15")
+
+    UserDefaults.standard.stealthOpacity = 1.0
+    TestRunner.assertEqual(UserDefaults.standard.stealthOpacity, 1.0,
+        "stealthOpacity persists maximum 1.0")
+
+    UserDefaults.standard.removeObject(forKey: "stealth_opacity")
+}
+
+func testStealthOpacityPersistence() {
+    TestRunner.suite("Stealth Opacity Persistence")
+
+    UserDefaults.standard.removeObject(forKey: "stealth_opacity")
+
+    UserDefaults.standard.stealthOpacity = 0.7
+    let raw = UserDefaults.standard.double(forKey: "stealth_opacity")
+    TestRunner.assertEqual(raw, 0.7,
+        "stealthOpacity readable via raw UserDefaults key")
+
+    UserDefaults.standard.removeObject(forKey: "stealth_opacity")
+}
+
+// MARK: - ImageSourceType Screenshot Tests
+
+func testImageSourceTypeScreenshot() {
+    TestRunner.suite("ImageSourceType Screenshot Case")
+
+    let sourceType = ImageSourceType.screenshot
+    TestRunner.assertEqual(sourceType.rawValue, "screenshot",
+        "screenshot raw value is 'screenshot'")
+
+    // Verify all cases exist
+    let allCases: [ImageSourceType] = [.clipboard, .filePicker, .dragAndDrop, .screenshot]
+    TestRunner.assertEqual(allCases.count, 4,
+        "ImageSourceType has 4 cases")
+
+    // Verify Codable round-trip
+    let encoded = try? JSONEncoder().encode(sourceType)
+    TestRunner.assertTrue(encoded != nil, "screenshot case encodes successfully")
+
+    if let data = encoded {
+        let decoded = try? JSONDecoder().decode(ImageSourceType.self, from: data)
+        TestRunner.assertEqual(decoded, .screenshot,
+            "screenshot case round-trips through Codable")
+    }
+}
+
 // MARK: - Entry Point
 
 // Inline minimal types needed for compilation
@@ -358,6 +429,20 @@ extension UserDefaults {
         get { string(forKey: "stealth_disguise_name") ?? "com.apple.hiservices-xpcservice" }
         set { set(newValue, forKey: "stealth_disguise_name") }
     }
+    var stealthOpacity: Double {
+        get {
+            if object(forKey: "stealth_opacity") == nil { return 0.35 }
+            return double(forKey: "stealth_opacity")
+        }
+        set { set(newValue, forKey: "stealth_opacity") }
+    }
+}
+
+enum ImageSourceType: String, Codable, Equatable, Hashable {
+    case clipboard
+    case filePicker = "file_picker"
+    case dragAndDrop = "drag_and_drop"
+    case screenshot
 }
 
 @main
@@ -385,6 +470,14 @@ struct StealthManagerTests {
         // State toggle tests
         testStealthToggleState()
         testActivateDeactivateCycle()
+
+        // Opacity tests
+        testStealthOpacityDefault()
+        testStealthOpacityCustomValue()
+        testStealthOpacityPersistence()
+
+        // ImageSourceType tests
+        testImageSourceTypeScreenshot()
 
         TestRunner.printSummary()
         if TestRunner.failedCount > 0 { exit(1) }

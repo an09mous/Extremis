@@ -44,6 +44,7 @@ final class PreferencesWindowController: NSWindowController {
 
 struct PreferencesView: View {
     @State private var selectedTab = 0
+    @ObservedObject private var stealthManager = StealthManager.shared
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -73,6 +74,18 @@ struct PreferencesView: View {
         }
         .padding(20)
         .frame(minWidth: 500, minHeight: 450)
+        .background {
+            if stealthManager.isStealthActive {
+                ZStack {
+                    Color.clear
+                    Color(nsColor: .windowBackgroundColor)
+                        .opacity(stealthManager.currentOpacity)
+                }
+                .background(.ultraThinMaterial.opacity(stealthManager.currentOpacity))
+            } else {
+                Color(nsColor: .windowBackgroundColor)
+            }
+        }
     }
 }
 

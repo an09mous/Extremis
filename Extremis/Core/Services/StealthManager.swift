@@ -62,6 +62,10 @@ final class StealthManager: ObservableObject {
         // Apply all strategies to any already-registered windows
         applyToAllWindows()
 
+        // Apply window transparency
+        currentOpacity = UserDefaults.standard.stealthOpacity
+        applyOpacityToAllWindows()
+
         // Hide menu bar icon
         onMenuBarHide?()
 
@@ -94,6 +98,10 @@ final class StealthManager: ObservableObject {
         // Apply all strategies to all managed windows
         applyToAllWindows()
 
+        // Apply window transparency
+        currentOpacity = UserDefaults.standard.stealthOpacity
+        applyOpacityToAllWindows()
+
         // Hide menu bar icon
         onMenuBarHide?()
 
@@ -118,6 +126,9 @@ final class StealthManager: ObservableObject {
         // Remove all strategies from all managed windows
         removeFromAllWindows()
 
+        // Restore full opacity
+        restoreOpacityOnAllWindows()
+
         // Show menu bar icon
         onMenuBarShow?()
 
@@ -130,6 +141,9 @@ final class StealthManager: ObservableObject {
         print("[Stealth] Deactivated — \(managedWindows.count) windows restored")
     }
 
+    /// Current opacity value (published for SwiftUI reactivity)
+    @Published private(set) var currentOpacity: Double = 1.0
+
     /// Register a window for stealth management
     func registerWindow(_ window: NSWindow) {
         managedWindows.add(window)
@@ -137,6 +151,7 @@ final class StealthManager: ObservableObject {
         // If stealth is already active, apply immediately
         if isStealthActive {
             applyStrategies(to: window)
+            makeWindowTransparent(window)
         }
     }
 
@@ -144,8 +159,19 @@ final class StealthManager: ObservableObject {
     func applyCurrentState(to window: NSWindow) {
         if isStealthActive {
             applyStrategies(to: window)
+            makeWindowTransparent(window)
         } else {
             removeStrategies(from: window)
+            makeWindowOpaque(window)
+        }
+    }
+
+    /// Update opacity on all windows (called when slider changes)
+    func updateOpacity(_ opacity: Double) {
+        UserDefaults.standard.stealthOpacity = opacity
+        currentOpacity = opacity
+        if isStealthActive {
+            applyOpacityToAllWindows()
         }
     }
 
@@ -177,6 +203,39 @@ final class StealthManager: ObservableObject {
     private func removeFromAllWindows() {
         for window in managedWindows.allObjects {
             removeStrategies(from: window)
+        }
+    }
+
+    private func makeWindowTransparent(_ window: NSWindow) {
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = false
+        // NSPanel (main prompt) uses SwiftUI material background for readable text
+        // Other windows (preferences) use alphaValue since their native chrome is opaque
+        if !(window is NSPanel) {
+            window.alphaValue = CGFloat(UserDefaults.standard.stealthOpacity)
+        }
+    }
+
+    private func makeWindowOpaque(_ window: NSWindow) {
+        window.isOpaque = true
+        window.backgroundColor = .windowBackgroundColor
+        window.hasShadow = true
+        window.alphaValue = 1.0
+    }
+
+    private func applyOpacityToAllWindows() {
+        let opacity = UserDefaults.standard.stealthOpacity
+        currentOpacity = opacity
+        for window in managedWindows.allObjects {
+            makeWindowTransparent(window)
+        }
+    }
+
+    private func restoreOpacityOnAllWindows() {
+        currentOpacity = 1.0
+        for window in managedWindows.allObjects {
+            makeWindowOpaque(window)
         }
     }
 
