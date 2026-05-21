@@ -20,6 +20,11 @@ struct ProvidersTab: View {
     @State private var anthropicSelectedModelId: String = ""
     @State private var geminiSelectedModelId: String = ""
 
+    // Claude Code state
+    @State private var claudeCodeSelectedModelId: String = ""
+    @State private var claudeCodeAvailable: Bool = false
+    @State private var claudeCodeBinaryPath: String = ""
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ScrollView {
@@ -40,6 +45,17 @@ struct ProvidersTab: View {
                                     onCheckConnection: { checkOllamaConnection() },
                                     onSetActive: { setActiveProvider(provider) },
                                     onSelectModel: { model in selectOllamaModel(model) }
+                                )
+                            } else if provider == .claudeCode {
+                                ClaudeCodeProviderRow(
+                                    isAvailable: $claudeCodeAvailable,
+                                    binaryPath: $claudeCodeBinaryPath,
+                                    selectedModelId: $claudeCodeSelectedModelId,
+                                    availableModels: provider.availableModels,
+                                    isActive: provider == selectedProvider,
+                                    onCheckCLI: { checkClaudeCodeCLI() },
+                                    onSetActive: { setActiveProvider(provider) },
+                                    onSelectModel: { model in selectClaudeCodeModel(model) }
                                 )
                             } else {
                                 ProviderKeyRow(
@@ -93,6 +109,11 @@ struct ProvidersTab: View {
         geminiSelectedModelId = LLMProviderRegistry.shared.currentModel(for: .gemini)?.id
             ?? LLMProviderType.gemini.defaultModel.id
 
+        // Load Claude Code settings
+        claudeCodeSelectedModelId = LLMProviderRegistry.shared.currentModel(for: .claudeCode)?.id ?? "sonnet"
+        claudeCodeBinaryPath = UserDefaults.standard.string(forKey: "claudecode_binary_path") ?? ""
+        checkClaudeCodeCLI()
+
         // Load masked keys from keychain for display
         for provider in LLMProviderType.allCases {
             if provider == .ollama {
@@ -103,6 +124,10 @@ struct ProvidersTab: View {
                 // Auto-check Ollama connection to get models
                 checkOllamaConnection()
                 continue
+            }
+
+            if provider == .claudeCode {
+                continue // Already handled above
             }
 
             if let key = try? KeychainHelper.shared.retrieveAPIKey(for: provider), !key.isEmpty {
@@ -146,6 +171,8 @@ struct ProvidersTab: View {
             return $geminiSelectedModelId
         case .ollama:
             return $ollamaSelectedModelId
+        case .claudeCode:
+            return $claudeCodeSelectedModelId
         }
     }
 
@@ -157,6 +184,9 @@ struct ProvidersTab: View {
     private func isConfigured(_ provider: LLMProviderType) -> Bool {
         if provider == .ollama {
             return ollamaConnected
+        }
+        if provider == .claudeCode {
+            return claudeCodeAvailable
         }
         return KeychainHelper.shared.hasAPIKey(for: provider)
     }
@@ -255,11 +285,39 @@ struct ProvidersTab: View {
         } else {
             if provider == .ollama {
                 statusMessage = "Check connection to Ollama server first"
+            } else if provider == .claudeCode {
+                statusMessage = "Claude Code CLI not found. Install it first."
             } else {
                 statusMessage = "Add an API key first"
             }
             isError = true
         }
+    }
+
+    // MARK: - Claude Code Helpers
+
+    private func checkClaudeCodeCLI() {
+        Task {
+            if let claudeProvider = LLMProviderRegistry.shared.provider(for: .claudeCode) as? ClaudeCodeProvider {
+                // Update custom binary path if set
+                if !claudeCodeBinaryPath.isEmpty {
+                    try? claudeProvider.configure(apiKey: claudeCodeBinaryPath)
+                }
+
+                await claudeProvider.checkCLIAvailability()
+
+                await MainActor.run {
+                    claudeCodeAvailable = claudeProvider.cliAvailable
+                    claudeCodeSelectedModelId = claudeProvider.currentModel.id
+                }
+            }
+        }
+    }
+
+    private func selectClaudeCodeModel(_ model: LLMModel) {
+        LLMProviderRegistry.shared.setModel(model, for: .claudeCode)
+        claudeCodeSelectedModelId = model.id
+        refreshMenuBar()
     }
 }
 
@@ -490,6 +548,109 @@ struct ProviderKeyRow: View {
                         }
                     }
                 }
+            }
+        }
+        .padding(.vertical, 8)
+    }
+}
+
+// MARK: - Claude Code Provider Row
+
+struct ClaudeCodeProviderRow: View {
+    @Binding var isAvailable: Bool
+    @Binding var binaryPath: String
+    @Binding var selectedModelId: String
+    let availableModels: [LLMModel]
+    let isActive: Bool
+    let onCheckCLI: () -> Void
+    let onSetActive: () -> Void
+    let onSelectModel: (LLMModel) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Provider header
+            HStack {
+                Text("Claude Code (CLI)")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+
+                if isAvailable {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                        .font(.caption)
+                } else {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.red)
+                        .font(.caption)
+                }
+
+                if isActive {
+                    Text("Active")
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.accentColor.opacity(0.2))
+                        .cornerRadius(4)
+                }
+
+                Spacer()
+
+                // Use button - only show if available and not active
+                if isAvailable && !isActive {
+                    Button("Use") {
+                        onSetActive()
+                    }
+                    .font(.caption)
+                }
+            }
+
+            // Status
+            Text(isAvailable ? "CLI detected" : "CLI not found")
+                .font(.caption)
+                .foregroundColor(isAvailable ? .secondary : .red)
+
+            // Custom binary path
+            HStack {
+                TextField("Custom binary path (optional)", text: $binaryPath)
+                    .textFieldStyle(.roundedBorder)
+
+                Button("Check") {
+                    onCheckCLI()
+                }
+            }
+
+            // Model selection
+            if isAvailable && !availableModels.isEmpty {
+                HStack {
+                    Text("Model:")
+                        .font(.caption)
+
+                    Picker("", selection: $selectedModelId) {
+                        ForEach(availableModels, id: \.id) { model in
+                            Text(model.name).tag(model.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .onChange(of: selectedModelId) { newValue in
+                        if let model = availableModels.first(where: { $0.id == newValue }) {
+                            onSelectModel(model)
+                        }
+                    }
+                }
+            }
+
+            // Limitation notice
+            if isActive || isAvailable {
+                Text("Tool execution is managed by Claude Code CLI. Extremis connectors are not available with this provider.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 2)
+            }
+
+            if !isAvailable {
+                Text("Install: npm install -g @anthropic-ai/claude-code")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
             }
         }
         .padding(.vertical, 8)

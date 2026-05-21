@@ -25,6 +25,14 @@
         {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", "description": "Fast and versatile", "capabilities": {"supportsTools": true, "supportsVision": true}}
       ],
       "default": "gemini-3-flash-preview"
+    },
+    "Claude Code": {
+      "models": [
+        {"id": "sonnet", "name": "Sonnet", "description": "Recommended daily model - fast, capable", "capabilities": {"supportsTools": false, "supportsVision": true}},
+        {"id": "opus", "name": "Opus", "description": "Maximum capability - complex reasoning, extended thinking", "capabilities": {"supportsTools": false, "supportsVision": true}},
+        {"id": "haiku", "name": "Haiku", "description": "Fast, lightweight - 3x cost savings", "capabilities": {"supportsTools": false, "supportsVision": true}}
+      ],
+      "default": "sonnet"
     }
   }
 }

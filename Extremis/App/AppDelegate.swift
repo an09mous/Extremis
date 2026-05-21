@@ -60,6 +60,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // Check Ollama connection first
             await checkOllamaConnection()
 
+            // Check Claude Code CLI availability (non-blocking, process starts lazily on first message)
+            checkClaudeCodeAvailability()
+
             // Connect to enabled connectors in background (non-blocking)
             connectEnabledConnectors()
 
@@ -132,6 +135,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// Check Claude Code CLI availability and start persistent process if it's the active provider
+    private func checkClaudeCodeAvailability() {
+        Task {
+            if let claudeProvider = LLMProviderRegistry.shared.provider(for: .claudeCode) as? ClaudeCodeProvider {
+                await claudeProvider.checkCLIAvailability()
+                // Start the persistent process eagerly if Claude Code is the active provider
+                if claudeProvider.isConfigured,
+                   LLMProviderRegistry.shared.activeProviderType == .claudeCode {
+                    claudeProvider.activateProcess()
+                }
+            }
+        }
+    }
+
     /// Connect to all enabled connectors in background (non-blocking)
     private func connectEnabledConnectors() {
         Task { @MainActor in
@@ -176,6 +193,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // Save session immediately on termination
         sessionManager.saveImmediately()
+
+        // Force cleanup Claude Code CLI process to prevent dangling processes
+        if let claudeProvider = LLMProviderRegistry.shared.provider(for: .claudeCode) as? ClaudeCodeProvider {
+            claudeProvider.processManager.forceCleanup()
+        }
 
         hotkeyManager.unregister()
         print("👋 Extremis terminating")

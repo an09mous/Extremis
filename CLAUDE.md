@@ -72,7 +72,7 @@ Context is captured via AX metadata (app name, window title) and selected text w
   - `Utilities/` - Shared helpers (MCPHelpers, ConnectorSettings)
   - `Transport/` - ProcessTransport (stdio subprocess communication)
 - `Extractors/` - App-specific context extractors (Browser, Slack, Generic)
-- `LLMProviders/` - Provider implementations (OpenAI, Anthropic, Gemini, Ollama)
+- `LLMProviders/` - Provider implementations (OpenAI, Anthropic, Gemini, Ollama, Claude Code CLI)
 - `UI/PromptWindow/` - Main floating panel UI
 - `UI/Preferences/` - Settings UI
 - `UI/Commands/` - Command palette and pinned commands bar
@@ -104,6 +104,17 @@ Context is captured via AX metadata (app name, window title) and selected text w
 - Streaming responses via `AsyncThrowingStream`
 - API keys stored in Keychain
 - Tool calling support via `generateChatWithToolsStream()`
+
+**Claude Code Provider Pattern**: CLI-based provider using persistent subprocess:
+- `ClaudeCodeProvider` — `LLMProvider` conformance, no API key needed (uses Claude Code subscription auth)
+- `ClaudeCodeProcessManager` — Persistent `Process` with bidirectional NDJSON I/O (`--input-format stream-json --output-format stream-json --include-partial-messages`)
+- `CLIStreamParser` — NDJSON line parser for CLI events (text_delta, thinking_delta, tool_use_start, result, etc.)
+- Persistent process stays alive across messages — user messages sent as NDJSON on stdin: `{"type":"user","message":{"role":"user","content":"..."}}`
+- CLI manages conversation history internally; `resetConversation()` kills process (next message starts fresh session)
+- Process started eagerly on provider activation; auto-restarted on crash via `ensureProcessRunning()`
+- Display-only tool rendering — CLI executes tools, Extremis renders events
+- Model aliases: `sonnet`, `opus`, `haiku` (auto-map to latest versions)
+- `--allowedTools` flag controls tool auto-approval at CLI level
 
 **MCP Connector Pattern**: MCP servers as tool providers:
 - `Connector` protocol defines lifecycle (connect/disconnect/executeTool)
@@ -183,7 +194,7 @@ Feature specs are in `specs/` directory, each containing:
 - `tasks.md` - Task breakdown
 - `data-model.md` - Data model schemas (when applicable)
 
-Latest completed feature: `specs/013-stealth-mode/` (Stealth Mode)
+Latest completed feature: `specs/014-claude-code-provider/` (Claude Code CLI Provider)
 
 ## Key Files
 
@@ -221,6 +232,9 @@ Latest completed feature: `specs/013-stealth-mode/` (Stealth Mode)
 - `Extremis/Core/Services/StealthVerifier.swift` - Runtime stealth self-test via CGWindowListCreateImage
 - `Extremis/UI/Components/StealthToastController.swift` - Transient stealth toggle toast
 - `Extremis/Core/Services/ScreenshotService.swift` - Captures screen content behind Extremis panel via CGWindowListCreateImage
+- `Extremis/LLMProviders/ClaudeCodeProvider.swift` - Claude Code CLI provider (LLMProvider conformance, tool approvals, process activation)
+- `Extremis/LLMProviders/ClaudeCodeProcessManager.swift` - Persistent CLI process lifecycle (start/stop/sendMessage, 6 safety rules)
+- `Extremis/LLMProviders/CLIStreamParser.swift` - JSONL stream parser for Claude Code CLI events
 
 ## Configuration & Storage
 
@@ -350,7 +364,10 @@ MCP servers are configured in `~/Library/Application Support/Extremis/mcp-server
 - File-based image storage in `~/Library/Application Support/Extremis/images/`, JSON session persistence with file references and inline base64 thumbnails
 - Swift 5.9+ + AppKit (NSWindow.sharingType, NSStatusBar, NSPanel), Carbon (global hotkeys), SwiftUI (013-stealth-mode)
 - UserDefaults (stealth state and configuration) (013-stealth-mode)
+- Swift 5.9+ with Swift Concurrency + Foundation (Process, Pipe), SwiftUI + AppKit hybrid, existing LLMProvider protocol (014-claude-code-provider)
+- UserDefaults (model selection, binary path, allowed tools) (014-claude-code-provider)
 
 ## Recent Changes
+- 014-claude-code-provider: Claude Code CLI as an LLM provider. Uses persistent subprocess with bidirectional NDJSON via `--input-format stream-json` and `--output-format stream-json`. No API key needed. User messages sent as JSON on stdin (`{"type":"user","message":{"role":"user","content":"..."}}`). Process started eagerly, stays alive across multi-turn conversation. Auto-restart on crash. Model aliases (sonnet/opus/haiku). Configurable allowed tools. Graceful cleanup on app quit.
 - 013-stealth-mode: Stealth mode makes Extremis invisible during screen sharing. Uses NSWindow.sharingType=.none for screen capture exclusion, collectionBehavior for Mission Control hiding, process name disguise, menu bar icon hiding. Toggle via Option+Shift+S hotkey. Configurable in Preferences. Adjustable window opacity with material blur (text stays readable). Sound notifications auto-suppressed in stealth. Screenshot button captures screen behind Extremis panel via CGWindowListCreateImage.
 - 012-image-attachments: Image attachments for chat messages via paste, drag-and-drop, and file picker. Uses ImageIO for processing, actor-based file persistence, and inline base64 thumbnails in session JSON.
