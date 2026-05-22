@@ -110,7 +110,7 @@ Instantly summarize selected text with one keystroke. Does nothing without a sel
 
 ### `Option+D` — Voice Input
 
-Toggle voice recording to dictate prompts. Speech is transcribed in real-time using on-device recognition (requires Siri enabled). Tap the mic button in the input field or press `Option+D` from anywhere. Text appends to existing input. Recording auto-stops after 3 seconds of silence or 60 seconds max.
+Toggle voice recording to dictate prompts. Speech is transcribed in real-time using on-device recognition (requires Siri enabled). Tap the mic button in the input field or press `Option+D` from anywhere. Text appends to existing input. Recording auto-stops after 3 seconds of silence or 60 seconds max. Voice input is automatically disabled in stealth mode to prevent the macOS mic indicator from appearing in the menu bar.
 
 ### Commands
 
