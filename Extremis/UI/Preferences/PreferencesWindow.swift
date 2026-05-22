@@ -18,9 +18,11 @@ final class PreferencesWindowController: NSWindowController {
         )
         
         window.title = "Extremis Preferences"
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.backgroundColor = .windowBackgroundColor
         window.center()
         window.isReleasedWhenClosed = false
-        
+
         super.init(window: window)
 
         // Register with StealthManager for screen capture exclusion
@@ -83,7 +85,7 @@ struct PreferencesView: View {
                 }
                 .background(.ultraThinMaterial.opacity(stealthManager.currentOpacity))
             } else {
-                Color(nsColor: .windowBackgroundColor)
+                Color.clear
             }
         }
     }
