@@ -22,6 +22,7 @@ https://github.com/user-attachments/assets/71bd737a-529a-4c46-9366-9853b3f3c7fe
 - **Multi-Provider** — OpenAI, Anthropic, Google Gemini, and Ollama (local models)
 - **Smart Text Insertion** — Results insert directly at your cursor with `Cmd+Enter`
 - **Image Attachments** — Paste, drag-and-drop, or pick images to send with messages. Screenshot button captures what's behind Extremis
+- **Voice Input** — Speak to prompt via microphone. On-device speech recognition (SFSpeechRecognizer), live transcription, mic button or `Option+D` toggle
 - **Stealth Mode** — Invisible to screen sharing, screenshots, and recordings. Adjustable transparency, sound suppression, process disguise. Toggle with `Option+Shift+S`
 
 ## Requirements
@@ -107,6 +108,10 @@ To use a remote Ollama server, update the base URL in Preferences.
 
 Instantly summarize selected text with one keystroke. Does nothing without a selection.
 
+### `Option+D` — Voice Input
+
+Toggle voice recording to dictate prompts. Speech is transcribed in real-time using on-device recognition (requires Siri enabled). Tap the mic button in the input field or press `Option+D` from anywhere. Text appends to existing input. Recording auto-stops after 3 seconds of silence or 60 seconds max. Voice input is automatically disabled in stealth mode to prevent the macOS mic indicator from appearing in the menu bar.
+
 ### Commands
 
 - **Pinned Commands Bar** — One-click access to frequently used prompts (Proofread, Professionalize, Simplify, Explain Code) shown above the input field
@@ -134,6 +139,7 @@ Commands automatically operate on selected text when available.
 | `Cmd+C` | Copy generated text |
 | `Option+Return` | Allow all tool calls |
 | `Option+Escape` | Deny all tool calls |
+| `Option+D` | Toggle Voice Input |
 | `Option+Shift+S` | Toggle Stealth Mode |
 | `Option+Shift+,` | Open Preferences (when menu bar hidden) |
 | `Escape` | Close window |

@@ -286,6 +286,16 @@ run_test_suite "ClaudeCodeProvider Tests" \
     "$PROJECT_DIR/Tests/LLMProviders/ClaudeCodeProviderTests.swift" \
     "Foundation"
 
+# 37. VoiceInputModels Tests (VoiceInputState, TranscriptionUpdate, VoiceInputConfiguration)
+run_test_suite "VoiceInputModels Tests" \
+    "$PROJECT_DIR/Tests/Core/VoiceInputModelsTests.swift" \
+    "Foundation"
+
+# 38. SpeechRecognitionService Tests (CMSampleBuffer conversion, error classification)
+run_test_suite "SpeechRecognitionService Tests" \
+    "$PROJECT_DIR/Tests/Core/SpeechRecognitionServiceTests.swift" \
+    "Foundation" "AVFoundation" "CoreMedia" "CoreAudio"
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------

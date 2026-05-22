@@ -52,6 +52,14 @@
     <key>NSSupportsAutomaticGraphicsSwitching</key>
     <true/>
 
+    <!-- Microphone Permission - Required for voice input transcription -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Extremis uses your microphone to transcribe voice input into text prompts.</string>
+
+    <!-- Speech Recognition Permission - Required for on-device speech-to-text -->
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Extremis uses on-device speech recognition to convert your voice to text.</string>
+
     <!-- App Transport Security - Allow localhost HTTP for Ollama -->
     <key>NSAppTransportSecurity</key>
     <dict>

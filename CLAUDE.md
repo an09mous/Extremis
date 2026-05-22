@@ -8,10 +8,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Build
 cd Extremis && swift build
 
-# Run the app
+# Run the app (dev mode — creates .app bundle for TCC permissions)
+./scripts/run-dev.sh
+
+# Run bare binary (voice input / camera won't work — no Info.plist for TCC)
 swift run Extremis
-# OR after building:
-.build/debug/Extremis
 
 # Build release
 swift build -c release
@@ -47,6 +48,7 @@ swiftc -parse-as-library Extremis/Tests/Core/SessionManagerTests.swift -o /tmp/t
 Extremis is a macOS menu bar app that provides context-aware LLM text generation via global hotkeys:
 - **Option+Space**: Opens Quick Mode (with selection) or Chat Mode (without selection)
 - **Option+Tab**: Magic Mode - summarizes selected text (no-op without selection)
+- **Option+D**: Toggle voice input - starts/stops speech-to-text recording
 
 Context is captured via AX metadata (app name, window title) and selected text when present.
 
@@ -194,7 +196,7 @@ Feature specs are in `specs/` directory, each containing:
 - `tasks.md` - Task breakdown
 - `data-model.md` - Data model schemas (when applicable)
 
-Latest completed feature: `specs/014-claude-code-provider/` (Claude Code CLI Provider)
+Latest completed feature: `specs/015-voice-input/` (Voice Input via SFSpeechRecognizer)
 
 ## Key Files
 
@@ -235,6 +237,10 @@ Latest completed feature: `specs/014-claude-code-provider/` (Claude Code CLI Pro
 - `Extremis/LLMProviders/ClaudeCodeProvider.swift` - Claude Code CLI provider (LLMProvider conformance, tool approvals, process activation)
 - `Extremis/LLMProviders/ClaudeCodeProcessManager.swift` - Persistent CLI process lifecycle (start/stop/sendMessage, 6 safety rules)
 - `Extremis/LLMProviders/CLIStreamParser.swift` - JSONL stream parser for Claude Code CLI events
+- `Extremis/Core/Models/VoiceInputModels.swift` - VoiceInputState enum, TranscriptionUpdate, VoiceInputConfiguration, VoicePermissionStatus, SpeechRecognitionError
+- `Extremis/Core/Services/VoiceInputManager.swift` - @MainActor singleton coordinator for voice input (start/stop/toggle recording, permission checks, silence/duration timers)
+- `Extremis/Core/Services/SpeechRecognitionService.swift` - AVCaptureSession + SFSpeechRecognizer wrapper (AVAudioEngine fallback), returns AsyncThrowingStream<TranscriptionUpdate, Error>
+- `Extremis/UI/PromptWindow/VoiceInputIndicator.swift` - Mic button component with recording state visualization (idle/recording/error)
 
 ## Configuration & Storage
 
@@ -366,8 +372,11 @@ MCP servers are configured in `~/Library/Application Support/Extremis/mcp-server
 - UserDefaults (stealth state and configuration) (013-stealth-mode)
 - Swift 5.9+ with Swift Concurrency + Foundation (Process, Pipe), SwiftUI + AppKit hybrid, existing LLMProvider protocol (014-claude-code-provider)
 - UserDefaults (model selection, binary path, allowed tools) (014-claude-code-provider)
+- Swift 5.9+ + Speech framework (SFSpeechRecognizer), AVFoundation (AVCaptureSession primary, AVAudioEngine fallback), CoreMedia, Carbon (existing), ApplicationServices (existing) (015-voice-input)
+- N/A — no audio or transcription persisted; text flows into existing ChatMessage pipeline (015-voice-input)
 
 ## Recent Changes
+- 015-voice-input: Voice-to-text input via Apple SFSpeechRecognizer. Uses AVCaptureSession for audio capture (bypasses AVAudioEngine aggregate device bugs on macOS 26), with AVAudioEngine fallback. CMSampleBuffer→AVAudioPCMBuffer conversion via extension. Mic button in ChatInputView and PromptView. Option+D global hotkey to toggle recording. Live partial transcription streams into text field. Silence timeout (3s configurable), max duration (60s configurable). Permission handling with actionable System Settings guidance. Stops recording on app switch, Enter key, or manual toggle. Voice input disabled in stealth mode (macOS mic indicator cannot be hidden). Text appends to existing input. UserDefaults-backed configuration.
 - 014-claude-code-provider: Claude Code CLI as an LLM provider. Uses persistent subprocess with bidirectional NDJSON via `--input-format stream-json` and `--output-format stream-json`. No API key needed. User messages sent as JSON on stdin (`{"type":"user","message":{"role":"user","content":"..."}}`). Process started eagerly, stays alive across multi-turn conversation. Auto-restart on crash. Model aliases (sonnet/opus/haiku). Configurable allowed tools. Graceful cleanup on app quit.
 - 013-stealth-mode: Stealth mode makes Extremis invisible during screen sharing. Uses NSWindow.sharingType=.none for screen capture exclusion, collectionBehavior for Mission Control hiding, process name disguise, menu bar icon hiding. Toggle via Option+Shift+S hotkey. Configurable in Preferences. Adjustable window opacity with material blur (text stays readable). Sound notifications auto-suppressed in stealth. Screenshot button captures screen behind Extremis panel via CGWindowListCreateImage.
 - 012-image-attachments: Image attachments for chat messages via paste, drag-and-drop, and file picker. Uses ImageIO for processing, actor-based file persistence, and inline base64 thumbnails in session JSON.

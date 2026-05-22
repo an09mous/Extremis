@@ -4,6 +4,8 @@
 import Foundation
 import AppKit
 import ApplicationServices
+import AVFoundation
+import Speech
 
 /// Manages macOS permissions required by Extremis
 @MainActor
@@ -26,6 +28,26 @@ final class PermissionManager {
     /// Current accessibility permission status
     var accessibilityStatus: PermissionStatus {
         AXIsProcessTrusted() ? .granted : .denied
+    }
+
+    /// Current microphone permission status
+    var microphoneStatus: PermissionStatus {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized: return .granted
+        case .denied, .restricted: return .denied
+        case .notDetermined: return .notDetermined
+        @unknown default: return .notDetermined
+        }
+    }
+
+    /// Current speech recognition permission status
+    var speechRecognitionStatus: PermissionStatus {
+        switch SFSpeechRecognizer.authorizationStatus() {
+        case .authorized: return .granted
+        case .denied, .restricted: return .denied
+        case .notDetermined: return .notDetermined
+        @unknown default: return .notDetermined
+        }
     }
     
     // MARK: - Initialization
@@ -61,7 +83,9 @@ final class PermissionManager {
     /// - Returns: Dictionary of permission names to their status
     func checkAllPermissions() -> [String: PermissionStatus] {
         return [
-            "Accessibility": accessibilityStatus
+            "Accessibility": accessibilityStatus,
+            "Microphone": microphoneStatus,
+            "Speech Recognition": speechRecognitionStatus
         ]
     }
     
@@ -72,6 +96,20 @@ final class PermissionManager {
         }
     }
     
+    /// Open System Preferences to Microphone pane
+    func openMicrophonePreferences() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// Open System Preferences to Speech Recognition pane
+    func openSpeechRecognitionPreferences() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     // MARK: - Permission Helpers
     
     /// Get the frontmost application

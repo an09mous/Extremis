@@ -89,7 +89,7 @@ enum JSONRPCId: Codable, Hashable {
 // MARK: - JSON Value Type
 
 /// Generic JSON value for dynamic content
-indirect enum JSONValue: Codable, Equatable {
+indirect enum JSONValue: Codable, Equatable, Sendable {
     case null
     case bool(Bool)
     case int(Int)

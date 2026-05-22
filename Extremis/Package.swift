@@ -50,7 +50,9 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedFramework("Carbon"),
-                .linkedFramework("ApplicationServices")
+                .linkedFramework("ApplicationServices"),
+                .linkedFramework("Speech"),
+                .linkedFramework("AVFoundation")
             ]
         )
     ]
