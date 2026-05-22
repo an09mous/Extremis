@@ -16,6 +16,10 @@ struct PromptInputView: View {
     let onSummarize: () -> Void
     var onViewContext: (() -> Void)? = nil  // Optional callback to view full context
 
+    // Voice input
+    @ObservedObject private var voiceInput = VoiceInputManager.shared
+    @State private var preRecordingText: String = ""
+
     // Command palette support
     @StateObject private var commandPaletteVM = CommandPaletteViewModel()
     @State private var showCommandPalette = false
@@ -86,8 +90,11 @@ struct PromptInputView: View {
                 .padding(.horizontal)
                 .frame(minHeight: 100)
 
-                // Action buttons - Layout: [Hint] ... [Cancel] [Summarize?] [Primary Action]
+                // Action buttons - Layout: [Mic] [Hint] ... [Cancel] [Summarize?] [Primary Action]
                 HStack(spacing: 12) {
+                    // Voice input mic button
+                    VoiceInputIndicator()
+
                     // Hint text - contextual guidance (left-aligned)
                     Group {
                         Text("Enter your instruction")
@@ -133,6 +140,19 @@ struct PromptInputView: View {
                 }
                 .padding(.horizontal)
                 .padding(.bottom, 16)
+            }
+        }
+        .onChange(of: voiceInput.state) { newState in
+            if newState.isRecording {
+                preRecordingText = instructionText
+            }
+        }
+        .onChange(of: voiceInput.partialTranscription) { newTranscription in
+            guard voiceInput.state.isRecording || !newTranscription.isEmpty else { return }
+            if preRecordingText.isEmpty {
+                instructionText = newTranscription
+            } else {
+                instructionText = preRecordingText + " " + newTranscription
             }
         }
     }

@@ -19,6 +19,9 @@ struct ChatInputView: View {
     /// Called when user attempts to paste an image but the model doesn't support vision
     var onNonVisionPasteAttempt: (() -> Void)?
 
+    @ObservedObject private var voiceInput = VoiceInputManager.shared
+    /// Text that existed in the input field before voice recording started
+    @State private var preRecordingText: String = ""
     @State private var isFocused: Bool = false
     @State private var imageError: String?
     @State private var imageErrorDismissId: UUID = UUID()
@@ -87,6 +90,9 @@ struct ChatInputView: View {
             }
 
             HStack(alignment: .bottom, spacing: 8) {
+                // Voice input mic button (always available)
+                VoiceInputIndicator()
+
                 // Attachment buttons (only when vision is supported)
                 if supportsVision {
                     HStack(spacing: 4) {
@@ -174,6 +180,21 @@ struct ChatInputView: View {
             guard supportsVision else { return false }
             handleDroppedItems(providers)
             return true
+        }
+        .onChange(of: voiceInput.state) { newState in
+            if newState.isRecording {
+                // Capture existing text when recording starts (FR-012: append behavior)
+                preRecordingText = text
+            }
+        }
+        .onChange(of: voiceInput.partialTranscription) { newTranscription in
+            guard voiceInput.state.isRecording || !newTranscription.isEmpty else { return }
+            // Append transcription after any pre-existing text
+            if preRecordingText.isEmpty {
+                text = newTranscription
+            } else {
+                text = preRecordingText + " " + newTranscription
+            }
         }
     }
 
@@ -279,9 +300,14 @@ struct ChatInputView: View {
     // MARK: - Send Logic
 
     private func sendIfReady() {
+        // Stop voice recording before sending (finalize transcription first)
+        if voiceInput.state.isRecording {
+            voiceInput.stopRecording()
+        }
         guard canSend else { return }
         onSend()
         text = ""
+        preRecordingText = ""
         contentHeight = minHeight
     }
 

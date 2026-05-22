@@ -475,6 +475,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } catch {
             print("❌ Failed to register preferences hotkey: \(error)")
         }
+
+        // Voice input hotkey: Option+D (toggle voice recording)
+        let voiceInputConfig = HotkeyConfiguration(
+            keyCode: UInt32(kVK_ANSI_D),  // D key
+            modifiers: UInt32(optionKey)   // Option
+        )
+        do {
+            try hotkeyManager.register(
+                identifier: .voiceInput,
+                configuration: voiceInputConfig
+            ) { [weak self] in
+                self?.handleVoiceInputActivation()
+            }
+        } catch {
+            print("❌ Failed to register voice input hotkey: \(error)")
+        }
     }
 
     private func checkPermissions() {
@@ -578,6 +594,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 await performSummarization(text: selectedText, source: source)
             }
             // No selection → complete no-op (no logs, no processing)
+        }
+    }
+
+    /// Handle voice input hotkey (Option+D) — show prompt window if needed, then toggle recording
+    func handleVoiceInputActivation() {
+        print("🎙️ Voice input hotkey activated!")
+
+        // If prompt window is not visible, show it first (chat mode)
+        if !(promptWindowController.window?.isVisible ?? false) {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+                await captureContextAndShowPrompt()
+                // Small delay to let the window appear before starting recording
+                try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                VoiceInputManager.shared.toggleRecording()
+            }
+        } else {
+            VoiceInputManager.shared.toggleRecording()
         }
     }
 
