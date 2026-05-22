@@ -441,12 +441,65 @@ final class ClaudeCodeProcessManager {
 
     /// Resolve the full path to the claude binary
     static func resolveClaudePath() async -> String? {
+        // First try `which` (works in dev mode where PATH includes user dirs)
+        if let path = await resolveViaWhich() {
+            return path
+        }
+
+        // In release .app bundles, PATH is minimal — check common install locations
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let fallbackPaths = [
+            "\(home)/.local/bin/claude",
+            "\(home)/.claude/bin/claude",
+            "/usr/local/bin/claude",
+            "/opt/homebrew/bin/claude",
+        ]
+
+        for path in fallbackPaths {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+
+        // Try resolving via user's login shell to get full PATH
+        return await resolveViaLoginShell()
+    }
+
+    private static func resolveViaWhich() async -> String? {
         await withCheckedContinuation { cont in
             DispatchQueue.global().async {
                 let proc = Process()
                 let pipe = Pipe()
                 proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
                 proc.arguments = ["which", "claude"]
+                proc.standardOutput = pipe
+                proc.standardError = FileHandle.nullDevice
+
+                do {
+                    try proc.run()
+                    proc.waitUntilExit()
+
+                    if proc.terminationStatus == 0 {
+                        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                        if let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty {
+                            cont.resume(returning: path)
+                            return
+                        }
+                    }
+                } catch {}
+                cont.resume(returning: nil)
+            }
+        }
+    }
+
+    private static func resolveViaLoginShell() async -> String? {
+        await withCheckedContinuation { cont in
+            DispatchQueue.global().async {
+                let proc = Process()
+                let pipe = Pipe()
+                let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+                proc.executableURL = URL(fileURLWithPath: shell)
+                proc.arguments = ["-l", "-c", "which claude"]
                 proc.standardOutput = pipe
                 proc.standardError = FileHandle.nullDevice
 

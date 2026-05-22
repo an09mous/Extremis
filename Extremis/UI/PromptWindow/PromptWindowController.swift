@@ -69,6 +69,7 @@ final class PromptWindowController: NSWindowController {
         // Appearance
         panel.titlebarAppearsTransparent = true
         panel.titleVisibility = .hidden
+        panel.appearance = NSAppearance(named: .darkAqua)
         panel.backgroundColor = .windowBackgroundColor
         panel.isMovableByWindowBackground = true
         panel.title = "Extremis"

@@ -17,6 +17,7 @@ struct GeneralTab: View {
     }
 
     var body: some View {
+        ScrollView {
         Form {
             Section {
                 VStack(alignment: .leading, spacing: 16) {
@@ -90,6 +91,7 @@ struct GeneralTab: View {
                 }
                 .padding(.vertical, 8)
             }
+        }
         }
         .onAppear {
             loadCurrentSettings()
