@@ -6,6 +6,11 @@ import SwiftUI
 /// Mic button that reflects VoiceInputManager state with visual feedback
 struct VoiceInputIndicator: View {
     @ObservedObject var voiceInput = VoiceInputManager.shared
+    @ObservedObject var stealth = StealthManager.shared
+
+    private var isDisabled: Bool {
+        voiceInput.state == .requesting || stealth.isStealthActive
+    }
 
     var body: some View {
         Button(action: { voiceInput.toggleRecording() }) {
@@ -21,13 +26,16 @@ struct VoiceInputIndicator: View {
                 )
         }
         .buttonStyle(.plain)
-        .disabled(voiceInput.state == .requesting)
+        .disabled(isDisabled)
         .help(helpText)
     }
 
     // MARK: - Visual State
 
     private var micIcon: Image {
+        if stealth.isStealthActive {
+            return Image(systemName: "mic.slash")
+        }
         switch voiceInput.state {
         case .idle, .requesting:
             return Image(systemName: "mic")
@@ -39,6 +47,9 @@ struct VoiceInputIndicator: View {
     }
 
     private var iconColor: Color {
+        if stealth.isStealthActive {
+            return .secondary.opacity(0.3)
+        }
         switch voiceInput.state {
         case .idle:
             return .secondary
@@ -52,6 +63,9 @@ struct VoiceInputIndicator: View {
     }
 
     private var helpText: String {
+        if stealth.isStealthActive {
+            return "Voice input disabled in stealth mode"
+        }
         switch voiceInput.state {
         case .idle:
             return "Voice input (Option+D)"

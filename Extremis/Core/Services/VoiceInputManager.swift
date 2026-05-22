@@ -5,6 +5,7 @@ import Foundation
 import Speech
 import AVFoundation
 import AppKit
+import Combine
 
 /// Central coordinator for voice input functionality
 @MainActor
@@ -31,6 +32,7 @@ final class VoiceInputManager: ObservableObject {
     private var maxDurationTimer: Timer?
     private var lastPartialUpdateTime: Date?
     private var errorDismissTask: Task<Void, Never>?
+    private var stealthObserver: Any?
 
     // MARK: - Initialization
 
@@ -40,6 +42,16 @@ final class VoiceInputManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            Task { @MainActor in
+                if self?.state.isRecording == true {
+                    self?.stopRecording()
+                }
+            }
+        }
+
+        // Stop recording immediately if stealth mode is activated
+        stealthObserver = StealthManager.shared.$isStealthActive.sink { [weak self] active in
+            guard active else { return }
             Task { @MainActor in
                 if self?.state.isRecording == true {
                     self?.stopRecording()
@@ -62,6 +74,13 @@ final class VoiceInputManager: ObservableObject {
     /// Start voice recording and transcription
     func startRecording() {
         guard state.isIdle else { return }
+
+        // Block voice input in stealth mode — macOS shows a system mic indicator
+        // in the menu bar that cannot be hidden, which would compromise stealth.
+        if StealthManager.shared.isStealthActive {
+            setError("Voice input is disabled in stealth mode (mic indicator visible in menu bar).")
+            return
+        }
 
         Task {
             let permissionStatus = await checkPermissions()
