@@ -27,7 +27,6 @@ struct VoiceInputIndicator: View {
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
-        .help(helpText)
     }
 
     // MARK: - Visual State
@@ -62,19 +61,4 @@ struct VoiceInputIndicator: View {
         }
     }
 
-    private var helpText: String {
-        if stealth.isStealthActive {
-            return "Voice input disabled in stealth mode"
-        }
-        switch voiceInput.state {
-        case .idle:
-            return "Voice input (Option+D)"
-        case .requesting:
-            return "Requesting permission..."
-        case .recording:
-            return "Recording... tap to stop"
-        case .error(let message):
-            return message
-        }
-    }
 }

@@ -110,9 +110,6 @@ final class StealthManager: ObservableObject {
             ProcessInfo.processInfo.processName = UserDefaults.standard.stealthDisguiseName
         }
 
-        // Show toast
-        onShowToast?("Stealth On")
-
         print("[Stealth] Activated — \(managedWindows.count) windows stealthed")
     }
 
@@ -134,9 +131,6 @@ final class StealthManager: ObservableObject {
 
         // Restore original process name
         ProcessInfo.processInfo.processName = originalProcessName
-
-        // Show toast
-        onShowToast?("Stealth Off")
 
         print("[Stealth] Deactivated — \(managedWindows.count) windows restored")
     }

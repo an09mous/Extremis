@@ -491,6 +491,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } catch {
             print("❌ Failed to register voice input hotkey: \(error)")
         }
+
+        // Screenshot hotkey: Option+Shift+C (capture screen behind panel)
+        let screenshotConfig = HotkeyConfiguration(
+            keyCode: UInt32(kVK_ANSI_C),
+            modifiers: UInt32(optionKey | shiftKey)
+        )
+        do {
+            try hotkeyManager.register(
+                identifier: .screenshot,
+                configuration: screenshotConfig
+            ) { [weak self] in
+                self?.promptWindowController.captureScreenshot()
+            }
+        } catch {
+            print("❌ Failed to register screenshot hotkey: \(error)")
+        }
     }
 
     private func checkPermissions() {
@@ -563,14 +579,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func handleHotkeyActivation() {
         print("⌨️ Hotkey activated!")
 
-        // Only hide if there's no background generation running
-        // If generation is running, we want to resume it (decision made in showPromptInternal based on selection)
+        let isVisible = promptWindowController.window?.isVisible ?? false
+
+        // If window is already visible, just toggle it off (no flicker)
+        if isVisible {
+            promptWindowController.hidePrompt()
+            return
+        }
+
+        // Window is hidden — show it with context capture
         if !SessionManager.shared.isAnySessionGenerating {
             promptWindowController.hidePrompt()
         }
 
         Task { @MainActor in
-            // Small delay to let the previous window close and focus return
+            // Small delay to let focus return to source app for context capture
             try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
             await captureContextAndShowPrompt()
         }
@@ -582,6 +605,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // Small delay to let the system settle after hotkey press
             // This prevents the "no focused element" error caused by hotkey transition
             try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+
+            // Skip in stealth mode (Cmd+C produces system sound)
+            guard !StealthManager.shared.isStealthActive else { return }
 
             // Fast selection detection (silent mode - no logging for no-op case)
             let selectionResult = SelectionDetector.detectSelection(verbose: false)
@@ -642,6 +668,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         print("\n" + String(repeating: "=", count: 60))
         print("🚀 EXTREMIS ACTIVATED - Capturing Context...")
         print(String(repeating: "=", count: 60))
+
+        // In stealth mode, skip selection detection (Cmd+C produces a system sound when nothing is selected)
+        if StealthManager.shared.isStealthActive {
+            print("🥷 Stealth mode active — skipping selection detection")
+            let source = ContextSource(
+                applicationName: NSWorkspace.shared.frontmostApplication?.localizedName ?? "Unknown",
+                bundleIdentifier: NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? ""
+            )
+            let context = Context(source: source, selectedText: nil)
+            currentContext = context
+            logCapturedContext(context)
+            promptWindowController.showPrompt(with: context)
+            return
+        }
 
         // Detect if user has text selected
         let selectionResult = SelectionDetector.detectSelection()

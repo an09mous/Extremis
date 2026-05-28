@@ -163,9 +163,15 @@ func testHotkeyIdentifierCases() {
     TestRunner.assertEqual(HotkeyIdentifier.magicMode.rawValue, 2,
         "magicMode still has raw value 2")
 
-    // Verify CaseIterable includes all 4 cases
-    TestRunner.assertEqual(HotkeyIdentifier.allCases.count, 4,
-        "HotkeyIdentifier has 4 cases total")
+    TestRunner.assertEqual(HotkeyIdentifier.voiceInput.rawValue, 5,
+        "voiceInput has raw value 5")
+
+    TestRunner.assertEqual(HotkeyIdentifier.screenshot.rawValue, 6,
+        "screenshot has raw value 6")
+
+    // Verify CaseIterable includes all 6 cases
+    TestRunner.assertEqual(HotkeyIdentifier.allCases.count, 6,
+        "HotkeyIdentifier has 6 cases total")
 }
 
 // MARK: - StealthStrategy Tests
@@ -376,6 +382,8 @@ enum HotkeyIdentifier: UInt32, CaseIterable {
     case magicMode = 2
     case stealthToggle = 3
     case preferences = 4
+    case voiceInput = 5
+    case screenshot = 6
 }
 
 struct HotkeyConfiguration: Codable, Equatable {
