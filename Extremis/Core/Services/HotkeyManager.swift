@@ -12,6 +12,7 @@ enum HotkeyIdentifier: UInt32, CaseIterable {
     case stealthToggle = 3 // Stealth mode toggle
     case preferences = 4   // Open Preferences (when menu bar hidden)
     case voiceInput = 5    // Voice input toggle (Option+D)
+    case screenshot = 6    // Screenshot capture (Option+Shift+C)
 }
 
 /// Manages global hotkey registration and handling

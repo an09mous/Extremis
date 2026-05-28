@@ -103,9 +103,6 @@ struct ChatInputView: View {
                         }
                         .buttonStyle(.plain)
                         .disabled(pendingAttachments.count >= ImageProcessor.shared.maxImagesPerMessage)
-                        .help(pendingAttachments.count >= ImageProcessor.shared.maxImagesPerMessage
-                              ? "Maximum \(ImageProcessor.shared.maxImagesPerMessage) images"
-                              : "Attach image")
 
                         Button(action: captureScreenshot) {
                             Image(systemName: "camera.viewfinder")
@@ -114,9 +111,6 @@ struct ChatInputView: View {
                         }
                         .buttonStyle(.plain)
                         .disabled(pendingAttachments.count >= ImageProcessor.shared.maxImagesPerMessage)
-                        .help(pendingAttachments.count >= ImageProcessor.shared.maxImagesPerMessage
-                              ? "Maximum \(ImageProcessor.shared.maxImagesPerMessage) images"
-                              : "Screenshot visible screen")
                     }
                 }
 
@@ -146,7 +140,6 @@ struct ChatInputView: View {
                             .foregroundColor(.red)
                     }
                     .buttonStyle(.plain)
-                    .help("Stop generating")
                 } else {
                     Button(action: sendIfReady) {
                         Image(systemName: "arrow.up.circle.fill")
@@ -155,7 +148,6 @@ struct ChatInputView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(!canSend)
-                    .help("Send message (Enter)")
                 }
             }
             .padding(.horizontal, 12)

@@ -3,7 +3,73 @@
 
 import AppKit
 import SwiftUI
+import ObjectiveC
 @preconcurrency import Combine
+
+// MARK: - Stealth UI Suppression
+
+/// Swizzles `NSCursor.set()` to force arrow cursor over the stealth window.
+/// This is the only reliable way to override SwiftUI's NSHostingView cursor management.
+@MainActor
+private enum StealthSwizzler {
+
+    // MARK: - Shared State
+
+    nonisolated(unsafe) static var isActive = false
+    nonisolated(unsafe) static weak var targetWindow: NSWindow?
+
+    // MARK: - Installation
+
+    private static var installed = false
+
+    static func installIfNeeded() {
+        guard !installed else { return }
+        installed = true
+
+        guard let original = class_getInstanceMethod(NSCursor.self, #selector(NSCursor.set)),
+              let replacement = class_getInstanceMethod(NSCursor.self, #selector(NSCursor.stealth_set)) else { return }
+        method_exchangeImplementations(original, replacement)
+    }
+}
+
+// MARK: - Cursor Suppression
+
+extension NSCursor {
+    /// Forces arrow cursor when the mouse is over the stealth window.
+    @objc func stealth_set() {
+        if StealthSwizzler.isActive,
+           let window = StealthSwizzler.targetWindow,
+           window.frame.contains(NSEvent.mouseLocation),
+           self != NSCursor.arrow {
+            NSCursor.arrow.stealth_set()
+            return
+        }
+        self.stealth_set()
+    }
+}
+
+// MARK: - Stealth Panel
+
+/// NSPanel subclass that activates/deactivates stealth UI suppression.
+final class StealthPanel: NSPanel {
+
+    /// Master toggle for all stealth UI suppression (cursors, tooltips, window title).
+    var stealthActive: Bool = false {
+        didSet {
+            guard oldValue != stealthActive else { return }
+            StealthSwizzler.installIfNeeded()
+            StealthSwizzler.targetWindow = self
+            StealthSwizzler.isActive = stealthActive
+
+            if stealthActive {
+                NSCursor.arrow.set()
+                self.title = ""
+            } else {
+                self.title = "Extremis"
+            }
+        }
+    }
+}
 
 /// Controller for the floating prompt window
 final class PromptWindowController: NSWindowController {
@@ -12,6 +78,9 @@ final class PromptWindowController: NSWindowController {
 
     /// View model for the prompt window
     private let viewModel = PromptViewModel()
+
+    /// Stealth mode observer
+    private var stealthCancellable: AnyCancellable?
 
     // MARK: - Tool Approval State (T3.14)
 
@@ -44,7 +113,7 @@ final class PromptWindowController: NSWindowController {
     // MARK: - Initialization
 
     convenience init() {
-        let window = NSPanel(
+        let window = StealthPanel(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 450),
             styleMask: [.titled, .closable, .resizable, .nonactivatingPanel],
             backing: .buffered,
@@ -79,6 +148,15 @@ final class PromptWindowController: NSWindowController {
 
         // Register with StealthManager for screen capture exclusion
         StealthManager.shared.registerWindow(panel)
+
+        // Observe stealth mode to suppress UI leaks (cursors, tooltips, window title)
+        if let stealthPanel = panel as? StealthPanel {
+            stealthPanel.stealthActive = StealthManager.shared.isStealthActive
+            stealthCancellable = StealthManager.shared.$isStealthActive
+                .sink { [weak stealthPanel] isActive in
+                    stealthPanel?.stealthActive = isActive
+                }
+        }
 
         updateContentView()
         panel.center()
@@ -161,7 +239,6 @@ final class PromptWindowController: NSWindowController {
             print("📋 PromptWindow: Resuming background generation (no selection)")
             setupPromptUI(with: context)
             window?.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
             return
         }
 
@@ -173,7 +250,6 @@ final class PromptWindowController: NSWindowController {
             viewModel.prepareForNewInput()  // Non-blocking cancel to clear UI state immediately
             setupPromptUI(with: context)
             window?.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
 
             // Capture values for the async block to avoid stale references
             let capturedText = selectedText
@@ -195,7 +271,6 @@ final class PromptWindowController: NSWindowController {
             setupPromptUI(with: context)
 
             window?.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
         }
     }
 
@@ -259,6 +334,27 @@ final class PromptWindowController: NSWindowController {
             }
 
             print("📋 PromptWindow: No selection → Chat Mode enabled")
+        }
+    }
+
+    /// Capture screenshot and attach to current chat input.
+    /// No-op if the panel isn't visible or the provider doesn't support vision.
+    func captureScreenshot() {
+        guard window?.isVisible == true else { return }
+        guard viewModel.supportsVision else { return }
+        guard viewModel.pendingImageAttachments.count < ImageProcessor.shared.maxImagesPerMessage else { return }
+
+        guard let imageData = ScreenshotService.shared.captureScreenBehindPanel() else {
+            print("⚠️ Screenshot capture failed")
+            return
+        }
+        do {
+            let attachment = try ImageProcessor.shared.process(
+                data: imageData, sourceType: .screenshot, originalFilename: "screenshot.png"
+            )
+            viewModel.pendingImageAttachments.append(attachment)
+        } catch {
+            print("⚠️ Screenshot processing failed: \(error)")
         }
     }
 

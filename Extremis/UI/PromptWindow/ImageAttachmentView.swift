@@ -103,6 +103,7 @@ struct ImageThumbnailView: View {
 struct ChatMessageImageView: View {
     let attachments: [ImageAttachment]
 
+    @ObservedObject private var stealth = StealthManager.shared
     @State private var expandedAttachment: ImageAttachment?
 
     private let maxSingleImageWidth: CGFloat = 300
@@ -138,8 +139,8 @@ struct ChatMessageImageView: View {
                     RoundedRectangle(cornerRadius: DS.Radii.medium, style: .continuous)
                         .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
                 )
-                .onTapGesture { expandedAttachment = attachment }
-                .cursor(.pointingHand)
+                .onTapGesture { if !stealth.isStealthActive { expandedAttachment = attachment } }
+                .cursor(stealth.isStealthActive ? .arrow : .pointingHand)
         } else {
             imagePlaceholder
         }
@@ -163,8 +164,8 @@ struct ChatMessageImageView: View {
                             RoundedRectangle(cornerRadius: DS.Radii.small, style: .continuous)
                                 .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
                         )
-                        .onTapGesture { expandedAttachment = attachment }
-                        .cursor(.pointingHand)
+                        .onTapGesture { if !stealth.isStealthActive { expandedAttachment = attachment } }
+                        .cursor(stealth.isStealthActive ? .arrow : .pointingHand)
                 } else {
                     imagePlaceholder
                         .frame(width: gridThumbnailSize, height: gridThumbnailSize)
