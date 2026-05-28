@@ -141,6 +141,7 @@ Commands automatically operate on selected text when available.
 | `Option+Escape` | Deny all tool calls |
 | `Option+D` | Toggle Voice Input |
 | `Option+Shift+S` | Toggle Stealth Mode |
+| `Option+Shift+C` | Capture Screenshot (attach to chat) |
 | `Option+Shift+,` | Open Preferences (when menu bar hidden) |
 | `Escape` | Close window |
 
