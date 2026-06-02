@@ -16,7 +16,8 @@ private enum StealthSwizzler {
     // MARK: - Shared State
 
     nonisolated(unsafe) static var isActive = false
-    nonisolated(unsafe) static weak var targetWindow: NSWindow?
+    /// Cached window frame for nonisolated access (updated on stealth toggle and window move/resize).
+    nonisolated(unsafe) static var windowFrame: NSRect = .zero
 
     // MARK: - Installation
 
@@ -38,8 +39,7 @@ extension NSCursor {
     /// Forces arrow cursor when the mouse is over the stealth window.
     @objc func stealth_set() {
         if StealthSwizzler.isActive,
-           let window = StealthSwizzler.targetWindow,
-           window.frame.contains(NSEvent.mouseLocation),
+           StealthSwizzler.windowFrame.contains(NSEvent.mouseLocation),
            self != NSCursor.arrow {
             NSCursor.arrow.stealth_set()
             return
@@ -53,20 +53,52 @@ extension NSCursor {
 /// NSPanel subclass that activates/deactivates stealth UI suppression.
 final class StealthPanel: NSPanel {
 
+    private var moveObserver: NSObjectProtocol?
+    private var resizeObserver: NSObjectProtocol?
+
     /// Master toggle for all stealth UI suppression (cursors, tooltips, window title).
     var stealthActive: Bool = false {
         didSet {
             guard oldValue != stealthActive else { return }
             StealthSwizzler.installIfNeeded()
-            StealthSwizzler.targetWindow = self
             StealthSwizzler.isActive = stealthActive
 
             if stealthActive {
+                StealthSwizzler.windowFrame = self.frame
+                startFrameTracking()
                 NSCursor.arrow.set()
                 self.title = ""
             } else {
+                stopFrameTracking()
                 self.title = "Extremis"
             }
+        }
+    }
+
+    private func startFrameTracking() {
+        stopFrameTracking()
+        moveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification, object: self, queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            StealthSwizzler.windowFrame = self.frame
+        }
+        resizeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResizeNotification, object: self, queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            StealthSwizzler.windowFrame = self.frame
+        }
+    }
+
+    private func stopFrameTracking() {
+        if let observer = moveObserver {
+            NotificationCenter.default.removeObserver(observer)
+            moveObserver = nil
+        }
+        if let observer = resizeObserver {
+            NotificationCenter.default.removeObserver(observer)
+            resizeObserver = nil
         }
     }
 }

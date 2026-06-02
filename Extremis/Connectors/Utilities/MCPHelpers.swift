@@ -117,18 +117,20 @@ func convertSDKContentToToolResult(
 
     for item in content {
         switch item {
-        case .text(let text):
+        case .text(let text, _, _):
             textParts.append(text)
-        case .image(data: _, mimeType: let mimeType, metadata: _):
+        case .image(data: _, mimeType: let mimeType, annotations: _, _meta: _):
             textParts.append("[Image: \(mimeType)]")
-        case .resource(uri: let uri, mimeType: _, text: let text):
-            if let text = text {
+        case .resource(resource: let resource, annotations: _, _meta: _):
+            if let text = resource.text {
                 textParts.append(text)
             } else {
-                textParts.append("[Resource: \(uri)]")
+                textParts.append("[Resource: \(resource.uri)]")
             }
-        case .audio(data: _, mimeType: let mimeType):
+        case .audio(data: _, mimeType: let mimeType, annotations: _, _meta: _):
             textParts.append("[Audio: \(mimeType)]")
+        default:
+            textParts.append("[Unknown content type]")
         }
     }
 
