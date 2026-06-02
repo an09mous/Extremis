@@ -53,7 +53,8 @@ extension NSCursor {
 /// NSPanel subclass that activates/deactivates stealth UI suppression.
 final class StealthPanel: NSPanel {
 
-    private var frameObserver: NSObjectProtocol?
+    private var moveObserver: NSObjectProtocol?
+    private var resizeObserver: NSObjectProtocol?
 
     /// Master toggle for all stealth UI suppression (cursors, tooltips, window title).
     var stealthActive: Bool = false {
@@ -76,14 +77,13 @@ final class StealthPanel: NSPanel {
 
     private func startFrameTracking() {
         stopFrameTracking()
-        frameObserver = NotificationCenter.default.addObserver(
+        moveObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didMoveNotification, object: self, queue: .main
         ) { [weak self] _ in
             guard let self else { return }
             StealthSwizzler.windowFrame = self.frame
         }
-        // didResize also updates frame
-        NotificationCenter.default.addObserver(
+        resizeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didResizeNotification, object: self, queue: .main
         ) { [weak self] _ in
             guard let self else { return }
@@ -92,9 +92,13 @@ final class StealthPanel: NSPanel {
     }
 
     private func stopFrameTracking() {
-        if let observer = frameObserver {
+        if let observer = moveObserver {
             NotificationCenter.default.removeObserver(observer)
-            frameObserver = nil
+            moveObserver = nil
+        }
+        if let observer = resizeObserver {
+            NotificationCenter.default.removeObserver(observer)
+            resizeObserver = nil
         }
     }
 }
