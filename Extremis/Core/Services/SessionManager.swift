@@ -32,6 +32,7 @@ final class SessionManager: ObservableObject {
     private var saveDebounceTask: Task<Void, Never>?
     private let debounceInterval: TimeInterval = 2.0
     private var cancellables = Set<AnyCancellable>()
+    private var sessionObservationCancellables = Set<AnyCancellable>()
 
     /// In-memory cache of sessions to preserve approval memory across switches
     /// Key: Session UUID, Value: ChatSession instance
@@ -48,6 +49,22 @@ final class SessionManager: ObservableObject {
     private init() {
         // Default to JSON file storage
         self.storage = JSONSessionStorage.shared
+
+        // Subscribe to stealth mode changes for auto-switch on disable (FR-006)
+        StealthManager.shared.$isStealthActive
+            .dropFirst()  // Skip initial value
+            .sink { [weak self] isActive in
+                guard let self = self else { return }
+                if !isActive {
+                    Task { @MainActor in
+                        await self.handleStealthDeactivation()
+                    }
+                }
+                // On stealth enable: no session change (FR-007)
+                // Just refresh sidebar to show/hide stealth sessions
+                self.sessionListVersion += 1
+            }
+            .store(in: &cancellables)
     }
 
     /// Initialize with custom storage (for testing or alternative backends)
@@ -68,7 +85,8 @@ final class SessionManager: ObservableObject {
 
         let session = ChatSession(
             originalContext: context,
-            initialRequest: initialRequest
+            initialRequest: initialRequest,
+            isStealth: StealthManager.shared.isStealthActive
         )
 
         let sessionId = UUID()
@@ -103,6 +121,12 @@ final class SessionManager: ObservableObject {
             // Load the session
             guard let persisted = try await storage.loadSession(id: activeId) else {
                 print("[SessionManager] Active session \(activeId) not found in storage")
+                return
+            }
+
+            // Don't restore a stealth session in normal mode
+            if persisted.isStealth && !StealthManager.shared.isStealthActive {
+                print("[SessionManager] Skipping restore — stealth session \(activeId) in normal mode")
                 return
             }
 
@@ -312,8 +336,8 @@ final class SessionManager: ObservableObject {
     // MARK: - Session Observation
 
     private func observeSession(_ session: ChatSession) {
-        // Cancel previous subscriptions
-        cancellables.removeAll()
+        // Cancel previous session-specific subscriptions (preserves stealth subscription)
+        sessionObservationCancellables.removeAll()
 
         // Observe message changes
         session.$messages
@@ -321,7 +345,7 @@ final class SessionManager: ObservableObject {
             .sink { [weak self] _ in
                 self?.markDirty()
             }
-            .store(in: &cancellables)
+            .store(in: &sessionObservationCancellables)
     }
 
     // MARK: - Clear Session
@@ -336,7 +360,7 @@ final class SessionManager: ObservableObject {
         currentSessionId = nil
         isDirty = false
         hasDraftSession = false
-        cancellables.removeAll()
+        sessionObservationCancellables.removeAll()
 
         // Clear active session in index
         do {
@@ -401,7 +425,7 @@ final class SessionManager: ObservableObject {
             currentSessionId = nil
             isDirty = false
             hasDraftSession = false
-            cancellables.removeAll()
+            sessionObservationCancellables.removeAll()
         }
 
         // Remove from cache
@@ -410,6 +434,54 @@ final class SessionManager: ObservableObject {
         try await storage.deleteSession(id: id)
         sessionListVersion += 1  // Notify sidebar to refresh
         print("[SessionManager] Deleted session \(id)")
+    }
+
+    // MARK: - Stealth Isolation
+
+    /// Handle stealth mode deactivation: switch away from stealth sessions (FR-006)
+    private func handleStealthDeactivation() async {
+        // Always evict stealth sessions from in-memory cache
+        let stealthKeys = sessionCache.filter { $0.value.isStealth }.map { $0.key }
+        for key in stealthKeys {
+            sessionCache.removeValue(forKey: key)
+        }
+        if !stealthKeys.isEmpty {
+            print("[SessionManager] Evicted \(stealthKeys.count) stealth session(s) from cache")
+        }
+
+        // If current session is not stealth, no switch needed
+        guard let session = currentSession, session.isStealth else { return }
+
+        print("[SessionManager] Stealth deactivated — switching away from stealth session")
+
+        // Save current stealth session before switching
+        await saveIfDirty()
+
+        // Find most recent normal (non-stealth, non-archived) session
+        do {
+            let allSessions = try await storage.listSessions()
+            let normalSessions = allSessions
+                .filter { !$0.isStealth && !$0.isArchived }
+                .sorted { $0.updatedAt > $1.updatedAt }
+
+            if let mostRecent = normalSessions.first {
+                try await loadSession(id: mostRecent.id)
+                print("[SessionManager] Switched to normal session \(mostRecent.id)")
+            } else {
+                // No normal sessions — clear active session
+                currentSession = nil
+                currentSessionId = nil
+                hasDraftSession = false
+                try await storage.setActiveSessionId(nil)
+                print("[SessionManager] No normal sessions — cleared active session")
+            }
+        } catch {
+            print("[SessionManager] Error during stealth deactivation switch: \(error)")
+            // Fallback: clear active session to prevent stealth content showing
+            currentSession = nil
+            currentSessionId = nil
+            hasDraftSession = false
+        }
     }
 
     // MARK: - Session Cache

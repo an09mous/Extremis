@@ -14,11 +14,12 @@ struct SessionIndexEntry: Codable, Identifiable, Equatable {
     var messageCount: Int               // Total messages (for display)
     var preview: String?                // First user message, truncated to ~100 chars
     var isArchived: Bool                // Soft-delete flag (mirrors session)
+    let isStealth: Bool                 // Whether created during stealth mode (immutable)
 
     // MARK: - Coding Keys (backward compatibility with old schema)
 
     enum CodingKeys: String, CodingKey {
-        case id, title, createdAt, updatedAt, messageCount, preview, isArchived
+        case id, title, createdAt, updatedAt, messageCount, preview, isArchived, isStealth
         // Old schema used "lastModifiedAt" instead of "updatedAt"
         case lastModifiedAt
         // Backward compatibility: old key name was "conversations"
@@ -39,6 +40,7 @@ struct SessionIndexEntry: Codable, Identifiable, Equatable {
         messageCount = try container.decode(Int.self, forKey: .messageCount)
         preview = try container.decodeIfPresent(String.self, forKey: .preview)
         isArchived = try container.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
+        isStealth = try container.decodeIfPresent(Bool.self, forKey: .isStealth) ?? false
     }
 
     func encode(to encoder: Encoder) throws {
@@ -50,6 +52,7 @@ struct SessionIndexEntry: Codable, Identifiable, Equatable {
         try container.encode(messageCount, forKey: .messageCount)
         try container.encodeIfPresent(preview, forKey: .preview)
         try container.encode(isArchived, forKey: .isArchived)
+        try container.encode(isStealth, forKey: .isStealth)
     }
 
     // MARK: - Initialization
@@ -61,7 +64,8 @@ struct SessionIndexEntry: Codable, Identifiable, Equatable {
         updatedAt: Date,
         messageCount: Int,
         preview: String? = nil,
-        isArchived: Bool = false
+        isArchived: Bool = false,
+        isStealth: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -70,6 +74,7 @@ struct SessionIndexEntry: Codable, Identifiable, Equatable {
         self.messageCount = messageCount
         self.preview = preview
         self.isArchived = isArchived
+        self.isStealth = isStealth
     }
 
     /// Create entry from a PersistedSession
@@ -81,6 +86,7 @@ struct SessionIndexEntry: Codable, Identifiable, Equatable {
         self.messageCount = session.messages.count
         self.preview = Self.generatePreview(from: session)
         self.isArchived = session.isArchived
+        self.isStealth = session.isStealth
     }
 
     // MARK: - Helpers

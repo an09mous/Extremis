@@ -6,6 +6,7 @@ import SwiftUI
 /// Sidebar view showing list of sessions
 struct SessionListView: View {
     @ObservedObject var sessionManager: SessionManager
+    @ObservedObject var stealthManager = StealthManager.shared
     let onSelectSession: (UUID) -> Void
     let onNewSession: () -> Void
     let onDeleteSession: (UUID) -> Void
@@ -13,6 +14,15 @@ struct SessionListView: View {
     @State private var sessions: [SessionIndexEntry] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
+
+    /// Visible sessions filtered by stealth mode state
+    private var visibleSessions: [SessionIndexEntry] {
+        if stealthManager.isStealthActive {
+            return sessions  // Stealth mode: show all sessions
+        } else {
+            return sessions.filter { !$0.isStealth }  // Normal mode: hide stealth sessions
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,7 +46,7 @@ struct SessionListView: View {
                 ProgressView()
                     .scaleEffect(0.8)
                 Spacer()
-            } else if sessions.isEmpty && !sessionManager.hasDraftSession {
+            } else if visibleSessions.isEmpty && !sessionManager.hasDraftSession {
                 // Show empty state only if no draft AND no saved sessions
                 Spacer()
                 VStack(spacing: 8) {
@@ -65,13 +75,14 @@ struct SessionListView: View {
                         .transition(.opacity)
                     }
 
-                    // Persisted sessions
-                    ForEach(sessions) { entry in
+                    // Persisted sessions (filtered by stealth mode)
+                    ForEach(visibleSessions) { entry in
                         SessionRowView(
                             entry: entry,
                             // Not active if we have a draft (draft takes precedence)
                             isActive: !sessionManager.hasDraftSession && entry.id == sessionManager.currentSessionId,
                             isDisabled: sessionManager.isAnySessionGenerating && entry.id != sessionManager.generatingSessionId,
+                            isStealthSession: entry.isStealth,
                             onSelect: { onSelectSession(entry.id) },
                             onDelete: { onDeleteSession(entry.id) }
                         )
@@ -107,6 +118,10 @@ struct SessionListView: View {
         }
         .onChange(of: sessionManager.hasDraftSession) { _ in
             // Force re-render when draft state changes
+        }
+        .onChange(of: stealthManager.isStealthActive) { _ in
+            // Stealth toggled — reload sessions and re-filter
+            loadSessions()
         }
     }
 
@@ -146,6 +161,7 @@ struct SessionRowView: View {
     let entry: SessionIndexEntry
     let isActive: Bool
     let isDisabled: Bool
+    let isStealthSession: Bool
     let onSelect: () -> Void
     let onDelete: () -> Void
 
@@ -186,10 +202,17 @@ struct SessionRowView: View {
 
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(entry.title)
-                            .font(.system(size: 12, weight: isActive ? .semibold : .regular))
-                            .foregroundColor(isDisabled ? .secondary.opacity(0.5) : (isActive ? .primary : .secondary))
-                            .lineLimit(1)
+                        HStack(spacing: 4) {
+                            if isStealthSession {
+                                Image(systemName: "lock.shield.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(DS.Colors.textSecondary)
+                            }
+                            Text(entry.title)
+                                .font(.system(size: 12, weight: isActive ? .semibold : .regular))
+                                .foregroundColor(isDisabled ? .secondary.opacity(0.5) : (isActive ? .primary : .secondary))
+                                .lineLimit(1)
+                        }
 
                         HStack(spacing: 4) {
                             Text(formatDate(entry.updatedAt))
