@@ -114,6 +114,9 @@ final class PromptWindowController: NSWindowController {
     /// Stealth mode observer
     private var stealthCancellable: AnyCancellable?
 
+    /// Session switch observer (syncs view model when SessionManager switches session externally)
+    private var sessionSwitchCancellable: AnyCancellable?
+
     // MARK: - Tool Approval State (T3.14)
 
     /// Represents a queued approval batch waiting to be processed
@@ -189,6 +192,27 @@ final class PromptWindowController: NSWindowController {
                     stealthPanel?.stealthActive = isActive
                 }
         }
+
+        // Observe external session switches (e.g., stealth deactivation auto-switch)
+        // Syncs view model when SessionManager changes the active session from outside the controller
+        sessionSwitchCancellable = SessionManager.shared.$currentSessionId
+            .dropFirst()  // Skip initial value
+            .sink { [weak self] newSessionId in
+                guard let self = self else { return }
+                let vmSessionId = self.viewModel.sessionId
+
+                // Only sync if the session actually changed externally
+                if newSessionId != vmSessionId {
+                    if let session = SessionManager.shared.currentSession, let id = newSessionId {
+                        self.viewModel.setRestoredSession(session, id: id)
+                        print("📋 PromptWindow: Synced external session switch to \(id)")
+                    } else if newSessionId == nil {
+                        // Session was cleared (e.g., stealth deactivation with no normal sessions)
+                        self.viewModel.reset()
+                        print("📋 PromptWindow: Session cleared by external switch")
+                    }
+                }
+            }
 
         updateContentView()
         panel.center()
@@ -747,8 +771,12 @@ final class PromptViewModel: ObservableObject {
     /// Badge is shown only for explicit user actions (New Session button, Chat Mode start)
     private func ensureSession(context: Context?, instruction: String?) {
         if session == nil {
-            // Create a new session
-            let sess = ChatSession(originalContext: context, initialRequest: instruction)
+            // Create a new session (inherit stealth state from current mode)
+            let sess = ChatSession(
+                originalContext: context,
+                initialRequest: instruction,
+                isStealth: StealthManager.shared.isStealthActive
+            )
             session = sess
             sessionId = UUID()
 
@@ -1023,7 +1051,11 @@ final class PromptViewModel: ObservableObject {
         }
 
         // Legacy path: Create session with initial exchange (for edge cases)
-        let sess = ChatSession(originalContext: currentContext, initialRequest: instructionText)
+        let sess = ChatSession(
+            originalContext: currentContext,
+            initialRequest: instructionText,
+            isStealth: StealthManager.shared.isStealthActive
+        )
 
         // Add the initial user message (instruction or summarize request)
         let userContent = isSummarizing ? "Summarize this text" : instructionText
@@ -1056,7 +1088,11 @@ final class PromptViewModel: ObservableObject {
 
         // If no session exists, create one for the chat
         if session == nil {
-            let sess = ChatSession(originalContext: currentContext, initialRequest: messageText)
+            let sess = ChatSession(
+                originalContext: currentContext,
+                initialRequest: messageText,
+                isStealth: StealthManager.shared.isStealthActive
+            )
             session = sess
             sessionId = UUID()
 
@@ -1130,7 +1166,11 @@ final class PromptViewModel: ObservableObject {
 
         // If no session exists, create one for the command execution
         if session == nil {
-            let sess = ChatSession(originalContext: currentContext, initialRequest: messageText)
+            let sess = ChatSession(
+                originalContext: currentContext,
+                initialRequest: messageText,
+                isStealth: StealthManager.shared.isStealthActive
+            )
             session = sess
             sessionId = UUID()
 
@@ -1637,6 +1677,21 @@ struct PromptContainerView: View {
                     // New session indicator badge - tied to draft session state
                     // Shows when session exists but has no messages yet
                     NewSessionBadge(isVisible: .constant(sessionManager.hasDraftSession))
+
+                    // Session-level stealth indicator
+                    if viewModel.session?.isStealth == true {
+                        HStack(spacing: 4) {
+                            Image(systemName: "lock.shield.fill")
+                                .font(.system(size: 10))
+                            Text("Stealth Session")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(DS.Colors.textSecondary.opacity(0.1))
+                        .continuousCornerRadius(DS.Radii.small)
+                    }
 
                     Spacer()
 

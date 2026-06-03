@@ -70,6 +70,12 @@ final class ChatSession: ObservableObject, Identifiable {
     /// Used to calculate which messages are "recent" (not covered by summary)
     var summaryCoversCount: Int = 0
 
+    // MARK: - Stealth Isolation
+
+    /// Whether this session was created during stealth mode
+    /// Immutable after creation — a stealth session stays stealth forever
+    let isStealth: Bool
+
     // MARK: - Tool Approval Memory (T3.8)
 
     /// Session-scoped memory for tool approvals
@@ -87,7 +93,8 @@ final class ChatSession: ObservableObject, Identifiable {
         initialRequest: String? = nil,
         maxMessages: Int = 20,
         summary: SessionSummary? = nil,
-        summaryCoversCount: Int = 0
+        summaryCoversCount: Int = 0,
+        isStealth: Bool = false
     ) {
         self.id = id
         self.originalContext = originalContext
@@ -95,6 +102,7 @@ final class ChatSession: ObservableObject, Identifiable {
         self.maxMessages = maxMessages
         self.summary = summary
         self.summaryCoversCount = summaryCoversCount
+        self.isStealth = isStealth
     }
 
     deinit {

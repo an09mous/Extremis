@@ -24,6 +24,9 @@ struct PersistedSession: Codable, Identifiable, Equatable {
     // MARK: - Summary State (P2)
     var summary: SessionSummary?        // Embedded summary for LLM context efficiency
 
+    // MARK: - Stealth Isolation
+    let isStealth: Bool                 // Whether created during stealth mode (immutable)
+
     // MARK: - Schema Version
     static let currentVersion = 1
 
@@ -39,7 +42,8 @@ struct PersistedSession: Codable, Identifiable, Equatable {
         updatedAt: Date = Date(),
         title: String? = nil,
         isArchived: Bool = false,
-        summary: SessionSummary? = nil
+        summary: SessionSummary? = nil,
+        isStealth: Bool = false
     ) {
         self.id = id
         self.version = version
@@ -51,6 +55,29 @@ struct PersistedSession: Codable, Identifiable, Equatable {
         self.title = title
         self.isArchived = isArchived
         self.summary = summary
+        self.isStealth = isStealth
+    }
+
+    // MARK: - Codable (backward compatibility for isStealth)
+
+    enum CodingKeys: String, CodingKey {
+        case id, version, messages, initialRequest, maxMessages
+        case createdAt, updatedAt, title, isArchived, summary, isStealth
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? Self.currentVersion
+        messages = try container.decode([PersistedMessage].self, forKey: .messages)
+        initialRequest = try container.decodeIfPresent(String.self, forKey: .initialRequest)
+        maxMessages = try container.decodeIfPresent(Int.self, forKey: .maxMessages) ?? 20
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        isArchived = try container.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
+        summary = try container.decodeIfPresent(SessionSummary.self, forKey: .summary)
+        isStealth = try container.decodeIfPresent(Bool.self, forKey: .isStealth) ?? false
     }
 
     // MARK: - Computed Properties
@@ -128,7 +155,8 @@ extension PersistedSession {
             initialRequest: session.initialRequest,
             maxMessages: session.maxMessages,
             title: nil,  // Will be auto-generated from first user message
-            summary: session.summary
+            summary: session.summary,
+            isStealth: session.isStealth
         )
     }
 
@@ -143,7 +171,8 @@ extension PersistedSession {
             initialRequest: initialRequest,
             maxMessages: maxMessages,
             summary: summary,
-            summaryCoversCount: summary?.coversMessageCount ?? 0
+            summaryCoversCount: summary?.coversMessageCount ?? 0,
+            isStealth: isStealth
         )
 
         // Restore messages with embedded context and images

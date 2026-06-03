@@ -296,6 +296,21 @@ run_test_suite "SpeechRecognitionService Tests" \
     "$PROJECT_DIR/Tests/Core/SpeechRecognitionServiceTests.swift" \
     "Foundation" "AVFoundation" "CoreMedia" "CoreAudio"
 
+# 39. Stealth Session Tagging Tests (isStealth property, backward compat)
+run_test_suite "Stealth Session Tagging Tests" \
+    "$PROJECT_DIR/Tests/Core/StealthSessionTaggingTests.swift" \
+    "Foundation"
+
+# 40. Stealth Session Filtering Tests (visibility filtering logic)
+run_test_suite "Stealth Session Filtering Tests" \
+    "$PROJECT_DIR/Tests/Core/StealthSessionFilteringTests.swift" \
+    "Foundation"
+
+# 41. Stealth Auto-Switch Tests (auto-switch on stealth disable)
+run_test_suite "Stealth Auto-Switch Tests" \
+    "$PROJECT_DIR/Tests/Core/StealthAutoSwitchTests.swift" \
+    "Foundation"
+
 # ------------------------------------------------------------------------------
 # Final Summary
 # ------------------------------------------------------------------------------

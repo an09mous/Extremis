@@ -198,7 +198,7 @@ Feature specs are in `specs/` directory, each containing:
 - `tasks.md` - Task breakdown
 - `data-model.md` - Data model schemas (when applicable)
 
-Latest completed feature: `specs/015-voice-input/` (Voice Input via SFSpeechRecognizer)
+Latest completed feature: `specs/016-stealth-chat-isolation/` (Stealth Chat Isolation)
 
 ## Key Files
 
@@ -376,8 +376,11 @@ MCP servers are configured in `~/Library/Application Support/Extremis/mcp-server
 - UserDefaults (model selection, binary path, allowed tools) (014-claude-code-provider)
 - Swift 5.9+ + Speech framework (SFSpeechRecognizer), AVFoundation (AVCaptureSession primary, AVAudioEngine fallback), CoreMedia, Carbon (existing), ApplicationServices (existing) (015-voice-input)
 - N/A — no audio or transcription persisted; text flows into existing ChatMessage pipeline (015-voice-input)
+- Swift 5.9+ with Swift Concurrency + SwiftUI, AppKit (NSPanel), Combine, Carbon (hotkeys) (016-stealth-chat-isolation)
+- JSON files in `~/Library/Application Support/Extremis/sessions/` (existing) (016-stealth-chat-isolation)
 
 ## Recent Changes
+- 016-stealth-chat-isolation: Session-level stealth isolation. Sessions created during stealth mode are tagged `isStealth: true` (immutable). Sidebar filters stealth sessions in normal mode, shows all in stealth mode. Auto-switch away from stealth session on stealth disable. Visual lock/shield indicator on stealth sessions in sidebar. Backward-compatible Codable with `decodeIfPresent` defaulting to `false`. Quick Mode and Magic Mode already guarded in stealth. 39 new unit tests (tagging, filtering, auto-switch).
 - 015-voice-input: Voice-to-text input via Apple SFSpeechRecognizer. Uses AVCaptureSession for audio capture (bypasses AVAudioEngine aggregate device bugs on macOS 26), with AVAudioEngine fallback. CMSampleBuffer→AVAudioPCMBuffer conversion via extension. Mic button in ChatInputView and PromptView. Option+D global hotkey to toggle recording. Live partial transcription streams into text field. Silence timeout (3s configurable), max duration (60s configurable). Permission handling with actionable System Settings guidance. Stops recording on app switch, Enter key, or manual toggle. Voice input disabled in stealth mode (macOS mic indicator cannot be hidden). Text appends to existing input. UserDefaults-backed configuration.
 - 014-claude-code-provider: Claude Code CLI as an LLM provider. Uses persistent subprocess with bidirectional NDJSON via `--input-format stream-json` and `--output-format stream-json`. No API key needed. User messages sent as JSON on stdin (`{"type":"user","message":{"role":"user","content":"..."}}`). Process started eagerly, stays alive across multi-turn conversation. Auto-restart on crash. Model aliases (sonnet/opus/haiku). Configurable allowed tools. Graceful cleanup on app quit.
 - 013-stealth-mode: Stealth mode makes Extremis invisible during screen sharing. Uses NSWindow.sharingType=.none for screen capture exclusion, collectionBehavior for Mission Control hiding, process name disguise, menu bar icon hiding. Toggle via Option+Shift+S hotkey. Configurable in Preferences. Adjustable window opacity with material blur (text stays readable). Sound notifications auto-suppressed in stealth. Screenshot button captures screen behind Extremis panel via CGWindowListCreateImage. Cursor suppression via NSCursor.set() swizzle (forces arrow over panel). Window title blanked in stealth. Image expansion disabled in stealth. Tooltips removed from input bar buttons. Option+Shift+C global hotkey for screenshot capture.
